@@ -1,0 +1,15 @@
+.env
+.git
+.venv
+.mypy_cache
+.ruff_cache
+.pytest_cache
+__pycache__
+*.pyc
+tests/
+docker/
+examples/
+assets/
+*.md
+!README.md
+Antigravity.md

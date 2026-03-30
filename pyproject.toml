@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "loafer-etl"
+version = "0.1.0"
+description = "AI-assisted ETL and ELT pipelines from the command line"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+keywords = ["etl", "elt", "data-pipeline", "ai", "cli"]
+dependencies = [
+    "typer>=0.9.0",
+    "rich>=13.0",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+    "structlog>=23.0",
+    "langgraph>=0.2",
+    "google-generativeai>=0.8",
+    "sqlglot>=20.0",
+    "psycopg2-binary>=2.9",
+    "pymysql>=1.1",
+    "pymongo>=4.6",
+    "openpyxl>=3.1",
+    "httpx>=0.27",
+    "apscheduler>=3.10,<4",
+]
+
+[project.scripts]
+loafer = "loafer.cli:app"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=4.0",
+    "ruff>=0.4",
+    "mypy>=1.9",
+    "types-PyYAML>=6.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["loafer"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: requires docker services (postgres, mongo)",
+    "e2e: end-to-end CLI tests",
+]

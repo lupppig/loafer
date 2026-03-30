@@ -1,0 +1,15 @@
+# Example: ETL from PostgreSQL to CSV
+source:
+  type: postgres
+  url: ${DATABASE_URL}
+  query: "SELECT * FROM orders WHERE created_at > '2024-01-01'"
+  timeout: 60
+
+target:
+  type: csv
+  path: ./output/orders_clean.csv
+
+transform: "Normalize currency to USD, drop cancelled orders, lowercase all emails"
+
+mode: etl
+chunk_size: 1000
