@@ -410,7 +410,12 @@ class TestEnvVarInterpolation:
 class TestPipelineConfigModel:
     def test_direct_construction(self) -> None:
         config = PipelineConfig(
-            source={"type": "mongo", "url": "mongodb://localhost", "database": "db", "collection": "c"},
+            source={
+                "type": "mongo",
+                "url": "mongodb://localhost",
+                "database": "db",
+                "collection": "c",
+            },
             target={"type": "json", "path": "/tmp/out.json"},
             transform={"type": "ai", "instruction": "do stuff"},
         )
@@ -419,7 +424,12 @@ class TestPipelineConfigModel:
 
     def test_plain_string_transform_via_model_validator(self) -> None:
         config = PipelineConfig(
-            source={"type": "mongo", "url": "mongodb://localhost", "database": "db", "collection": "c"},
+            source={
+                "type": "mongo",
+                "url": "mongodb://localhost",
+                "database": "db",
+                "collection": "c",
+            },
             target={"type": "json", "path": "/tmp/out.json"},
             transform="do something cool",
         )

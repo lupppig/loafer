@@ -190,7 +190,7 @@ def mock_llm_provider() -> MagicMock:
     """Mock LLMProvider that returns a hardcoded valid transform function."""
     provider = MagicMock()
     provider.generate_transform_function.return_value = MagicMock(
-        code='def transform(data: list[dict]) -> list[dict]:\n    return [{k: v.lower() if isinstance(v, str) else v for k, v in row.items()} for row in data]\n',
+        code="def transform(data: list[dict]) -> list[dict]:\n    return [{k: v.lower() if isinstance(v, str) else v for k, v in row.items()} for row in data]\n",
         raw_response="def transform ...",
         token_usage={"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150},
     )
