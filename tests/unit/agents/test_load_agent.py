@@ -101,3 +101,27 @@ class TestLoadAgent:
 
         assert result["rows_loaded"] == 0
         assert any("No rows" in w for w in result["warnings"])
+
+    def test_write_chunk_failure_records_partial_count(self) -> None:
+        mock_connector = MagicMock()
+        mock_connector.write_chunk.side_effect = [2, Exception("disk full")]
+
+        with patch(
+            "loafer.agents.load.get_target_connector",
+            return_value=mock_connector,
+        ):
+            state: dict[str, Any] = {
+                "target_config": {"type": "csv", "path": "/tmp/out.csv"},
+                "transformed_data": [
+                    {"id": 1},
+                    {"id": 2},
+                    {"id": 3},
+                    {"id": 4},
+                ],
+                "is_streaming": False,
+                "chunk_size": 2,
+                "duration_ms": {},
+                "warnings": [],
+            }
+            with pytest.raises(LoadError, match="2 rows"):
+                load_agent(state)

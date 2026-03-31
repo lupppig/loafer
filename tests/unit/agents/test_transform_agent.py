@@ -381,3 +381,26 @@ class TestSqlTransformRunner:
         }
         with pytest.raises(TransformError, match="duckdb"):
             runner.run(state)
+
+    def test_transpile_called(self) -> None:
+        from loafer.transform.sql_runner import SqlTransformRunner, _transpile_sql
+
+        result = _transpile_sql("SELECT id, name FROM users", "postgres")
+        assert isinstance(result, str)
+        assert "SELECT" in result
+
+    def test_nonexistent_column_db_error(self) -> None:
+        from loafer.transform.sql_runner import SqlTransformRunner
+
+        runner = SqlTransformRunner()
+        state: dict[str, Any] = {
+            "transform_config": {"query": "SELECT nonexistent FROM loafer_source"},
+            "raw_data": [{"id": 1}],
+            "is_streaming": False,
+            "mode": "etl",
+            "raw_table_name": "loafer_source",
+            "duration_ms": {},
+            "warnings": [],
+        }
+        with pytest.raises(TransformError, match="duckdb"):
+            runner.run(state)
