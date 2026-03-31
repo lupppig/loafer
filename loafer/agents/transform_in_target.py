@@ -48,7 +48,7 @@ def transform_in_target_agent(state: PipelineState) -> PipelineState:
     previous_error: str | None = None
 
     for attempt in range(1, _MAX_RETRIES + 1):
-        prompt = build_elt_sql_prompt(
+        build_elt_sql_prompt(
             target_schema,
             raw_table_name,
             instruction,

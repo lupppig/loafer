@@ -383,7 +383,7 @@ class TestSqlTransformRunner:
             runner.run(state)
 
     def test_transpile_called(self) -> None:
-        from loafer.transform.sql_runner import SqlTransformRunner, _transpile_sql
+        from loafer.transform.sql_runner import _transpile_sql
 
         result = _transpile_sql("SELECT id, name FROM users", "postgres")
         assert isinstance(result, str)

@@ -44,6 +44,7 @@ class PipelineState(TypedDict, total=False):
     retry_count: int
     last_error: str | None
     token_usage: dict[str, int]
+    transform_retry_count: int
 
     # ELT specific
     raw_table_name: str | None
