@@ -50,12 +50,31 @@ class CsvSourceConnector(SourceConnector):
 
         try:
             self._file = open(self._path, encoding=self._encoding, newline="")  # noqa: SIM115
-            # Eagerly verify the encoding by reading the file contents.
             self._file.read()
             self._file.seek(0)
         except UnicodeDecodeError:
             logger.warning("UTF-8 decode failed for %s, falling back to latin-1", self._path)
             self._file = open(self._path, encoding="latin-1", newline="")  # noqa: SIM115
+
+        self._row_count = self._count_rows()
+
+    def _count_rows(self) -> int | None:
+        try:
+            with open(self._path, encoding=self._encoding) as f:
+                f.read()
+        except UnicodeDecodeError:
+            pass
+        total = 0
+        with open(self._path, newline="") as f:
+            reader = csv.reader(f)
+            if self._has_header:
+                try:
+                    next(reader)
+                except StopIteration:
+                    return 0
+            for row in reader:
+                total += 1
+        return total if total > 0 else None
 
     def disconnect(self) -> None:
         if self._file and not self._file.closed:
