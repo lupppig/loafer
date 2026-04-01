@@ -150,173 +150,144 @@ tests/
 
 ## Quick Start
 
-### Step 1: Install prerequisites
-
-You need **Python 3.11+** and **[uv](https://docs.astral.sh/uv/)** (a fast Python package manager).
+### Step 1: Install
 
 ```bash
-# Install uv (one-time)
+# Install uv (Python package manager)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Verify Python version
-python --version  # Must be 3.11 or higher
-```
-
-### Step 2: Clone and install
-
-```bash
+# Clone and install
 git clone https://github.com/lupppig/loafer.git
 cd loafer
 uv sync
 ```
 
-This creates a virtual environment and installs all dependencies.
+### Step 2: Run your first pipeline
 
-### Step 3: Verify it works
-
-```bash
-uv run loafer connectors
-```
-
-You should see a list of available source and target connectors:
-
-```
-Available Connectors
-
-Sources
-┏━━━━━━━━━━┓
-┃ Type     ┃
-┡━━━━━━━━━━┩
-│ csv      │
-│ excel    │
-│ postgres │
-│ mysql    │
-│ mongo    │
-│ rest_api │
-└──────────┘
-
-Targets
-┏━━━━━━━━━━┓
-┃ Type     ┃
-┡━━━━━━━━━━┩
-│ csv      │
-│ json     │
-│ postgres │
-└──────────┘
-```
-
-### Step 4: Run the built-in example (no API key needed)
-
-This example uses local CSV and JSON files — no external services required:
+Create a directory and set up your files:
 
 ```bash
-uv run loafer run examples/pipeline.quickstart.yaml
+mkdir ~/my-pipeline && cd ~/my-pipeline
+```
+
+**Create the pipeline config** (`pipeline.yaml`):
+
+```yaml
+name: My First Pipeline
+
+source:
+  type: csv
+  path: ./data.csv
+
+target:
+  type: json
+  path: ./output.json
+
+transform:
+  type: custom
+  path: ./transform.py
+
+mode: etl
+```
+
+**Create sample data** (`data.csv`):
+
+```csv
+id,name,email,score,status
+1,Alice,alice@example.com,95.5,active
+2,Bob,bob@example.com,88.0,inactive
+3,Charlie,charlie@example.com,72.3,active
+```
+
+**Create the transform** (`transform.py`):
+
+```python
+def transform(data):
+    """Filter active rows and add a grade column."""
+    return [
+        {**row, "grade": "A" if float(row["score"]) >= 90 else "B"}
+        for row in data
+        if row["status"] == "active"
+    ]
+```
+
+**Run it:**
+
+```bash
+# From the loafer directory:
+uv run loafer run ~/my-pipeline/pipeline.yaml
+
+# Or with the --config flag:
+uv run loafer run --config ~/my-pipeline/pipeline.yaml
+
+# Or with the short flag:
+uv run loafer run -c ~/my-pipeline/pipeline.yaml
 ```
 
 Output:
 
 ```
-Running: Quickstart ETL [ETL]
+Running: My First Pipeline [ETL]
 ────────────────────────────────────────────────────────────────────────────────
-  ✓  Extracting from CSV                 10 rows
-  ✓  Validating data                     10 passed
-  ✓  Transforming data (custom)          10 → 7
-  ✓  Loading to JSON                     7 rows
+  ✓  Extracting from CSV                 3 rows
+  ✓  Validating data                     3 passed
+  ✓  Transforming data (custom)          3 → 2
+  ✓  Loading to JSON                     2 rows
 
 ─────────────────────────────── Pipeline Summary ───────────────────────────────
  Stage               Status    Rows       Duration
- Extracting from     ✓         10 rows         1ms
+ Extracting from     ✓         3 rows          1ms
  source
- Validating data     ✓         10 passed       0ms
- Transforming data   ✓         10 → 7          0ms
- Loading to target   ✓         7 rows          2ms
+ Validating data     ✓         3 passed        0ms
+ Transforming data   ✓         3 → 2           0ms
+ Loading to target   ✓         2 rows          2ms
 
 Total: 0.9s
 ```
 
-Check the output file:
+Check the output:
 
 ```bash
-cat examples/output/output.json
+cat ~/my-pipeline/output.json
 ```
 
-### Step 5: Set up your API key (for AI transforms)
+### Step 3: Use AI transforms
 
-To use AI-powered transformations, you need an LLM API key. The default provider is Google Gemini.
+To let the LLM generate transform code instead of writing Python:
 
 ```bash
-# Get a free API key from https://aistudio.google.com/apikey
-export GOOGLE_API_KEY="your-api-key-here"
+export GOOGLE_API_KEY="your-key-here"
 ```
 
-Verify the key works by running a pipeline with an AI transform:
+Change `pipeline.yaml`:
+
+```yaml
+transform:
+  type: ai
+  instruction: "filter active rows, add grade column based on score"
+```
+
+Run the same command:
 
 ```bash
-uv run loafer validate examples/pipeline.example.yaml
+uv run loafer run ~/my-pipeline/pipeline.yaml
 ```
 
-### Step 6: Scaffold your own project
+### Step 4: Common commands
 
-```bash
-uv run loafer init my-etl
-```
-
-You'll be prompted to choose source, target, and transform types:
-
-```
-Create a new Loafer pipeline
-────────────────────────────────────────────────────────────────────────────────
-Pipeline name: Sales Report
-Source type (csv/excel/postgres/mysql/mongo/rest_api) [csv]: csv
-Source path: data/sales.csv
-Target type (csv/json/postgres) [json]: json
-Target path: output/sales.json
-Transform mode (ai/custom/sql) [custom]: ai
-
-✓ Created pipeline in my-etl/
-
-Files created:
-  my-etl/pipeline.yaml
-  my-etl/data/input.csv
-  my-etl/README.md
-
-Next steps:
-  1. Edit my-etl/pipeline.yaml with your connection details
-  2. Run loafer run my-etl/pipeline.yaml
-```
-
-### Step 7: Run your pipeline
-
-```bash
-uv run loafer run my-etl/pipeline.yaml
-```
-
-Useful flags:
-
-| Flag | Description |
-|------|-------------|
-| `--dry-run` | Run without loading to target (test transform logic) |
-| `--quiet` / `-q` | Suppress progress output, show only summary |
-| `--yes` / `-y` | Skip destructive operation confirmations |
-| `--verbose` | Print full traceback on errors |
-
-### Step 8: Schedule it (optional)
-
-Run your pipeline on a schedule:
-
-```bash
-# Schedule daily at 9am UTC
-uv run loafer schedule my-etl/pipeline.yaml --cron "0 9 * * *"
-
-# Start the scheduler in the background
-uv run loafer start -d
-
-# Check status
-uv run loafer status
-
-# View logs
-uv run loafer logs
-```
+| Command | What it does |
+|---------|-------------|
+| `uv run loafer run pipeline.yaml` | Run a pipeline |
+| `uv run loafer run pipeline.yaml --dry-run` | Test without loading |
+| `uv run loafer run pipeline.yaml --quiet` | Summary only |
+| `uv run loafer validate pipeline.yaml` | Check config |
+| `uv run loafer connectors` | List connectors |
+| `uv run loafer init my-project` | Scaffold interactively |
+| `uv run loafer schedule pipeline.yaml --cron "0 9 * * *"` | Schedule daily |
+| `uv run loafer start -d` | Start scheduler in background |
+| `uv run loafer status` | Check scheduler status |
+| `uv run loafer list-schedules` | List scheduled jobs |
+| `uv run loafer unschedule <job-id>` | Remove a job | |
 
 ---
 

@@ -216,26 +216,36 @@ def _get_error_tip(error_str: str) -> str:
 
 @app.command()
 def run(
-    config_file: Path = _config_arg,
+    config_file: Path = typer.Argument(None, help="Path to pipeline YAML config"),
+    config: Path | None = typer.Option(
+        None, "--config", "-c", help="Path to pipeline YAML config (alternative to positional arg)"
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Run without loading to target"),
     verbose: bool = typer.Option(False, "--verbose", help="Print full traceback on errors"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip destructive confirmation prompts"),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress progress output"),
 ) -> None:
     """Run an ETL or ELT pipeline with live progress."""
-    if not config_file.exists():
-        err_console.print(f"[red]Config file not found: {config_file}[/red]")
+    # Resolve config path: option takes precedence over positional
+    actual_config = config or config_file
+    if not actual_config:
+        err_console.print(
+            "[red]Error: No config file specified. Use 'loafer run <config.yaml>' or 'loafer run -c <config.yaml>'[/red]"
+        )
+        raise typer.Exit(1)
+    if not actual_config.exists():
+        err_console.print(f"[red]Config file not found: {actual_config}[/red]")
         raise typer.Exit(1)
 
     # Read config for display name
     from loafer.config import load_config as _load_config
 
     try:
-        cfg = _load_config(config_file)
-        pipeline_name = cfg.name or config_file.stem
+        cfg = _load_config(actual_config)
+        pipeline_name = cfg.name or actual_config.stem
         mode = cfg.mode
     except Exception:
-        pipeline_name = config_file.stem
+        pipeline_name = actual_config.stem
         mode = "etl"
 
     console.print(f"\n[bold]Running: {pipeline_name}[/bold] [{mode.upper()}]")
@@ -246,7 +256,7 @@ def run(
 
     try:
         for node_name, status, state in run_pipeline_streaming(
-            config_path=config_file,
+            config_path=actual_config,
             dry_run=dry_run,
             yes=yes,
         ):
