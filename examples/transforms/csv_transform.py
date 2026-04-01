@@ -5,7 +5,7 @@ adds a processed_at timestamp, standardizes channel and status values,
 and drops rows where total is missing or <= 0.
 """
 
-from datetime import datetime
+import datetime
 
 
 def transform(data: list[dict]) -> list[dict]:
@@ -57,7 +57,7 @@ def transform(data: list[dict]) -> list[dict]:
                 "channel": channel,
                 "region": row.get("region"),
                 "status": status,
-                "processed_at": datetime.utcnow().isoformat(),
+                "processed_at": datetime.datetime.utcnow().isoformat(),
             }
         )
     return result

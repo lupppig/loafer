@@ -40,11 +40,11 @@ def load_agent(state: PipelineState) -> PipelineState:
         total_loaded: int = 0
 
         is_streaming: bool = state.get("is_streaming", False)
+        transformed_data: list[dict[str, Any]] = state.get("transformed_data", [])
 
-        if is_streaming:
+        if is_streaming and not transformed_data:
             total_loaded = _write_stream(connector, state, chunk_size)
         else:
-            transformed_data: list[dict[str, Any]] = state.get("transformed_data", [])
             for i in range(0, len(transformed_data), chunk_size):
                 chunk = transformed_data[i : i + chunk_size]
                 written = connector.write_chunk(chunk)
@@ -75,23 +75,16 @@ def _write_stream(
     state: PipelineState,
     chunk_size: int,
 ) -> int:
-    """Consume the stream iterator and write each chunk to the target.
+    """Write transformed data to the target.
 
-    Prepends the peeked first chunk if present.
+    In streaming mode the transform agent already consumed the full stream
+    (including _first_chunk) and stored results in transformed_data, so
+    we write from there.
     """
     total_loaded = 0
-
-    first_chunk: list[dict[str, Any]] | None = state.get("_first_chunk")
-    if first_chunk:
-        written = connector.write_chunk(first_chunk)
-        total_loaded += written
-
-    stream_iter: Iterator[list[dict[str, Any]]] | None = state.get("stream_iterator")
-    if stream_iter is None:
-        return total_loaded
-
-    for chunk in stream_iter:
+    transformed_data: list[dict[str, Any]] = state.get("transformed_data", [])
+    for i in range(0, len(transformed_data), chunk_size):
+        chunk = transformed_data[i : i + chunk_size]
         written = connector.write_chunk(chunk)
         total_loaded += written
-
     return total_loaded

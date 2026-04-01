@@ -141,10 +141,12 @@ def run_pipeline(
     except Exception as exc:
         total_ms = (time.monotonic() - start) * 1000
         state["duration_ms"]["total"] = total_ms
+        _cleanup_source_connector(state)
         raise PipelineError(f"Pipeline failed (run_id={state['run_id']}): {exc}") from exc
 
     total_ms = (time.monotonic() - start) * 1000
     state["duration_ms"]["total"] = total_ms
+    _cleanup_source_connector(state)
 
     if verbose:
         _print_summary(state)
@@ -193,11 +195,15 @@ def run_pipeline_streaming(
         else:
             yield from _stream_graph(graph, state, mode, start)
     except PipelineError:
+        _cleanup_source_connector(state)
         raise
     except Exception as exc:
         total_ms = (time.monotonic() - start) * 1000
         state["duration_ms"]["total"] = total_ms
+        _cleanup_source_connector(state)
         raise PipelineError(f"Pipeline failed (run_id={state['run_id']}): {exc}") from exc
+    else:
+        _cleanup_source_connector(state)
 
 
 def _stream_graph(
@@ -419,3 +425,14 @@ def list_connectors() -> dict[str, list[str]]:
         "sources": sorted(_SOURCE_REGISTRY.keys()),
         "targets": sorted(_TARGET_REGISTRY.keys()),
     }
+
+
+def _cleanup_source_connector(state: PipelineState) -> None:
+    """Disconnect the source connector if it was kept alive for streaming."""
+    connector = state.get("_source_connector")
+    if connector is not None:
+        try:
+            connector.disconnect()
+        except Exception:
+            pass
+        state["_source_connector"] = None

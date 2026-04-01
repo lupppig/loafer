@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 _MAX_EXECUTION_TIME = 60
 
 _SAFE_BUILTINS: dict[str, Any] = {
+    "__import__": __import__,
     "len": len,
     "str": str,
     "int": int,
@@ -134,14 +135,17 @@ def _apply_streaming(transform_fn: Any, state: PipelineState) -> list[dict[str, 
 
     all_transformed: list[dict[str, Any]] = []
     start = time.monotonic()
+    total_rows = 0
 
     for chunk in stream_iter:
         if (time.monotonic() - start) > _MAX_EXECUTION_TIME:
             raise TransformError(f"Transform exceeded {_MAX_EXECUTION_TIME}s timeout")
 
+        total_rows += len(chunk)
         result = transform_fn(chunk)
         if not isinstance(result, list):
             raise TransformError(f"Transform must return list[dict], got {type(result).__name__}")
         all_transformed.extend(result)
 
+    state["rows_extracted"] = total_rows
     return all_transformed

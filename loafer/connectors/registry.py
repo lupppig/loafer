@@ -201,9 +201,22 @@ class PostgresSourceConnector(SourceConnector):
             raise ExtractionError(f"failed to connect to PostgreSQL: {exc}") from exc
 
         try:
+            self._conn.set_client_encoding("UTF8")
+            tmp_cursor = self._conn.cursor()
+            tmp_cursor.execute(f"SET statement_timeout = '{self._timeout * 1000}'")
+            tmp_cursor.close()
+        except psycopg2.Error as exc:
+            self._conn.close()
+            from loafer.exceptions import ExtractionError
+
+            raise ExtractionError(
+                f"failed to set timeout (timeout={self._timeout}s): {exc}"
+            ) from exc
+
+        try:
             cursor = self._conn.cursor(name="loafer_stream")
             cursor.itersize = 500
-            cursor.execute(self._query, timeout=self._timeout)
+            cursor.execute(self._query)
             self._cursor = cursor
             self._row_count = cursor.rowcount if cursor.rowcount >= 0 else None
         except psycopg2.Error as exc:
@@ -707,15 +720,14 @@ class PostgresTargetConnector(TargetConnector):
             return 0
 
         import psycopg2
+        import psycopg2.extras
 
         table_exists = self._table_exists()
         if not table_exists:
             self._columns = list(chunk[0].keys())
             self._create_table(chunk[0])
         elif not self._columns:
-            self._columns = (
-                [col.name for col in self._cursor.description] if self._cursor.description else []
-            )
+            self._columns = list(chunk[0].keys())
 
         batch_size = min(len(chunk), 100)
         rows_in_batch = 0
@@ -723,10 +735,9 @@ class PostgresTargetConnector(TargetConnector):
         for i in range(0, len(chunk), batch_size):
             batch = chunk[i : i + batch_size]
             cols = list(batch[0].keys()) if not self._columns else self._columns
-            placeholders = ", ".join(["%s"] * len(cols))
             col_names = ", ".join(cols)
 
-            query = f"INSERT INTO {self._table} ({col_names}) VALUES ({placeholders})"
+            query = f"INSERT INTO {self._table} ({col_names}) VALUES %s"
             values = [self._serialize_value(row, cols) for row in batch]
 
             try:
@@ -799,7 +810,7 @@ class PostgresTargetConnector(TargetConnector):
                 import json
 
                 result.append(json.dumps(v))
-            elif v is not None:
+            else:
                 result.append(v)
         return tuple(result)
 

@@ -51,7 +51,10 @@ def validate_agent(state: PipelineState) -> PipelineState:
         state["duration_ms"]["validate"] = (time.monotonic() - start) * 1000
         return state
 
-    total = len(raw_data) if raw_data else 0
+    if is_streaming and not raw_data:
+        total = len(state.get("_first_chunk", []))
+    else:
+        total = len(raw_data) if raw_data else 0
 
     for col_name, col_meta in schema_sample.items():
         null_count: int = col_meta.get("null_count", 0)

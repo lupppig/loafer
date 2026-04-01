@@ -59,7 +59,7 @@ class TestExtractAgent:
 
         assert result["is_streaming"] is True
         assert result["stream_iterator"] is not None
-        assert "_first_chunk" in result
+        assert "schema_sample" in result
 
     def test_connection_failure_raises(self) -> None:
         mock_connector = MagicMock()

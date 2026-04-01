@@ -20,6 +20,34 @@ if TYPE_CHECKING:
     from loafer.graph.state import PipelineState
 
 
+class _PeekableStream:
+    """Stream wrapper that holds a peeked first chunk.
+
+    The first chunk is consumed by peek() for schema sampling and
+    replayed when the stream is iterated by the transform agent.
+    """
+
+    def __init__(self, source: Iterator[list[dict[str, Any]]]) -> None:
+        self._source = source
+        self._first_chunk: list[dict[str, Any]] | None = None
+        self._peeked = False
+
+    def peek(self) -> list[dict[str, Any]]:
+        if not self._peeked:
+            try:
+                self._first_chunk = next(self._source)
+            except StopIteration:
+                self._first_chunk = []
+            self._peeked = True
+        return self._first_chunk or []
+
+    def __iter__(self) -> Iterator[list[dict[str, Any]]]:
+        if self._peeked and self._first_chunk:
+            yield self._first_chunk
+        for chunk in self._source:
+            yield chunk
+
+
 def extract_agent(state: PipelineState) -> PipelineState:
     """Extract data from the configured source.
 
@@ -45,22 +73,28 @@ def extract_agent(state: PipelineState) -> PipelineState:
         state["is_streaming"] = is_streaming
 
         if is_streaming:
-            stream_iter: Iterator[list[dict[str, Any]]] = connector.stream(
+            raw_iter: Iterator[list[dict[str, Any]]] = connector.stream(
                 state.get("chunk_size", 500)
             )
-            state["stream_iterator"] = stream_iter
+            peekable = _PeekableStream(raw_iter)
+            peekable_stream = _counting_stream(peekable, state)
+            state["stream_iterator"] = peekable_stream
             state["rows_extracted"] = count if count is not None else 0
 
-            peek_first_chunk(state, connector)
+            first_chunk = peekable.peek()
+            state["schema_sample"] = build_schema_sample(
+                first_chunk,
+                max_sample_rows=5,
+            )
         else:
             raw_data: list[dict[str, Any]] = connector.read_all()
             state["raw_data"] = raw_data
             state["rows_extracted"] = len(raw_data)
 
-        state["schema_sample"] = build_schema_sample(
-            _get_sample_data(state),
-            max_sample_rows=5,
-        )
+            state["schema_sample"] = build_schema_sample(
+                raw_data[:5],
+                max_sample_rows=5,
+            )
 
         if state.get("rows_extracted", 0) == 0:
             state.setdefault("warnings", []).append("Source returned 0 rows")
@@ -69,36 +103,22 @@ def extract_agent(state: PipelineState) -> PipelineState:
         connector.disconnect()
         raise
     finally:
-        connector.disconnect()
+        if not is_streaming:
+            connector.disconnect()
+        else:
+            state["_source_connector"] = connector
 
     state["duration_ms"]["extract"] = (time.monotonic() - start) * 1000
     return state
 
 
-def peek_first_chunk(state: PipelineState, connector: SourceConnector) -> None:
-    """Peek the first chunk from the stream for schema sampling.
-
-    The chunk is stored in state so the next agent can prepend it
-    before consuming the rest of the stream.
-    """
-    stream_iter: Iterator[list[dict[str, Any]]] | None = state.get("stream_iterator")
-    if stream_iter is None:
-        return
-
-    try:
-        first_chunk: list[dict[str, Any]] = next(stream_iter)
-        state["_first_chunk"] = first_chunk
-    except StopIteration:
-        state["_first_chunk"] = []
-
-
-def _get_sample_data(state: PipelineState) -> list[dict[str, Any]]:
-    """Get data suitable for schema sampling."""
-    if not state.get("is_streaming"):
-        return state.get("raw_data", [])
-
-    first_chunk: list[dict[str, Any]] | None = state.get("_first_chunk")
-    if first_chunk:
-        return first_chunk
-
-    return []
+def _counting_stream(
+    stream_iter: Iterator[list[dict[str, Any]]],
+    state: PipelineState,
+) -> Iterator[list[dict[str, Any]]]:
+    """Wrap a stream iterator to count total rows as they're consumed."""
+    total = 0
+    for chunk in stream_iter:
+        total += len(chunk)
+        yield chunk
+    state["rows_extracted"] = total

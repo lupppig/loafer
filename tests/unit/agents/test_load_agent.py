@@ -38,8 +38,10 @@ class TestLoadAgent:
         mock_connector.finalize.assert_called_once()
 
     def test_streaming_mode(self) -> None:
+        """In streaming mode, transform has already consumed the stream
+        and stored results in transformed_data. Load writes from there."""
         mock_connector = MagicMock()
-        mock_connector.write_chunk.side_effect = [2, 1]
+        mock_connector.write_chunk.return_value = 3
 
         with patch(
             "loafer.agents.load.get_target_connector",
@@ -49,20 +51,18 @@ class TestLoadAgent:
                 "target_config": {"type": "csv", "path": "/tmp/out.csv"},
                 "is_streaming": True,
                 "chunk_size": 500,
-                "stream_iterator": iter(
-                    [
-                        [{"id": 1}, {"id": 2}],
-                        [{"id": 3}],
-                    ]
-                ),
-                "_first_chunk": None,
+                "transformed_data": [
+                    {"id": 1},
+                    {"id": 2},
+                    {"id": 3},
+                ],
                 "duration_ms": {},
                 "warnings": [],
             }
             result = load_agent(state)
 
         assert result["rows_loaded"] == 3
-        assert mock_connector.write_chunk.call_count == 2
+        assert mock_connector.write_chunk.call_count == 1
 
     def test_connection_failure_raises(self) -> None:
         mock_connector = MagicMock()
