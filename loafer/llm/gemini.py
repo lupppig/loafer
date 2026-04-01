@@ -1,15 +1,18 @@
 """Gemini LLM provider implementation.
 
-Uses ``google-generativeai`` with ``gemini-1.5-flash`` (fast and cheap,
-appropriate for transform generation).  Rate-limit errors trigger
-exponential backoff via *tenacity*.
+Uses ``google-genai`` (the new Google Gen AI SDK) with
+``gemini-2.5-flash`` (fast and cheap, appropriate for transform
+generation).  The SDK includes built-in retry on 429/5xx errors;
+an outer tenacity retry layer is kept for additional resilience.
 """
 
 from __future__ import annotations
 
 import re
 
-import google.generativeai as genai
+from google import genai
+from google.genai import errors as genai_errors
+from google.genai import types
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -33,23 +36,27 @@ def _strip_markdown_fences(text: str) -> str:
     return m.group(1) if m else text.strip()
 
 
-def _extract_token_usage(response: genai.types.GenerateContentResponse) -> dict[str, int]:
+def _extract_token_usage(response: types.GenerateContentResponse) -> dict[str, int]:
     """Pull token counts from the Gemini response metadata."""
     usage: dict[str, int] = {}
-    meta = getattr(response, "usage_metadata", None)
+    meta = response.usage_metadata
     if meta:
-        usage["prompt_tokens"] = getattr(meta, "prompt_token_count", 0)
-        usage["completion_tokens"] = getattr(meta, "candidates_token_count", 0)
-        usage["total_tokens"] = getattr(meta, "total_token_count", 0)
+        usage["prompt_tokens"] = meta.prompt_token_count or 0
+        usage["completion_tokens"] = meta.candidates_token_count or 0
+        usage["total_tokens"] = meta.total_token_count or 0
     return usage
 
 
 class GeminiProvider(LLMProvider):
     """Concrete ``LLMProvider`` backed by Google Gemini."""
 
-    def __init__(self, api_key: str, model: str = "gemini-1.5-flash") -> None:
-        genai.configure(api_key=api_key)  # type: ignore[attr-defined]
-        self._model = genai.GenerativeModel(model)  # type: ignore[attr-defined]
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "gemini-2.5-flash",
+    ) -> None:
+        self._client = genai.Client(api_key=api_key)
+        self._model = model
 
     # -- ETL transform -------------------------------------------------------
 
@@ -99,26 +106,34 @@ class GeminiProvider(LLMProvider):
         wait=wait_exponential(multiplier=1, min=2, max=30),
         reraise=True,
     )
-    def _call_with_retry(self, prompt: str) -> genai.types.GenerateContentResponse:
-        """Call Gemini with exponential backoff on rate-limit errors."""
+    def _call_with_retry(self, prompt: str) -> types.GenerateContentResponse:
+        """Call Gemini with exponential backoff on rate-limit errors.
+
+        The new SDK already retries 429/5xx internally (5 attempts by
+        default).  This outer tenacity layer converts SDK exceptions
+        into our domain ``LLMRateLimitError`` so the retry decorator
+        can trigger, and adds an additional safety net.
+        """
         try:
-            return self._model.generate_content(prompt)
+            return self._client.models.generate_content(
+                model=self._model,
+                contents=prompt,
+            )
+        except genai_errors.APIError as exc:
+            if exc.code == 429:
+                raise LLMRateLimitError(str(exc)) from exc
+            raise
         except Exception as exc:
-            # google-generativeai raises google.api_core.exceptions.ResourceExhausted
-            # (or similar 429-family errors) when rate-limited.
-            exc_name = type(exc).__name__
-            if "429" in str(exc) or "ResourceExhausted" in exc_name:
+            if "429" in str(exc):
                 raise LLMRateLimitError(str(exc)) from exc
             raise
 
     @staticmethod
-    def _response_text(response: genai.types.GenerateContentResponse) -> str:
+    def _response_text(
+        response: types.GenerateContentResponse,
+    ) -> str:
         """Extract text from Gemini response, raising on empty output."""
-        try:
-            text = response.text
-        except (ValueError, AttributeError):
-            text = None
-
+        text = response.text
         if not text or not text.strip():
             raise LLMInvalidOutputError(
                 f"Gemini returned empty or unparseable output: {response!r}"

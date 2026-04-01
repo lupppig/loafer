@@ -1,5 +1,8 @@
 """Loafer CLI — Typer entrypoint.
 
+Commands: run, validate, connectors, schedule, unschedule, list-schedules,
+start, status, stop, logs, init.
+
 All user-facing output uses rich.console.Console. Never use print().
 """
 
@@ -440,12 +443,12 @@ def list_schedules() -> None:
 
 @app.command()
 def start(
-    background: bool = typer.Option(False, "--background", "-b", help="Run in background"),
+    detached: bool = typer.Option(False, "--detached", "-d", help="Run in background"),
 ) -> None:
     """Start the scheduler and run scheduled jobs."""
     from loafer.scheduler import PipelineScheduler
 
-    if background:
+    if detached:
         _start_background()
         return
 
@@ -525,7 +528,7 @@ def status() -> None:
             pass
     else:
         console.print("[dim]○ Scheduler not running[/dim]")
-        console.print(f"  Start with: [bold]loafer start --background[/bold]")
+        console.print(f"  Start with: [bold]loafer start -d[/bold]")
 
 
 @app.command()

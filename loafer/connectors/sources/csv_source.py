@@ -36,6 +36,7 @@ class CsvSourceConnector(SourceConnector):
         self._column_names = column_names
         self._file: io.TextIOWrapper | None = None
         self._row_count: int | None = None
+        self._actual_encoding: str = encoding
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -55,17 +56,13 @@ class CsvSourceConnector(SourceConnector):
         except UnicodeDecodeError:
             logger.warning("UTF-8 decode failed for %s, falling back to latin-1", self._path)
             self._file = open(self._path, encoding="latin-1", newline="")  # noqa: SIM115
+            self._actual_encoding = "latin-1"
 
         self._row_count = self._count_rows()
 
     def _count_rows(self) -> int | None:
-        try:
-            with open(self._path, encoding=self._encoding) as f:
-                f.read()
-        except UnicodeDecodeError:
-            pass
         total = 0
-        with open(self._path, newline="") as f:
+        with open(self._path, encoding=self._actual_encoding, newline="") as f:
             reader = csv.reader(f)
             if self._has_header:
                 try:

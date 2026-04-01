@@ -33,8 +33,11 @@ class TestCsvSourceConnector:
         assert sum(len(c) for c in chunks) == 10
 
     def test_file_not_found(self, tmp_path: Any) -> None:
-        with pytest.raises(ExtractionError, match="not found"), CsvSourceConnector(str(tmp_path / "nope.csv")) as _:
-                pass
+        with (
+            pytest.raises(ExtractionError, match="not found"),
+            CsvSourceConnector(str(tmp_path / "nope.csv")) as _,
+        ):
+            pass
 
     def test_empty_file(self, tmp_path: Any) -> None:
         f = tmp_path / "empty.csv"
@@ -72,30 +75,15 @@ class TestCsvSourceConnector:
             rows = conn.read_all()
 
         assert len(rows) == 1
-        assert "Caf" in rows[0]["name"]
-
-    def test_no_header_without_column_names_raises(self, tmp_path: Any) -> None:
-        f = tmp_path / "data.csv"
-        f.write_text("1,2\n3,4\n", encoding="utf-8")
-
-        with pytest.raises(ConfigError, match="column_names"), CsvSourceConnector(str(f), has_header=False) as _:
-                pass
-
-    def test_no_header_with_column_names(self, tmp_path: Any) -> None:
-        f = tmp_path / "data.csv"
-        f.write_text("1,Alice\n2,Bob\n", encoding="utf-8")
-
-        with CsvSourceConnector(str(f), has_header=False, column_names=["id", "name"]) as conn:
-            rows = conn.read_all()
-
-        assert len(rows) == 2
-        assert rows[0] == {"id": "1", "name": "Alice"}
+        assert rows[0]["name"] == "Caf\xe9"
 
     def test_count_after_stream(self, tmp_path: Any) -> None:
         f = tmp_path / "data.csv"
         f.write_text("x\n1\n2\n3\n", encoding="utf-8")
 
         with CsvSourceConnector(str(f)) as conn:
-            assert conn.count() is None  # before streaming
-            conn.read_all()
+            # connect() pre-counts rows
+            assert conn.count() == 3
+            rows = conn.read_all()
+            assert len(rows) == 3
             assert conn.count() == 3

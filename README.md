@@ -4,29 +4,65 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-200%20passing-brightgreen.svg)](https://github.com/lupppig/loafer)
+[![Tests](https://img.shields.io/badge/tests-232%20passing-brightgreen.svg)](https://github.com/lupppig/loafer)
 [![Ruff](https://img.shields.io/badge/style-ruff-darkgreen.svg)](https://docs.astral.sh/ruff/)
 
 ---
 
 ## What Problem Does This Solve?
 
-Traditional ETL tools require you to write transformation logic by hand. Loafer lets you describe **what** you want in plain English and uses an LLM to generate the transformation code for you.
+Loafer extracts data from databases, files, and APIs, transforms it according to your instructions, and loads it into your target system — all from a single YAML config file.
 
-Instead of writing:
-```python
-df["full_name"] = df["first_name"] + " " + df["last_name"]
-df["age"] = (pd.Timestamp.now() - pd.to_datetime(df["dob"])).dt.days // 365
-```
+Describe **what** you want in plain English and Loafer generates the transformation code. Or write your own Python or SQL. Either way, you get:
 
-You write:
+- **Live progress bars** — see each stage (extract → validate → transform → load) with row counts and timing
+- **Streaming by default** — no full dataset ever sits in memory
+- **Three transform modes** — AI-generated, hand-written Python, or SQL
+- **Cron scheduling** — run pipelines on a schedule with persistent job storage
+
+### Example
+
 ```yaml
+# pipeline.yaml
+name: Daily Sales Report
+source:
+  type: postgres
+  url: ${DATABASE_URL}
+  query: "SELECT * FROM sales WHERE created_at >= NOW() - INTERVAL '1 day'"
+target:
+  type: csv
+  path: ./output/sales_report.csv
 transform:
   type: ai
-  instruction: "combine first_name and last_name into full_name, calculate age from dob"
+  instruction: >
+    combine first_name and last_name into full_name,
+    convert price to float rounded to 2 decimals,
+    drop rows where status is 'cancelled'
+mode: etl
 ```
 
-Loafer generates, validates, and executes the code — with automatic retry on failure.
+```bash
+uv run loafer run pipeline.yaml
+```
+
+```
+Running: Daily Sales Report [ETL]
+────────────────────────────────────────────────────────────────────────────────
+  ✓  Extracting from POSTGRES            14,523 rows
+  ✓  Validating data                     14,523 passed
+  ✓  Transforming data (ai)              14,523 → 12,891
+  ✓  Loading to CSV                      12,891 rows
+
+─────────────────────────────── Pipeline Summary ───────────────────────────────
+ Stage               Status    Rows          Duration
+ Extracting from     ✓         14,523 rows      2.1s
+ source
+ Validating data     ✓         14,523 passed    0.3s
+ Transforming data   ✓         14,523 → 12,891  0.8s
+ Loading to target   ✓         12,891 rows      1.4s
+
+Total: 4.6s
+```
 
 ---
 
@@ -38,12 +74,12 @@ Loafer generates, validates, and executes the code — with automatic retry on f
 │  Connectors │    │   Agent      │    │   Agent      │    │  Agent   │
 └─────────────┘    └──────────────┘    └──────────────┘    └──────────┘
                                                                │
-                    ┌──────────────────────────────────────────┘
-                    ▼
-              ┌──────────────┐    ┌──────────┐
-              │    Load      │◀───│  Runner   │
-              │   Agent      │    │ (LangGraph│
-              └──────────────┘    └──────────┘
+                      ┌────────────────────────────────────────┘
+                      ▼
+                ┌──────────────┐    ┌──────────┐
+                │    Load      │◀───│  Runner   │
+                │   Agent      │    │ (LangGraph│
+                └──────────────┘    └──────────┘
 ```
 
 ### Design Principles
@@ -86,54 +122,35 @@ loafer/
 │
 ├── llm/                         # LLM provider layer
 │   ├── base.py                  # LLMProvider ABC
-│   ├── gemini.py                # Google Gemini implementation
+│   ├── gemini.py                # Google Gemini implementation (google-genai SDK)
 │   ├── schema.py                # Schema sampler (type inference)
 │   └── prompt_builder.py        # Structured prompts for code/SQL generation
 │
 ├── graph/                       # LangGraph state and pipeline graphs
 │   ├── state.py                 # PipelineState TypedDict
-│   ├── etl.py                   # ETL pipeline graph (TODO)
-│   └── elt.py                   # ELT pipeline graph (TODO)
+│   ├── etl.py                   # ETL pipeline graph (LangGraph StateGraph)
+│   └── elt.py                   # ELT pipeline graph (LangGraph StateGraph)
 │
-├── runner.py                    # Composition root — wire adapters into graph (TODO)
+├── runner.py                    # Composition root — config → state → graph execution
+├── scheduler.py                 # APScheduler-based cron scheduling with SQLite persistence
+├── daemon.py                    # Background daemon management (PID file, log tailing)
 ├── config.py                    # Pydantic v2 config models + YAML parsing
 ├── exceptions.py                # Domain error hierarchy
-└── cli.py                       # Typer CLI entrypoint (scaffold)
+└── cli.py                       # Typer CLI — run, validate, schedule, init, daemon
 
 tests/
 ├── unit/
 │   ├── agents/                  # Agent tests (37 tests)
 │   ├── connectors/              # Connector tests (72 tests)
-│   └── ...                      # LLM, config, validator tests
+│   └── ...                      # LLM, config, validator, scheduler, daemon tests
 └── manual_test.py               # End-to-end manual verification script
 ```
 
 ---
 
-## Current Status
-
-| Phase | Component | Status |
-|-------|-----------|--------|
-| **0** | Project scaffold, config, state, exceptions | ✅ Complete |
-| **1** | LLM layer (Gemini, schema sampler, prompt builder, validators) | ✅ Complete |
-| **2** | Connectors (6 sources, 3 targets, registry) | ✅ Complete |
-| **3** | Agents + transform runners (extract, validate, transform, load, transform-in-target) | ✅ Complete |
-| **4** | LangGraph graphs (ETL/ELT), runner | ✅ Complete |
-| **5** | CLI implementation (`run`, `validate`, `connectors`) | ✅ Complete |
-| **6** | Scheduler (cron/interval-based scheduling) | ✅ Complete |
-
-**232 tests passing · 3,800+ lines of source · ruff clean**
-
----
-
 ## Quick Start
 
-### Prerequisites
-
-- Python 3.11+
-- [uv](https://docs.astral.sh/uv/) (recommended) or pip
-
-### Install
+### 1. Install
 
 ```bash
 git clone https://github.com/lupppig/loafer.git
@@ -141,50 +158,181 @@ cd loafer
 uv sync
 ```
 
-### Run a Pipeline
+### 2. Run the built-in example
+
+No external services needed — this uses local CSV and JSON files:
 
 ```bash
-uv run loafer run pipeline.yaml
+uv run loafer run examples/pipeline.quickstart.yaml
 ```
 
-Output includes live progress bars showing each stage (extract → validate → transform → load) with row counts and timing.
-
-```
-Running: Quickstart ETL [ETL]
-────────────────────────────────────────────────────────────────────────────────
-  ✓  Extracting from CSV                 10 rows
-  ✓  Validating data                     10 passed
-  ✓  Transforming data (custom)          10 → 7
-  ✓  Loading to JSON                     7 rows
-
-─────────────────────────────── Pipeline Summary ───────────────────────────────
- Stage               Status    Rows       Duration
- Extracting from     ✓         10 rows         2ms
- source
- Validating data     ✓         10 passed       0ms
- Transforming data   ✓         10 → 7          0ms
- Loading to target   ✓         7 rows          1ms
-
-Total: 0.8s
-```
-
-### Scaffold a New Project
+### 3. Scaffold your own project
 
 ```bash
-uv run loafer init my-pipeline
+uv run loafer init my-etl
 ```
 
 Interactive prompts guide you through choosing source, target, and transform types. Creates a ready-to-edit `pipeline.yaml`, `transform.py`, and sample data.
 
-### Manual Test
-
-Run the end-to-end test to verify all agents work together:
+### 4. Schedule it
 
 ```bash
-uv run python tests/manual_test.py
+uv run loafer schedule my-etl/pipeline.yaml --cron "0 9 * * *"
+uv run loafer start -d
 ```
 
-This runs a full ETL pipeline: CSV → extract → validate → transform (custom Python) → JSON output.
+---
+
+## Configuration Reference
+
+Every pipeline is defined in a single YAML file. All fields are validated at parse time by Pydantic v2.
+
+### Top-Level Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | string | `""` | Human-readable pipeline name, shown in CLI output and scheduler |
+| `source` | object | *(required)* | Source connector configuration (see below) |
+| `target` | object | *(required)* | Target connector configuration (see below) |
+| `transform` | object / string | *(required)* | Transform config — can be a shorthand string for AI mode (e.g. `transform: "rename x to y"`) |
+| `mode` | `"etl"` \| `"elt"` | `"etl"` | ETL: transform before loading; ELT: load raw then transform in-target via SQL |
+| `chunk_size` | int | `500` | Number of rows per batch for processing and loading |
+| `streaming_threshold` | int | `10_000` | Row count above which streaming mode activates (data flows through generators instead of being buffered) |
+| `destructive_filter_threshold` | float | `0.3` | Warn if transform drops more than this fraction of rows (0.3 = 30%) |
+| `validation` | object | | Data quality validation settings (see below) |
+| `llm` | object | | LLM provider configuration (see below) |
+
+### Source Configurations
+
+#### CSV (`type: csv`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `path` | string | *(required)* | Path to the CSV file |
+| `has_header` | bool | `true` | Whether the first row is a header |
+| `encoding` | string | `"utf-8"` | File encoding (falls back to latin-1 on UTF-8 decode error) |
+| `column_names` | list[string] | `null` | Required if `has_header: false` — column names to use |
+
+#### Excel (`type: excel`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `path` | string | *(required)* | Path to the `.xlsx` file |
+| `sheet` | string | `null` | Sheet name (defaults to first sheet) |
+
+#### PostgreSQL (`type: postgres`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `url` | string | *(required)* | PostgreSQL connection URL (e.g. `postgresql://user:pass@host/db`) |
+| `query` | string | *(required)* | SQL SELECT query to execute |
+| `timeout` | int | `30` | Connection timeout in seconds |
+
+#### MySQL (`type: mysql`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `url` | string | *(required)* | MySQL connection URL (e.g. `mysql://user:pass@host/db`) |
+| `query` | string | *(required)* | SQL SELECT query to execute |
+| `timeout` | int | `30` | Connection timeout in seconds |
+
+#### MongoDB (`type: mongo`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `url` | string | *(required)* | MongoDB connection URL (e.g. `mongodb://user:pass@host/db`) |
+| `database` | string | *(required)* | Database name |
+| `collection` | string | *(required)* | Collection name |
+| `filter` | object | `{}` | MongoDB query filter |
+
+#### REST API (`type: rest_api`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `url` | string | *(required)* | API endpoint URL |
+| `method` | `"GET"` \| `"POST"` | `"GET"` | HTTP method |
+| `headers` | object | `{}` | HTTP headers |
+| `params` | object | `{}` | Query parameters |
+| `body` | object | `null` | Request body (for POST) |
+| `response_key` | string | `null` | JSON key to extract array from (e.g. `"results"`) |
+| `pagination` | object | `null` | Pagination config (offset/limit or cursor-based) |
+| `auth_token` | string | `null` | Bearer token for authorization |
+| `verify_ssl` | bool | `true` | SSL certificate verification |
+| `timeout` | int | `30` | Request timeout in seconds |
+
+### Target Configurations
+
+#### CSV (`type: csv`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `path` | string | *(required)* | Output CSV file path |
+| `write_mode` | `"overwrite"` \| `"error"` | `"overwrite"` | Whether to overwrite existing file or error |
+
+#### JSON (`type: json`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `path` | string | *(required)* | Output JSON file path (writes a JSON array) |
+| `write_mode` | `"overwrite"` \| `"error"` | `"overwrite"` | Whether to overwrite existing file or error |
+
+#### PostgreSQL (`type: postgres`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `url` | string | *(required)* | PostgreSQL connection URL |
+| `table` | string | *(required)* | Target table name (auto-created if it doesn't exist) |
+| `write_mode` | `"append"` \| `"replace"` \| `"error"` | `"append"` | Whether to append, replace, or error if table exists |
+
+### Transform Configurations
+
+#### AI (`type: ai`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `instruction` | string | *(required)* | Natural language description of the transformation |
+
+The LLM generates a Python `transform(data) -> list[dict]` function. Code is AST-validated for safety before execution. On failure, the traceback is fed back to the LLM for up to 3 retry attempts.
+
+#### Custom (`type: custom`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `path` | string | *(required)* | Path to a `.py` file containing a `transform(data)` function |
+
+No LLM call. The file is loaded, validated, and executed directly.
+
+#### SQL (`type: sql`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `query` | string | *(required)* | SQL query with `{{source}}` placeholder for the source table |
+
+Validated via sqlglot — only SELECT allowed. Transpiled to the target dialect.
+
+### Validation
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `max_null_rate` | float | `0.5` | Maximum fraction of null values allowed per column before hard failure (0.5 = 50%) |
+| `strict` | bool | `false` | If true, any validation failure stops the pipeline; if false, soft warnings are logged but execution continues |
+
+### LLM
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `provider` | `"gemini"` \| `"claude"` \| `"openai"` \| `"qwen"` | `"gemini"` | LLM provider for AI transforms and ELT SQL generation |
+| `model` | string | `"gemini-2.5-flash"` | Model name (provider-specific) |
+| `api_key` | string | `""` | API key — supports `${ENV_VAR}` syntax for environment variable interpolation |
+
+Example with environment variable:
+
+```yaml
+llm:
+  provider: gemini
+  model: gemini-2.5-flash
+  api_key: ${GOOGLE_API_KEY}
+```
 
 ---
 
@@ -294,8 +442,8 @@ uv run loafer unschedule my-etl-job
 # Start in the foreground
 uv run loafer start
 
-# Start in the background
-uv run loafer start --background
+# Start in the background (daemon mode)
+uv run loafer start -d
 
 # Check status
 uv run loafer status
@@ -305,13 +453,6 @@ uv run loafer stop
 
 # View logs
 uv run loafer logs
-```
-
-### Start the scheduler
-
-```bash
-# Start in the foreground (Ctrl+C to stop)
-uv run loafer start
 ```
 
 ---
@@ -365,7 +506,7 @@ uv run mypy loafer/ --ignore-missing-imports
 
 1. Create `loafer/agents/my_agent.py`
 2. Define a function `my_agent(state: PipelineState) -> PipelineState`
-3. Import and use in the appropriate LangGraph graph (Phase 4)
+3. Import and use in the appropriate LangGraph graph
 4. Write tests against `conftest.py` fixtures
 
 ---
