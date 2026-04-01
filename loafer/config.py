@@ -216,6 +216,7 @@ class LLMConfig(BaseModel):
 
 
 class PipelineConfig(BaseModel):
+    name: str = ""
     source: SourceConfig
     target: TargetConfig
     transform: TransformConfig

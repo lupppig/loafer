@@ -6,12 +6,10 @@ LangGraph nodes must return updated state, never mutate in place.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypedDict
+from collections.abc import Iterator
+from typing import Any, TypedDict
 
-if TYPE_CHECKING:
-    from collections.abc import Iterator
-
-    from loafer.config import LLMConfig, SourceConfig, TargetConfig, TransformConfig
+from loafer.config import LLMConfig, SourceConfig, TargetConfig, TransformConfig
 
 
 class PipelineState(TypedDict, total=False):

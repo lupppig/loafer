@@ -1,0 +1,11 @@
+id,name,email,score,status
+1,Alice,alice@example.com,95.5,active
+2,Bob,bob@example.com,88.0,inactive
+3,Charlie,charlie@example.com,72.3,active
+4,Diana,diana@example.com,91.0,active
+5,Eve,eve@example.com,65.0,inactive
+6,Frank,frank@example.com,83.7,active
+7,Grace,grace@example.com,97.2,active
+8,Hank,hank@example.com,58.0,inactive
+9,Ivy,ivy@example.com,76.4,active
+10,Jack,jack@example.com,89.1,active

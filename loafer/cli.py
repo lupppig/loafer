@@ -5,17 +5,17 @@ All user-facing output uses rich.console.Console. Never use print().
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import signal
+import sys
+from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from loafer.exceptions import PipelineError
+from loafer.exceptions import PipelineError, SchedulerError
 from loafer.runner import list_connectors, run_pipeline, validate_config
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 app = typer.Typer(
     name="loafer",
@@ -121,3 +121,144 @@ def connectors() -> None:
     for target_type in result["targets"]:
         target_table.add_row(target_type)
     console.print(target_table)
+
+
+@app.command()
+def schedule(
+    config_file: Path = _config_arg,
+    cron: str | None = typer.Option(None, "--cron", help="Cron expression (e.g. '0 9 * * *')"),
+    interval: str | None = typer.Option(
+        None, "--interval", help="Interval (e.g. '1h', '30m', '1d')"
+    ),
+    job_id: str | None = typer.Option(None, "--id", help="Job ID (auto-generated if omitted)"),
+    replace: bool = typer.Option(False, "--replace", help="Replace existing job with same ID"),
+) -> None:
+    """Schedule a pipeline to run on a cron or interval trigger."""
+    if not cron and not interval:
+        err_console.print("[red]Either --cron or --interval is required[/red]")
+        raise typer.Exit(1)
+
+    if not config_file.exists():
+        err_console.print(f"[red]Config file not found: {config_file}[/red]")
+        raise typer.Exit(1)
+
+    from loafer.config import load_config
+    from loafer.scheduler import PipelineScheduler
+
+    try:
+        config = load_config(config_file)
+        pipeline_name = config.name or config_file.stem
+    except Exception:
+        pipeline_name = config_file.stem
+
+    scheduler = PipelineScheduler()
+    try:
+        schedule_id = scheduler.add_schedule(
+            config_path=str(config_file),
+            schedule_id=job_id,
+            cron=cron,
+            interval=interval,
+            replace=replace,
+            name=pipeline_name,
+        )
+    except SchedulerError as exc:
+        err_console.print(f"[red]Schedule failed: {exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    trigger_desc = f"cron: {cron}" if cron else f"interval: {interval}"
+    console.print(f"[green]Scheduled pipeline[/green] {schedule_id}")
+    console.print(f"  Name:    {pipeline_name}")
+    console.print(f"  Config:  {config_file}")
+    console.print(f"  Trigger: {trigger_desc}")
+    console.print(f"\nRun [bold]loafer start[/bold] to begin executing scheduled jobs")
+
+
+@app.command()
+def unschedule(
+    job_id: str = typer.Argument(..., help="Job ID to remove"),
+) -> None:
+    """Remove a scheduled pipeline job."""
+    from loafer.scheduler import PipelineScheduler
+
+    scheduler = PipelineScheduler()
+    try:
+        scheduler.remove_schedule(job_id)
+    except SchedulerError as exc:
+        err_console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+
+    console.print(f"[green]Removed job[/green] {job_id}")
+
+
+@app.command()
+def list_schedules() -> None:
+    """List all scheduled pipeline jobs."""
+    from loafer.scheduler import PipelineScheduler
+
+    scheduler = PipelineScheduler()
+    jobs = scheduler.list_schedules()
+
+    if not jobs:
+        console.print("[dim]No scheduled jobs[/dim]")
+        return
+
+    table = Table(title="Scheduled Jobs")
+    table.add_column("ID", style="cyan")
+    table.add_column("Name", style="green")
+    table.add_column("Config", style="green")
+    table.add_column("Trigger", style="yellow")
+    table.add_column("Next Run", style="magenta")
+    table.add_column("Paused", style="red")
+
+    for job in jobs:
+        table.add_row(
+            job["id"],
+            job["name"] or "—",
+            job["config_path"],
+            job["trigger"],
+            job["next_run"] or "—",
+            "yes" if job["paused"] else "no",
+        )
+
+    console.print(table)
+
+
+@app.command()
+def start() -> None:
+    """Start the scheduler and run scheduled jobs in the foreground."""
+    from loafer.scheduler import PipelineScheduler
+
+    scheduler = PipelineScheduler()
+    scheduler.start()
+
+    console.print("[green]Scheduler started[/green]")
+    console.print("Press Ctrl+C to stop\n")
+
+    jobs = scheduler.list_schedules()
+    if jobs:
+        console.print(f"Active schedules: {len(jobs)}")
+        for job in jobs:
+            name = f" ({job['name']})" if job["name"] else ""
+            console.print(f"  {job['id']}{name}: {job['config_path']} ({job['trigger']})")
+    else:
+        console.print("[yellow]No scheduled jobs. Use 'loafer schedule' to add one.[/yellow]")
+
+    def _shutdown(signum: int, frame: Any) -> None:
+        console.print("\n[yellow]Stopping scheduler...[/yellow]")
+        scheduler.stop()
+        console.print("[green]Scheduler stopped[/green]")
+        raise typer.Exit(0)
+
+    import signal
+
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+
+    try:
+        import time
+
+        while True:
+            time.sleep(1)
+    except (KeyboardInterrupt, SystemExit):
+        scheduler.stop()
+        console.print("[green]Scheduler stopped[/green]")

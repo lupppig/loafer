@@ -118,11 +118,11 @@ tests/
 | **1** | LLM layer (Gemini, schema sampler, prompt builder, validators) | ✅ Complete |
 | **2** | Connectors (6 sources, 3 targets, registry) | ✅ Complete |
 | **3** | Agents + transform runners (extract, validate, transform, load, transform-in-target) | ✅ Complete |
-| **4** | LangGraph graphs (ETL/ELT), runner | 🚧 In Progress |
-| **5** | CLI implementation | 🚧 In Progress |
-| **6** | Scheduler (cron-based) | ❌ Not Started |
+| **4** | LangGraph graphs (ETL/ELT), runner | ✅ Complete |
+| **5** | CLI implementation (`run`, `validate`, `connectors`) | ✅ Complete |
+| **6** | Scheduler (cron/interval-based scheduling) | ✅ Complete |
 
-**200 tests passing · 3,300+ lines of source · ruff clean**
+**217 tests passing · 3,300+ lines of source · ruff clean**
 
 ---
 
@@ -230,6 +230,42 @@ transform:
 
 ---
 
+## Scheduling
+
+Schedule pipelines to run on a cron or interval basis. Jobs are persisted in SQLite so they survive restarts.
+
+### Schedule a pipeline
+
+```bash
+# Run daily at 9am UTC
+uv run loafer schedule pipeline.yaml --cron "0 9 * * *"
+
+# Run every 30 minutes
+uv run loafer schedule pipeline.yaml --interval "30m"
+
+# Run every 2 hours with a custom job ID
+uv run loafer schedule pipeline.yaml --interval "2h" --id my-etl-job
+```
+
+### Manage schedules
+
+```bash
+# List all scheduled jobs
+uv run loafer list-schedules
+
+# Remove a scheduled job
+uv run loafer unschedule my-etl-job
+```
+
+### Start the scheduler
+
+```bash
+# Start in the foreground (Ctrl+C to stop)
+uv run loafer start
+```
+
+---
+
 ## For Contributors
 
 ### Development Setup
@@ -286,13 +322,10 @@ uv run mypy loafer/ --ignore-missing-imports
 
 ## Planned Features
 
-- [ ] **Phase 4**: LangGraph ETL/ELT pipeline graphs with conditional edges and retry logic
-- [ ] **Phase 4**: Runner — single entry point to parse config, build state, invoke graph
-- [ ] **Phase 5**: Full CLI implementation (`run`, `validate`, `connectors`, `init`)
-- [ ] **Phase 5**: Rich output — pipeline progress bars, error tables, timing summaries
-- [ ] **Phase 6**: APScheduler-based cron scheduling for recurring pipelines
 - [ ] Additional LLM providers (Claude, OpenAI)
 - [ ] Additional connectors (S3, BigQuery, Snowflake, Redshift)
+- [ ] Rich output — pipeline progress bars, error tables, timing summaries
+- [ ] CLI `init` command for scaffolding new projects
 
 ---
 

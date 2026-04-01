@@ -67,7 +67,8 @@ class CustomTransformRunner(TransformRunner):
     """Execute a user-supplied Python transform file."""
 
     def run(self, state: PipelineState) -> PipelineState:
-        path_str: str | None = state.get("transform_config", {}).get("path")
+        transform_config = state.get("transform_config")
+        path_str: str | None = transform_config.path if transform_config else None
         if not path_str:
             raise TransformError("custom transform requires a 'path' in transform_config")
 

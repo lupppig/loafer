@@ -15,6 +15,7 @@ from langgraph.graph import END, START, StateGraph
 from loafer.agents.extract import extract_agent
 from loafer.agents.load_raw import load_raw_agent
 from loafer.agents.transform_in_target import transform_in_target_agent
+from loafer.graph.state import PipelineState
 
 
 def build_elt_graph() -> Any:

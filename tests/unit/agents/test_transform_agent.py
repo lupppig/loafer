@@ -8,16 +8,20 @@ from unittest.mock import MagicMock
 import pytest
 
 from loafer.agents.transform import transform_agent
+from loafer.config import AITransformConfig, CustomTransformConfig, SQLTransformConfig
 from loafer.exceptions import TransformError
 
 
 class TestTransformAgent:
     def test_unknown_type_raises(self) -> None:
         state: dict[str, Any] = {
-            "transform_config": {"type": "unknown"},
+            "transform_config": AITransformConfig(type="ai", instruction="test"),
             "duration_ms": {},
             "warnings": [],
         }
+        # Patch the config to have an unknown type
+        state["transform_config"] = MagicMock()
+        state["transform_config"].type = "unknown"
         with pytest.raises(TransformError, match="Unknown transform type"):
             transform_agent(state)
 
@@ -30,7 +34,7 @@ class TestTransformAgent:
         )
 
         state: dict[str, Any] = {
-            "transform_config": {"type": "ai"},
+            "transform_config": AITransformConfig(type="ai", instruction="noop"),
             "llm_provider": mock_llm,
             "schema_sample": {},
             "transform_instruction": "noop",
@@ -52,7 +56,7 @@ class TestTransformAgent:
         transform_file.write_text("def transform(data): return data\n")
 
         state: dict[str, Any] = {
-            "transform_config": {"type": "custom", "path": str(transform_file)},
+            "transform_config": CustomTransformConfig(type="custom", path=str(transform_file)),
             "raw_data": [{"id": 1}],
             "is_streaming": False,
             "duration_ms": {},
@@ -64,7 +68,7 @@ class TestTransformAgent:
 
     def test_routes_to_sql_runner(self) -> None:
         state: dict[str, Any] = {
-            "transform_config": {"type": "sql", "query": "SELECT 1"},
+            "transform_config": SQLTransformConfig(type="sql", query="SELECT 1"),
             "raw_data": [],
             "is_streaming": False,
             "mode": "etl",
@@ -243,7 +247,7 @@ class TestCustomTransformRunner:
 
         runner = CustomTransformRunner()
         state: dict[str, Any] = {
-            "transform_config": {"path": str(transform_file)},
+            "transform_config": CustomTransformConfig(type="custom", path=str(transform_file)),
             "raw_data": [{"id": 1}],
             "is_streaming": False,
             "duration_ms": {},
@@ -257,8 +261,9 @@ class TestCustomTransformRunner:
         from loafer.transform.custom_runner import CustomTransformRunner
 
         runner = CustomTransformRunner()
+        # Use a dict to bypass Pydantic validation (tests runner logic, not config validation)
         state: dict[str, Any] = {
-            "transform_config": {"path": str(tmp_path / "nonexistent.py")},
+            "transform_config": MagicMock(type="custom", path=str(tmp_path / "nonexistent.py")),
             "raw_data": [],
             "is_streaming": False,
             "duration_ms": {},
@@ -275,7 +280,7 @@ class TestCustomTransformRunner:
 
         runner = CustomTransformRunner()
         state: dict[str, Any] = {
-            "transform_config": {"path": str(transform_file)},
+            "transform_config": CustomTransformConfig(type="custom", path=str(transform_file)),
             "raw_data": [],
             "is_streaming": False,
             "duration_ms": {},
@@ -292,7 +297,7 @@ class TestCustomTransformRunner:
 
         runner = CustomTransformRunner()
         state: dict[str, Any] = {
-            "transform_config": {"path": str(transform_file)},
+            "transform_config": CustomTransformConfig(type="custom", path=str(transform_file)),
             "raw_data": [],
             "is_streaming": False,
             "duration_ms": {},
@@ -309,7 +314,7 @@ class TestCustomTransformRunner:
 
         runner = CustomTransformRunner()
         state: dict[str, Any] = {
-            "transform_config": {"path": str(transform_file)},
+            "transform_config": CustomTransformConfig(type="custom", path=str(transform_file)),
             "raw_data": [{"id": 1}],
             "is_streaming": False,
             "duration_ms": {},
@@ -325,7 +330,9 @@ class TestSqlTransformRunner:
 
         runner = SqlTransformRunner()
         state: dict[str, Any] = {
-            "transform_config": {"query": "SELECT * FROM loafer_source WHERE id > 0"},
+            "transform_config": SQLTransformConfig(
+                type="sql", query="SELECT * FROM loafer_source WHERE id > 0"
+            ),
             "raw_data": [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}],
             "is_streaming": False,
             "mode": "etl",
@@ -341,7 +348,7 @@ class TestSqlTransformRunner:
 
         runner = SqlTransformRunner()
         state: dict[str, Any] = {
-            "transform_config": {"query": "DROP TABLE users"},
+            "transform_config": SQLTransformConfig(type="sql", query="DROP TABLE users"),
             "raw_data": [],
             "is_streaming": False,
             "mode": "etl",
@@ -356,7 +363,7 @@ class TestSqlTransformRunner:
 
         runner = SqlTransformRunner()
         state: dict[str, Any] = {
-            "transform_config": {"query": "SELECT 1; DELETE FROM users"},
+            "transform_config": SQLTransformConfig(type="sql", query="SELECT 1; DELETE FROM users"),
             "raw_data": [],
             "is_streaming": False,
             "mode": "etl",
@@ -371,7 +378,7 @@ class TestSqlTransformRunner:
 
         runner = SqlTransformRunner()
         state: dict[str, Any] = {
-            "transform_config": {"query": "SELECT * FROM loafer_source"},
+            "transform_config": SQLTransformConfig(type="sql", query="SELECT * FROM loafer_source"),
             "raw_data": [{"id": 1}],
             "is_streaming": False,
             "mode": "etl",
@@ -394,7 +401,9 @@ class TestSqlTransformRunner:
 
         runner = SqlTransformRunner()
         state: dict[str, Any] = {
-            "transform_config": {"query": "SELECT nonexistent FROM loafer_source"},
+            "transform_config": SQLTransformConfig(
+                type="sql", query="SELECT nonexistent FROM loafer_source"
+            ),
             "raw_data": [{"id": 1}],
             "is_streaming": False,
             "mode": "etl",

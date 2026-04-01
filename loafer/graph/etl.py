@@ -8,7 +8,7 @@ Transform has graph-level retry: up to 2 retries after internal retry exhaustion
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
@@ -16,9 +16,7 @@ from loafer.agents.extract import extract_agent
 from loafer.agents.load import load_agent
 from loafer.agents.transform import transform_agent
 from loafer.agents.validate import validate_agent
-
-if TYPE_CHECKING:
-    from loafer.graph.state import PipelineState
+from loafer.graph.state import PipelineState
 
 _MAX_GRAPH_RETRIES = 2
 

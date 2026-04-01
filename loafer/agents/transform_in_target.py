@@ -30,14 +30,14 @@ def transform_in_target_agent(state: PipelineState) -> PipelineState:
     if not raw_table_name:
         raise TransformError("ELT mode requires raw_table_name in state")
 
-    target_config = state.get("target_config", {})
-    output_table: str | None = target_config.get("table")
+    target_config = state.get("target_config")
+    output_table: str | None = target_config.table if target_config else None
     if not output_table:
         raise LoadError("ELT mode requires a target table name")
 
-    write_mode: str = target_config.get("write_mode", "append")
+    write_mode: str = target_config.write_mode if target_config else "append"
     if write_mode == "error":
-        if _table_exists(target_config.get("url", ""), output_table):
+        if _table_exists(target_config.url if target_config else "", output_table):
             raise LoadError(
                 f"Target table '{output_table}' already exists and write_mode is 'error'"
             )
@@ -82,7 +82,7 @@ def transform_in_target_agent(state: PipelineState) -> PipelineState:
             continue
 
         try:
-            count = _execute_elt_sql(target_config.get("url", ""), sql, output_table)
+            count = _execute_elt_sql(target_config.url if target_config else "", sql, output_table)
         except Exception as exc:
             previous_error = f"SQL execution failed (attempt {attempt}): {exc}"
             if attempt == _MAX_RETRIES:

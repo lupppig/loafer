@@ -26,7 +26,8 @@ class SqlTransformRunner(TransformRunner):
     """Execute a SQL-based transform."""
 
     def run(self, state: PipelineState) -> PipelineState:
-        sql: str | None = state.get("transform_config", {}).get("query")
+        transform_config = state.get("transform_config")
+        sql: str | None = transform_config.query if transform_config else None
         if not sql:
             raise TransformError("sql transform requires a 'query' in transform_config")
 
@@ -86,7 +87,8 @@ class SqlTransformRunner(TransformRunner):
 
     def _run_elt(self, state: PipelineState, sql: str, source_table: str) -> None:
         """Execute SQL in ELT mode — CREATE TABLE AS SELECT on target."""
-        output_table: str | None = state.get("target_config", {}).get("table")
+        target_config = state.get("target_config")
+        output_table: str | None = target_config.table if target_config else None
         if not output_table:
             raise TransformError("ELT mode requires a target table name")
 
@@ -99,7 +101,7 @@ class SqlTransformRunner(TransformRunner):
         except ImportError as exc:
             raise TransformError("ELT SQL transform requires 'psycopg2-binary'") from exc
 
-        target_url: str = state.get("target_config", {}).get("url", "")
+        target_url: str = target_config.url if target_config else ""
         conn: Any | None = None
         cursor: Any | None = None
         try:

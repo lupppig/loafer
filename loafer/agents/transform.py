@@ -22,7 +22,8 @@ def transform_agent(state: PipelineState) -> PipelineState:
     Returns the updated PipelineState with transformed_data populated.
     """
 
-    transform_type: str = state.get("transform_config", {}).get("type", "ai")
+    transform_config = state.get("transform_config")
+    transform_type: str = transform_config.type if transform_config else "ai"
 
     runner: TransformRunner = _resolve_runner(transform_type)
     return runner.run(state)

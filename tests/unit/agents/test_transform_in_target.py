@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from loafer.agents.transform_in_target import transform_in_target_agent
+from loafer.config import PostgresTargetConfig
 from loafer.exceptions import TransformError
 
 
@@ -15,7 +16,9 @@ class TestTransformInTargetAgent:
     def test_missing_raw_table_raises(self) -> None:
         state: dict[str, Any] = {
             "llm_provider": MagicMock(),
-            "target_config": {"type": "postgres", "table": "output"},
+            "target_config": PostgresTargetConfig(
+                type="postgres", url="postgresql://localhost/db", table="output"
+            ),
             "transform_instruction": "noop",
             "schema_sample": {},
             "duration_ms": {},
@@ -28,7 +31,9 @@ class TestTransformInTargetAgent:
         state: dict[str, Any] = {
             "llm_provider": MagicMock(),
             "raw_table_name": "raw_data",
-            "target_config": {"type": "postgres"},
+            "target_config": PostgresTargetConfig(
+                type="postgres", url="postgresql://localhost/db", table=""
+            ),
             "transform_instruction": "noop",
             "schema_sample": {},
             "duration_ms": {},
@@ -44,7 +49,9 @@ class TestTransformInTargetAgent:
         state: dict[str, Any] = {
             "llm_provider": mock_llm,
             "raw_table_name": "raw_data",
-            "target_config": {"type": "postgres", "table": "output"},
+            "target_config": PostgresTargetConfig(
+                type="postgres", url="postgresql://localhost/db", table="output"
+            ),
             "transform_instruction": "noop",
             "schema_sample": {},
             "duration_ms": {},
@@ -64,7 +71,9 @@ class TestTransformInTargetAgent:
         state: dict[str, Any] = {
             "llm_provider": mock_llm,
             "raw_table_name": "raw_data",
-            "target_config": {"type": "postgres", "table": "output"},
+            "target_config": PostgresTargetConfig(
+                type="postgres", url="postgresql://localhost/db", table="output"
+            ),
             "transform_instruction": "noop",
             "schema_sample": {},
             "duration_ms": {},

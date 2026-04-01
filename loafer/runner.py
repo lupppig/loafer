@@ -117,8 +117,9 @@ def run_pipeline(
     state = _build_initial_state(config)
     state["auto_confirmed"] = yes
 
-    llm_provider = _build_llm_provider(config)
-    state["llm_provider"] = llm_provider
+    if config.transform.type == "ai":
+        llm_provider = _build_llm_provider(config)
+        state["llm_provider"] = llm_provider
 
     mode = config.mode
 
