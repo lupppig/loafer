@@ -122,7 +122,7 @@ tests/
 | **5** | CLI implementation (`run`, `validate`, `connectors`) | ✅ Complete |
 | **6** | Scheduler (cron/interval-based scheduling) | ✅ Complete |
 
-**217 tests passing · 3,300+ lines of source · ruff clean**
+**232 tests passing · 3,800+ lines of source · ruff clean**
 
 ---
 
@@ -140,6 +140,41 @@ git clone https://github.com/lupppig/loafer.git
 cd loafer
 uv sync
 ```
+
+### Run a Pipeline
+
+```bash
+uv run loafer run pipeline.yaml
+```
+
+Output includes live progress bars showing each stage (extract → validate → transform → load) with row counts and timing.
+
+```
+Running: Quickstart ETL [ETL]
+────────────────────────────────────────────────────────────────────────────────
+  ✓  Extracting from CSV                 10 rows
+  ✓  Validating data                     10 passed
+  ✓  Transforming data (custom)          10 → 7
+  ✓  Loading to JSON                     7 rows
+
+─────────────────────────────── Pipeline Summary ───────────────────────────────
+ Stage               Status    Rows       Duration
+ Extracting from     ✓         10 rows         2ms
+ source
+ Validating data     ✓         10 passed       0ms
+ Transforming data   ✓         10 → 7          0ms
+ Loading to target   ✓         7 rows          1ms
+
+Total: 0.8s
+```
+
+### Scaffold a New Project
+
+```bash
+uv run loafer init my-pipeline
+```
+
+Interactive prompts guide you through choosing source, target, and transform types. Creates a ready-to-edit `pipeline.yaml`, `transform.py`, and sample data.
 
 ### Manual Test
 
@@ -255,6 +290,21 @@ uv run loafer list-schedules
 
 # Remove a scheduled job
 uv run loafer unschedule my-etl-job
+
+# Start in the foreground
+uv run loafer start
+
+# Start in the background
+uv run loafer start --background
+
+# Check status
+uv run loafer status
+
+# Stop the background scheduler
+uv run loafer stop
+
+# View logs
+uv run loafer logs
 ```
 
 ### Start the scheduler
@@ -324,8 +374,6 @@ uv run mypy loafer/ --ignore-missing-imports
 
 - [ ] Additional LLM providers (Claude, OpenAI)
 - [ ] Additional connectors (S3, BigQuery, Snowflake, Redshift)
-- [ ] Rich output — pipeline progress bars, error tables, timing summaries
-- [ ] CLI `init` command for scaffolding new projects
 
 ---
 

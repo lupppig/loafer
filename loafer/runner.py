@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -16,6 +17,7 @@ from loafer.exceptions import PipelineError
 from loafer.graph.state import PipelineState
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from loafer.llm.base import LLMProvider
 
 
@@ -147,6 +149,176 @@ def run_pipeline(
         _print_summary(state)
 
     return state
+
+
+def run_pipeline_streaming(
+    config_path: str | Path,
+    dry_run: bool = False,
+    yes: bool = False,
+) -> Iterator[tuple[str, str, PipelineState]]:
+    """Run pipeline and yield (stage_name, status, state) per completed node.
+
+    Yields:
+        ("extract", "done"|"failed", state) — after extraction completes
+        ("validate", "done"|"failed"|"skipped", state) — after validation
+        ("transform", "done"|"failed"|"skipped", state) — after transform
+        ("load", "done"|"failed"|"skipped", state) — after load
+
+    The final yield always has the complete state. Raises PipelineError on
+    any stage failure.
+    """
+    start = time.monotonic()
+
+    config = load_config(config_path)
+    state = _build_initial_state(config)
+    state["auto_confirmed"] = yes
+
+    if config.transform.type == "ai":
+        llm_provider = _build_llm_provider(config)
+        state["llm_provider"] = llm_provider
+
+    mode = config.mode
+
+    if mode == "etl":
+        graph = _build_etl_graph()
+    elif mode == "elt":
+        graph = _build_elt_graph()
+    else:
+        raise PipelineError(f"Unknown pipeline mode: {mode}")
+
+    try:
+        if dry_run:
+            yield from _stream_dry_run(graph, state, mode, start)
+        else:
+            yield from _stream_graph(graph, state, mode, start)
+    except PipelineError:
+        raise
+    except Exception as exc:
+        total_ms = (time.monotonic() - start) * 1000
+        state["duration_ms"]["total"] = total_ms
+        raise PipelineError(f"Pipeline failed (run_id={state['run_id']}): {exc}") from exc
+
+
+def _stream_graph(
+    graph: Any,
+    state: PipelineState,
+    mode: str,
+    start: float,
+) -> Iterator[tuple[str, str, PipelineState]]:
+    """Stream graph execution, yielding per-node updates."""
+    nodes_executed: set[str] = set()
+
+    try:
+        for event in graph.stream(state, stream_mode="updates"):
+            for node_name, delta in event.items():
+                nodes_executed.add(node_name)
+
+                # Merge delta into state
+                for key, value in delta.items():
+                    state[key] = value  # type: ignore[literal-required]
+
+                # Determine status
+                status = "done"
+                if node_name in (
+                    "extract",
+                    "validate",
+                    "transform",
+                    "load",
+                    "load_raw",
+                    "transform_in_target",
+                ):
+                    yield (node_name, status, state)
+
+        # Mark skipped stages
+        if mode == "etl":
+            expected = {"extract", "validate", "transform", "load"}
+        else:
+            expected = {"extract", "load_raw", "transform_in_target"}
+
+        for stage in expected - nodes_executed:
+            yield (stage, "skipped", state)
+
+    except Exception as exc:
+        # Determine which stage failed
+        failed_stage = _last_executed_node(nodes_executed, mode)
+        if failed_stage:
+            yield (failed_stage, "failed", state)
+        total_ms = (time.monotonic() - start) * 1000
+        state["duration_ms"]["total"] = total_ms
+        raise PipelineError(f"Pipeline failed (run_id={state['run_id']}): {exc}") from exc
+    else:
+        total_ms = (time.monotonic() - start) * 1000
+        state["duration_ms"]["total"] = total_ms
+
+
+def _stream_dry_run(
+    graph: Any,
+    state: PipelineState,
+    mode: str,
+    start: float,
+) -> Iterator[tuple[str, str, PipelineState]]:
+    """Stream dry-run graph execution."""
+    from langgraph.graph import END, START, StateGraph
+
+    from loafer.agents.extract import extract_agent
+    from loafer.agents.transform import transform_agent
+    from loafer.agents.validate import validate_agent
+
+    dry_graph = StateGraph(state_schema=PipelineState)
+    dry_graph.add_node("extract", extract_agent)
+    dry_graph.add_node("validate", validate_agent)
+    dry_graph.add_node("transform", transform_agent)
+    dry_graph.add_edge(START, "extract")
+    dry_graph.add_edge("extract", "validate")
+
+    def _check_validation_dry(state: PipelineState) -> str:
+        if state.get("validation_passed", False):
+            return "transform"
+        return "end"
+
+    dry_graph.add_conditional_edges(
+        "validate",
+        _check_validation_dry,
+        {"transform": "transform", "end": END},
+    )
+    dry_graph.add_edge("transform", END)
+
+    compiled = dry_graph.compile()
+    nodes_executed: set[str] = set()
+
+    try:
+        for event in compiled.stream(state, stream_mode="updates"):
+            for node_name, delta in event.items():
+                nodes_executed.add(node_name)
+                for key, value in delta.items():
+                    state[key] = value  # type: ignore[literal-required]
+                yield (node_name, "done", state)
+
+        for stage in {"extract", "validate", "transform"} - nodes_executed:
+            yield (stage, "skipped", state)
+
+    except Exception as exc:
+        failed_stage = _last_executed_node(nodes_executed, "etl")
+        if failed_stage:
+            yield (failed_stage, "failed", state)
+        total_ms = (time.monotonic() - start) * 1000
+        state["duration_ms"]["total"] = total_ms
+        raise PipelineError(f"Pipeline failed (run_id={state['run_id']}): {exc}") from exc
+    else:
+        total_ms = (time.monotonic() - start) * 1000
+        state["duration_ms"]["total"] = total_ms
+
+
+def _last_executed_node(nodes_executed: set[str], mode: str) -> str | None:
+    """Return the last node that was executed, for error reporting."""
+    if mode == "etl":
+        order = ["extract", "validate", "transform", "load"]
+    else:
+        order = ["extract", "load_raw", "transform_in_target"]
+    for node in reversed(order):
+        if node in nodes_executed:
+            return node
+    return None
 
 
 def _run_dry_run(graph: Any, state: PipelineState, mode: str) -> PipelineState:
