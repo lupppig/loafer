@@ -150,7 +150,19 @@ tests/
 
 ## Quick Start
 
-### 1. Install
+### Step 1: Install prerequisites
+
+You need **Python 3.11+** and **[uv](https://docs.astral.sh/uv/)** (a fast Python package manager).
+
+```bash
+# Install uv (one-time)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Verify Python version
+python --version  # Must be 3.11 or higher
+```
+
+### Step 2: Clone and install
 
 ```bash
 git clone https://github.com/lupppig/loafer.git
@@ -158,27 +170,152 @@ cd loafer
 uv sync
 ```
 
-### 2. Run the built-in example
+This creates a virtual environment and installs all dependencies.
 
-No external services needed — this uses local CSV and JSON files:
+### Step 3: Verify it works
+
+```bash
+uv run loafer connectors
+```
+
+You should see a list of available source and target connectors:
+
+```
+Available Connectors
+
+Sources
+┏━━━━━━━━━━┓
+┃ Type     ┃
+┡━━━━━━━━━━┩
+│ csv      │
+│ excel    │
+│ postgres │
+│ mysql    │
+│ mongo    │
+│ rest_api │
+└──────────┘
+
+Targets
+┏━━━━━━━━━━┓
+┃ Type     ┃
+┡━━━━━━━━━━┩
+│ csv      │
+│ json     │
+│ postgres │
+└──────────┘
+```
+
+### Step 4: Run the built-in example (no API key needed)
+
+This example uses local CSV and JSON files — no external services required:
 
 ```bash
 uv run loafer run examples/pipeline.quickstart.yaml
 ```
 
-### 3. Scaffold your own project
+Output:
+
+```
+Running: Quickstart ETL [ETL]
+────────────────────────────────────────────────────────────────────────────────
+  ✓  Extracting from CSV                 10 rows
+  ✓  Validating data                     10 passed
+  ✓  Transforming data (custom)          10 → 7
+  ✓  Loading to JSON                     7 rows
+
+─────────────────────────────── Pipeline Summary ───────────────────────────────
+ Stage               Status    Rows       Duration
+ Extracting from     ✓         10 rows         1ms
+ source
+ Validating data     ✓         10 passed       0ms
+ Transforming data   ✓         10 → 7          0ms
+ Loading to target   ✓         7 rows          2ms
+
+Total: 0.9s
+```
+
+Check the output file:
+
+```bash
+cat examples/output/output.json
+```
+
+### Step 5: Set up your API key (for AI transforms)
+
+To use AI-powered transformations, you need an LLM API key. The default provider is Google Gemini.
+
+```bash
+# Get a free API key from https://aistudio.google.com/apikey
+export GOOGLE_API_KEY="your-api-key-here"
+```
+
+Verify the key works by running a pipeline with an AI transform:
+
+```bash
+uv run loafer validate examples/pipeline.example.yaml
+```
+
+### Step 6: Scaffold your own project
 
 ```bash
 uv run loafer init my-etl
 ```
 
-Interactive prompts guide you through choosing source, target, and transform types. Creates a ready-to-edit `pipeline.yaml`, `transform.py`, and sample data.
+You'll be prompted to choose source, target, and transform types:
 
-### 4. Schedule it
+```
+Create a new Loafer pipeline
+────────────────────────────────────────────────────────────────────────────────
+Pipeline name: Sales Report
+Source type (csv/excel/postgres/mysql/mongo/rest_api) [csv]: csv
+Source path: data/sales.csv
+Target type (csv/json/postgres) [json]: json
+Target path: output/sales.json
+Transform mode (ai/custom/sql) [custom]: ai
+
+✓ Created pipeline in my-etl/
+
+Files created:
+  my-etl/pipeline.yaml
+  my-etl/data/input.csv
+  my-etl/README.md
+
+Next steps:
+  1. Edit my-etl/pipeline.yaml with your connection details
+  2. Run loafer run my-etl/pipeline.yaml
+```
+
+### Step 7: Run your pipeline
 
 ```bash
+uv run loafer run my-etl/pipeline.yaml
+```
+
+Useful flags:
+
+| Flag | Description |
+|------|-------------|
+| `--dry-run` | Run without loading to target (test transform logic) |
+| `--quiet` / `-q` | Suppress progress output, show only summary |
+| `--yes` / `-y` | Skip destructive operation confirmations |
+| `--verbose` | Print full traceback on errors |
+
+### Step 8: Schedule it (optional)
+
+Run your pipeline on a schedule:
+
+```bash
+# Schedule daily at 9am UTC
 uv run loafer schedule my-etl/pipeline.yaml --cron "0 9 * * *"
+
+# Start the scheduler in the background
 uv run loafer start -d
+
+# Check status
+uv run loafer status
+
+# View logs
+uv run loafer logs
 ```
 
 ---
