@@ -3,11 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
-
-import pytest
-
-from loafer.exceptions import PipelineError
 
 
 class TestRunPipelineStreaming:
@@ -15,7 +10,6 @@ class TestRunPipelineStreaming:
 
     def test_streaming_yields_all_etl_stages(self, tmp_path: Path) -> None:
         """ETL mode should yield extract, validate, transform, load."""
-        from loafer.config import PipelineConfig
         from loafer.runner import run_pipeline_streaming
 
         # Create a minimal config file

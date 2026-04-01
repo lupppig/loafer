@@ -23,7 +23,6 @@ def build_elt_graph() -> Any:
 
     Returns a CompiledStateGraph ready to invoke.
     """
-    from loafer.graph.state import PipelineState
 
     graph = StateGraph(state_schema=PipelineState)
 

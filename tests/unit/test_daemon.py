@@ -6,8 +6,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-import pytest
-
 
 class TestDaemonHelpers:
     """Tests for daemon utility functions."""
@@ -72,7 +70,7 @@ class TestDaemonHelpers:
 
     def test_get_log_path(self) -> None:
         """get_log_path should return the expected log file path."""
-        from loafer.daemon import get_log_path, _LOG_FILE
+        from loafer.daemon import _LOG_FILE, get_log_path
 
         assert get_log_path() == _LOG_FILE
 

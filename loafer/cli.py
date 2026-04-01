@@ -9,19 +9,18 @@ All user-facing output uses rich.console.Console. Never use print().
 from __future__ import annotations
 
 import signal
-import sys
-from pathlib import Path
 from typing import Any
 
+import click
 import typer
+from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.rule import Rule
 from rich.table import Table
 
 from loafer.exceptions import PipelineError, SchedulerError
-from loafer.runner import list_connectors, run_pipeline, run_pipeline_streaming, validate_config
+from loafer.runner import list_connectors, run_pipeline_streaming, validate_config
 
 app = typer.Typer(
     name="loafer",
@@ -170,12 +169,6 @@ def _print_error_panel(state: dict[str, Any], error: Exception, verbose: bool) -
     """Print a rich error panel with context and tips."""
     run_id = state.get("run_id", "unknown")
     error_str = str(error)
-
-    # Try to extract the failed stage from the error message
-    failed_stage = "unknown"
-    if "run_id=" in error_str:
-        # Extract stage from the exception chain
-        pass
 
     # Build tip
     tip = _get_error_tip(error_str)
@@ -388,7 +381,7 @@ def schedule(
     console.print(f"  Name:    {pipeline_name}")
     console.print(f"  Config:  {config_file}")
     console.print(f"  Trigger: {trigger_desc}")
-    console.print(f"\nRun [bold]loafer start[/bold] to begin executing scheduled jobs")
+    console.print("\nRun [bold]loafer start[/bold] to begin executing scheduled jobs")
 
 
 @app.command()
@@ -473,8 +466,6 @@ def start(
         console.print("[green]✓ Scheduler stopped[/green]")
         raise typer.Exit(0)
 
-    import signal
-
     signal.signal(signal.SIGINT, _shutdown)
     signal.signal(signal.SIGTERM, _shutdown)
 
@@ -490,18 +481,16 @@ def start(
 
 def _start_background() -> None:
     """Start the scheduler as a background daemon."""
-    import subprocess
-    import sys
 
     from loafer.daemon import start_daemon
 
     pid, log_path = start_daemon()
     console.print(f"[green]✓ Scheduler started in background[/green] (PID {pid})")
     console.print(f"  Log: {log_path}")
-    console.print(f"\nManage with:")
-    console.print(f"  [bold]loafer status[/bold]   — check status")
-    console.print(f"  [bold]loafer stop[/bold]     — stop scheduler")
-    console.print(f"  [bold]loafer logs[/bold]     — view logs")
+    console.print("\nManage with:")
+    console.print("  [bold]loafer status[/bold]   — check status")
+    console.print("  [bold]loafer stop[/bold]     — stop scheduler")
+    console.print("  [bold]loafer logs[/bold]     — view logs")
 
 
 @app.command()
@@ -528,7 +517,7 @@ def status() -> None:
             pass
     else:
         console.print("[dim]○ Scheduler not running[/dim]")
-        console.print(f"  Start with: [bold]loafer start -d[/bold]")
+        console.print("  Start with: [bold]loafer start -d[/bold]")
 
 
 @app.command()
@@ -588,7 +577,7 @@ def init(
         err_console.print(f"[red]Directory already exists: {target}[/red]")
         raise typer.Exit(1)
 
-    console.print(f"\n[bold]Create a new Loafer pipeline[/bold]")
+    console.print("\n[bold]Create a new Loafer pipeline[/bold]")
     console.print(Rule(style="dim"))
 
     # Interactive prompts

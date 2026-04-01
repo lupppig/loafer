@@ -52,3 +52,9 @@ markers = [
     "integration: requires docker services (postgres, mongo)",
     "e2e: end-to-end CLI tests",
 ]
+
+[tool.ruff.lint]
+ignore = [
+    "TC001",  # Move application import into type-checking block (LangGraph needs these at runtime)
+    "TC003",  # Move stdlib import into type-checking block (same reason)
+]

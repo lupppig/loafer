@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -183,7 +182,6 @@ class PipelineScheduler:
     def _build_trigger(self, cron: str | None, interval: str | None) -> Any:
         """Build an APScheduler trigger from cron or interval string."""
         from apscheduler.triggers.cron import CronTrigger
-        from apscheduler.triggers.interval import IntervalTrigger
 
         if cron:
             parts = cron.split()

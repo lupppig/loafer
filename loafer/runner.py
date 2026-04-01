@@ -18,6 +18,7 @@ from loafer.graph.state import PipelineState
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
     from loafer.llm.base import LLMProvider
 
 
