@@ -192,8 +192,8 @@ def _print_error_panel(state: dict[str, Any], error: Exception, verbose: bool) -
 def _get_error_tip(error_str: str) -> str:
     """Return a helpful tip based on the error message."""
     lower = error_str.lower()
-    if "api key" in lower or "api_key" in lower or "google_api_key" in lower:
-        return "Set your API key in the config file (llm.api_key) or the GOOGLE_API_KEY environment variable."
+    if "api key" in lower or "api_key" in lower or "gemini_api_key" in lower:
+        return "Set your API key in the config file (llm.api_key) or the GEMINI_API_KEY environment variable."
     if "not found" in lower or "file not found" in lower:
         return "Check that the file path in your config is correct."
     if "connection" in lower or "refused" in lower:
@@ -656,7 +656,7 @@ def init(
         "llm": {
             "provider": "gemini",
             "model": "gemini-1.5-flash",
-            "api_key": "${GOOGLE_API_KEY}",
+            "api_key": "${GEMINI_API_KEY}",
         },
     }
 

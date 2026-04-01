@@ -29,10 +29,10 @@ def _build_llm_provider(config: PipelineConfig) -> LLMProvider:
     if not api_key:
         import os
 
-        api_key = os.environ.get("GOOGLE_API_KEY", "")
+        api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
         raise PipelineError(
-            "LLM API key not found. Set 'llm.api_key' in config or GOOGLE_API_KEY env var."
+            "LLM API key not found. Set 'llm.api_key' in config or GEMINI_API_KEY env var."
         )
 
     match llm_config.provider:

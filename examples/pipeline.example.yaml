@@ -8,7 +8,7 @@
 # - Data quality validation settings
 #
 # Prerequisites:
-#   1. Set your API key: export GOOGLE_API_KEY="your-key-here"
+#   1. Set your API key: export GEMINI_API_KEY="your-key-here"
 #   2. Set your database URL: export DATABASE_URL="postgresql://user:pass@localhost/db"
 #   3. Run: uv run loafer run examples/pipeline.example.yaml
 #
@@ -70,4 +70,4 @@ llm:
   # Model name (provider-specific)
   model: gemini-2.5-flash
   # API key — can use environment variable or hardcode (not recommended)
-  api_key: ${GOOGLE_API_KEY}
+  api_key: ${GEMINI_API_KEY}

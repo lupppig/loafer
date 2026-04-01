@@ -162,7 +162,7 @@ cd loafer
 uv sync
 ```
 
-### Step 2: Run your first pipeline
+### Step 2: Run your first pipeline (AI mode)
 
 Create a directory and set up your files:
 
@@ -170,7 +170,18 @@ Create a directory and set up your files:
 mkdir ~/my-pipeline && cd ~/my-pipeline
 ```
 
+**Create sample data** (`data.csv`):
+
+```csv
+id,name,email,score,status
+1,Alice,alice@example.com,95.5,active
+2,Bob,bob@example.com,88.0,inactive
+3,Charlie,charlie@example.com,72.3,active
+```
+
 **Create the pipeline config** (`pipeline.yaml`):
+
+> You don't need to write any Python or SQL — just describe your transformation in plain English.
 
 ```yaml
 name: My First Pipeline
@@ -184,31 +195,16 @@ target:
   path: ./output.json
 
 transform:
-  type: custom
-  path: ./transform.py
+  type: ai
+  instruction: "filter active rows, add grade column (A if score >= 90, else B)"
 
 mode: etl
 ```
 
-**Create sample data** (`data.csv`):
+**Set up your LLM API key:**
 
-```csv
-id,name,email,score,status
-1,Alice,alice@example.com,95.5,active
-2,Bob,bob@example.com,88.0,inactive
-3,Charlie,charlie@example.com,72.3,active
-```
-
-**Create the transform** (`transform.py`):
-
-```python
-def transform(data):
-    """Filter active rows and add a grade column."""
-    return [
-        {**row, "grade": "A" if float(row["score"]) >= 90 else "B"}
-        for row in data
-        if row["status"] == "active"
-    ]
+```bash
+export GEMINI_API_KEY="your-key-here"
 ```
 
 **Run it:**
@@ -231,7 +227,7 @@ Running: My First Pipeline [ETL]
 ────────────────────────────────────────────────────────────────────────────────
   ✓  Extracting from CSV                 3 rows
   ✓  Validating data                     3 passed
-  ✓  Transforming data (custom)          3 → 2
+  ✓  Transforming data (ai)              3 → 2
   ✓  Loading to JSON                     2 rows
 
 ─────────────────────────────── Pipeline Summary ───────────────────────────────
@@ -251,20 +247,26 @@ Check the output:
 cat ~/my-pipeline/output.json
 ```
 
-### Step 3: Use AI transforms
+### Step 3: Use custom transforms (optional)
 
-To let the LLM generate transform code instead of writing Python:
-
-```bash
-export GOOGLE_API_KEY="your-key-here"
-```
-
-Change `pipeline.yaml`:
+If you prefer to write your own Python instead of using AI, change `pipeline.yaml`:
 
 ```yaml
 transform:
-  type: ai
-  instruction: "filter active rows, add grade column based on score"
+  type: custom
+  path: ./transform.py
+```
+
+Create `transform.py`:
+
+```python
+def transform(data):
+    """Filter active rows and add a grade column."""
+    return [
+        {**row, "grade": "A" if float(row["score"]) >= 90 else "B"}
+        for row in data
+        if row["status"] == "active"
+    ]
 ```
 
 Run the same command:
@@ -310,7 +312,7 @@ Mount your config and data directories into the container:
 docker run --rm \
   -v $(pwd)/my-pipeline:/configs \
   -v $(pwd)/my-pipeline:/data \
-  -e GOOGLE_API_KEY=your-key-here \
+  -e GEMINI_API_KEY=your-key-here \
   loafer run /configs/pipeline.yaml
 
 # Validate a config
@@ -349,7 +351,7 @@ docker compose -f docker/docker-compose.yml down
 
 | Variable | Purpose |
 |----------|---------|
-| `GOOGLE_API_KEY` | Google Gemini API key |
+| `GEMINI_API_KEY` | Google Gemini API key |
 | `OPENAI_API_KEY` | OpenAI API key |
 | `ANTHROPIC_API_KEY` | Anthropic Claude API key |
 | `DATABASE_URL` | PostgreSQL/MySQL connection string |
@@ -505,7 +507,7 @@ Example with environment variable:
 llm:
   provider: gemini
   model: gemini-2.5-flash
-  api_key: ${GOOGLE_API_KEY}
+  api_key: ${GEMINI_API_KEY}
 ```
 
 #### Setting up LLM providers
@@ -515,14 +517,14 @@ llm:
 1. Get an API key from [Google AI Studio](https://aistudio.google.com/apikey)
 2. Set the environment variable:
    ```bash
-   export GOOGLE_API_KEY="your-api-key-here"
+   export GEMINI_API_KEY="your-api-key-here"
    ```
 3. Configure your pipeline:
    ```yaml
    llm:
      provider: gemini
      model: gemini-2.5-flash
-     api_key: ${GOOGLE_API_KEY}
+     api_key: ${GEMINI_API_KEY}
    ```
 
 **OpenAI**

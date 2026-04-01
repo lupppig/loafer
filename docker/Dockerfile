@@ -41,7 +41,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
 
 # Default environment variables (override with -e or .env file)
-ENV GOOGLE_API_KEY=""
+ENV GEMINI_API_KEY=""
 
 # Expose volume mount points
 VOLUME ["/configs", "/data", "/root/.loafer"]
