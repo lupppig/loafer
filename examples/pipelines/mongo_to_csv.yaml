@@ -1,0 +1,18 @@
+name: MongoDB Analytics → CSV
+source:
+  type: mongo
+  url: mongodb://loafer:loafer@localhost:27017
+  database: loafer_source
+  collection: analytics
+  filter: {}
+
+target:
+  type: csv
+  path: ./examples/output/mongo_analytics.csv
+
+transform:
+  type: custom
+  path: ./examples/transforms/mongo_transform.py
+
+mode: etl
+chunk_size: 5000

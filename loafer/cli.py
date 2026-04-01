@@ -9,11 +9,11 @@ All user-facing output uses rich.console.Console. Never use print().
 from __future__ import annotations
 
 import signal
+from pathlib import Path
 from typing import Any
 
 import click
 import typer
-from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
 from rich.rule import Rule
@@ -705,7 +705,3 @@ def init(
     if transform_path:
         console.print(f"  2. Edit [bold]{transform_path}[/bold] with your transformation logic")
     console.print(f"  3. Run [bold]loafer run {yaml_path}[/bold]")
-
-
-# Import click for Choice type (typer uses click under the hood)
-import click

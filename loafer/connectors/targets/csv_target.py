@@ -35,7 +35,7 @@ class CsvTargetConnector(TargetConnector):
             raise LoadError(f"Output file already exists: {self._path}")
 
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._file = open(self._path, "w", newline="", encoding="utf-8")  # noqa: SIM115
+        self._file = open(self._path, "w", newline="", encoding="utf-8")
         self._header_written = False
         self._rows_written = 0
 

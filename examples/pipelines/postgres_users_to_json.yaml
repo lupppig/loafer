@@ -1,0 +1,17 @@
+name: PostgreSQL Users → JSON
+source:
+  type: postgres
+  url: ${POSTGRES_URL}
+  query: "SELECT id, first_name, last_name, email, status, country, signup_date, last_login, age, tier FROM users LIMIT 100000"
+  timeout: 60
+
+target:
+  type: json
+  path: ./examples/output/users_clean.json
+
+transform:
+  type: custom
+  path: ./examples/transforms/postgres_users_transform.py
+
+mode: etl
+chunk_size: 5000

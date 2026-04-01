@@ -80,7 +80,7 @@ class TestRunPipelineStreaming:
         )
 
         events = list(run_pipeline_streaming(config_file))
-        for node_name, status, state in events:
+        for node_name, status, _state in events:
             assert status in ("done", "skipped"), (
                 f"Stage {node_name} had unexpected status: {status}"
             )

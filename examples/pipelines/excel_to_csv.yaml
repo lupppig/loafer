@@ -1,0 +1,16 @@
+name: Excel Inventory → CSV
+source:
+  type: excel
+  path: ./examples/data/inventory_data.xlsx
+  sheet: Inventory
+
+target:
+  type: csv
+  path: ./examples/output/inventory_flat.csv
+
+transform:
+  type: custom
+  path: ./examples/transforms/excel_transform.py
+
+mode: etl
+chunk_size: 5000

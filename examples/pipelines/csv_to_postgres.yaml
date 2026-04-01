@@ -1,0 +1,17 @@
+name: CSV Sales Data → PostgreSQL
+source:
+  type: csv
+  path: ./examples/data/sales_data.csv
+
+target:
+  type: postgres
+  url: ${POSTGRES_URL}
+  table: etl_sales_import
+  write_mode: replace
+
+transform:
+  type: custom
+  path: ./examples/transforms/csv_transform.py
+
+mode: etl
+chunk_size: 5000

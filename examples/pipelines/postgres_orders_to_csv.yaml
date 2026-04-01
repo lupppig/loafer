@@ -1,0 +1,17 @@
+name: PostgreSQL Orders → CSV
+source:
+  type: postgres
+  url: ${POSTGRES_URL}
+  query: "SELECT id, user_id, product_id, quantity, unit_price, total_price, status, order_date, shipped_date, region FROM orders LIMIT 100000"
+  timeout: 60
+
+target:
+  type: csv
+  path: ./examples/output/orders_clean.csv
+
+transform:
+  type: custom
+  path: ./examples/transforms/postgres_orders_transform.py
+
+mode: etl
+chunk_size: 5000

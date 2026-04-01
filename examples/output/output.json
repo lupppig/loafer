@@ -1,0 +1,9 @@
+[
+{"id": "1", "name": "Alice", "email": "alice@example.com", "score": "95.5", "status": "active", "grade": "A"},
+{"id": "3", "name": "Charlie", "email": "charlie@example.com", "score": "72.3", "status": "active", "grade": "C"},
+{"id": "4", "name": "Diana", "email": "diana@example.com", "score": "91.0", "status": "active", "grade": "A"},
+{"id": "6", "name": "Frank", "email": "frank@example.com", "score": "83.7", "status": "active", "grade": "B"},
+{"id": "7", "name": "Grace", "email": "grace@example.com", "score": "97.2", "status": "active", "grade": "A"},
+{"id": "9", "name": "Ivy", "email": "ivy@example.com", "score": "76.4", "status": "active", "grade": "C"},
+{"id": "10", "name": "Jack", "email": "jack@example.com", "score": "89.1", "status": "active", "grade": "B"}
+]

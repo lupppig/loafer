@@ -3,7 +3,15 @@ line-length = 100
 
 [lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM", "TCH", "RUF"]
-ignore = ["E501"]
+ignore = [
+    "E501",
+    "TC001",  # LangGraph needs PipelineState at runtime for state_schema
+    "TC003",  # Same reason — TypedDict runtime references
+    "SIM105",  # contextlib.suppress is less readable for simple pass blocks
+    "SIM108",  # ternary operators hurt readability in try/except blocks
+    "SIM115",  # file handle managed by subprocess.Popen, not leaked
+    "B904",    # raise without from is intentional for ImportError chains
+]
 
 [lint.isort]
 known-first-party = ["loafer"]

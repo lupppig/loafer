@@ -1,0 +1,17 @@
+name: MySQL Sales → JSON
+source:
+  type: mysql
+  url: mysql://loafer:loafer@localhost:3306/loafer_source
+  query: "SELECT s.id, s.customer_id, c.name AS customer_name, c.email, s.product_name, s.category, s.amount, s.tax, s.discount, s.final_amount, s.sale_date, s.channel FROM sales s JOIN customers c ON s.customer_id = c.id LIMIT 50000"
+  timeout: 60
+
+target:
+  type: json
+  path: ./examples/output/mysql_sales.json
+
+transform:
+  type: custom
+  path: ./examples/transforms/mysql_transform.py
+
+mode: etl
+chunk_size: 5000

@@ -36,11 +36,10 @@ def transform_in_target_agent(state: PipelineState) -> PipelineState:
         raise LoadError("ELT mode requires a target table name")
 
     write_mode: str = target_config.write_mode if target_config else "append"
-    if write_mode == "error":
-        if _table_exists(target_config.url if target_config else "", output_table):
-            raise LoadError(
-                f"Target table '{output_table}' already exists and write_mode is 'error'"
-            )
+    if write_mode == "error" and _table_exists(
+        target_config.url if target_config else "", output_table
+    ):
+        raise LoadError(f"Target table '{output_table}' already exists and write_mode is 'error'")
 
     instruction: str = state.get("transform_instruction", "")
     target_schema: dict[str, Any] = state.get("schema_sample", {})
@@ -133,8 +132,8 @@ def _execute_elt_sql(url: str, sql: str, output_table: str) -> int:
     """Execute CREATE TABLE AS SELECT on the target database."""
     try:
         import psycopg2
-    except ImportError:
-        raise TransformError("ELT SQL transform requires 'psycopg2-binary'")
+    except ImportError as exc:
+        raise TransformError("ELT SQL transform requires 'psycopg2-binary'") from exc
 
     create_sql = f"CREATE TABLE {output_table} AS ({sql})"
 
