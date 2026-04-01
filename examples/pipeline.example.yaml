@@ -1,15 +1,73 @@
-# Example: ETL from PostgreSQL to CSV
+# Example: ETL from PostgreSQL to CSV with AI transform
+#
+# This example demonstrates a complete pipeline configuration including:
+# - LLM provider setup for AI-powered transformations
+# - Database source with connection details
+# - File target with write mode
+# - Natural language transform instruction
+# - Data quality validation settings
+#
+# Prerequisites:
+#   1. Set your API key: export GOOGLE_API_KEY="your-key-here"
+#   2. Set your database URL: export DATABASE_URL="postgresql://user:pass@localhost/db"
+#   3. Run: uv run loafer run examples/pipeline.example.yaml
+#
+# See README.md for full configuration reference.
+
+# Pipeline name — shown in CLI output and scheduler
+name: Daily Orders Report
+
+# ─── Source Configuration ───────────────────────────────────────────────────
 source:
   type: postgres
   url: ${DATABASE_URL}
-  query: "SELECT * FROM orders WHERE created_at > '2024-01-01'"
+  query: "SELECT * FROM orders WHERE created_at >= NOW() - INTERVAL '1 day'"
   timeout: 60
 
+# ─── Target Configuration ───────────────────────────────────────────────────
 target:
   type: csv
   path: ./output/orders_clean.csv
+  write_mode: overwrite
 
-transform: "Normalize currency to USD, drop cancelled orders, lowercase all emails"
+# ─── Transform Configuration ────────────────────────────────────────────────
+# AI mode: describe what you want in plain English
+# The LLM generates, validates, and executes Python code automatically.
+transform:
+  type: ai
+  instruction: >
+    Normalize currency to USD, drop cancelled orders,
+    lowercase all emails, combine first_name and last_name into full_name
 
+# ─── Pipeline Mode ──────────────────────────────────────────────────────────
+# etl  = Extract → Transform → Load (transform happens before loading)
+# elt  = Extract → Load → Transform (load raw data, then transform in-target)
 mode: etl
+
+# ─── Performance Settings ───────────────────────────────────────────────────
+# Rows per batch for processing and loading
 chunk_size: 1000
+
+# Row count above which streaming mode activates
+streaming_threshold: 10000
+
+# Warn if transform drops more than this fraction of rows (0.3 = 30%)
+destructive_filter_threshold: 0.3
+
+# ─── Data Quality Validation ────────────────────────────────────────────────
+validation:
+  # Maximum fraction of null values per column before hard failure
+  max_null_rate: 0.5
+  # If true, any validation failure stops the pipeline
+  strict: false
+
+# ─── LLM Provider Configuration ─────────────────────────────────────────────
+# Required for AI transforms and ELT SQL generation.
+# Supports environment variable interpolation with ${VAR_NAME} syntax.
+llm:
+  # Provider: gemini (default), claude, openai, qwen
+  provider: gemini
+  # Model name (provider-specific)
+  model: gemini-2.5-flash
+  # API key — can use environment variable or hardcode (not recommended)
+  api_key: ${GOOGLE_API_KEY}

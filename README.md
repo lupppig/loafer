@@ -334,6 +334,68 @@ llm:
   api_key: ${GOOGLE_API_KEY}
 ```
 
+#### Setting up LLM providers
+
+**Google Gemini (default)**
+
+1. Get an API key from [Google AI Studio](https://aistudio.google.com/apikey)
+2. Set the environment variable:
+   ```bash
+   export GOOGLE_API_KEY="your-api-key-here"
+   ```
+3. Configure your pipeline:
+   ```yaml
+   llm:
+     provider: gemini
+     model: gemini-2.5-flash
+     api_key: ${GOOGLE_API_KEY}
+   ```
+
+**OpenAI**
+
+1. Get an API key from [OpenAI Platform](https://platform.openai.com/api-keys)
+2. Set the environment variable:
+   ```bash
+   export OPENAI_API_KEY="your-api-key-here"
+   ```
+3. Configure your pipeline:
+   ```yaml
+   llm:
+     provider: openai
+     model: gpt-4o-mini
+     api_key: ${OPENAI_API_KEY}
+   ```
+
+**Anthropic Claude**
+
+1. Get an API key from [Anthropic Console](https://console.anthropic.com/)
+2. Set the environment variable:
+   ```bash
+   export ANTHROPIC_API_KEY="your-api-key-here"
+   ```
+3. Configure your pipeline:
+   ```yaml
+   llm:
+     provider: claude
+     model: claude-sonnet-4-20250514
+     api_key: ${ANTHROPIC_API_KEY}
+   ```
+
+**Qwen**
+
+1. Get an API key from [DashScope](https://dashscope.console.aliyun.com/)
+2. Set the environment variable:
+   ```bash
+   export DASHSCOPE_API_KEY="your-api-key-here"
+   ```
+3. Configure your pipeline:
+   ```yaml
+   llm:
+     provider: qwen
+     model: qwen-plus
+     api_key: ${DASHSCOPE_API_KEY}
+   ```
+
 ---
 
 ## Supported Connectors
@@ -454,6 +516,34 @@ uv run loafer stop
 # View logs
 uv run loafer logs
 ```
+
+### Cron expressions
+
+Cron uses standard 5-field syntax: `minute hour day month day_of_week`
+
+| Expression | Description | Example |
+|------------|-------------|---------|
+| `0 9 * * *` | Daily at 9am UTC | `--cron "0 9 * * *"` |
+| `0 */2 * * *` | Every 2 hours | `--cron "0 */2 * * *"` |
+| `0 9 * * 1-5` | Weekdays at 9am | `--cron "0 9 * * 1-5"` |
+| `0 0 1 * *` | First of every month | `--cron "0 0 1 * *"` |
+| `*/15 * * * *` | Every 15 minutes | `--cron "*/15 * * * *"` |
+
+### Interval strings
+
+| Format | Description | Example |
+|--------|-------------|---------|
+| `30m` | Every 30 minutes | `--interval "30m"` |
+| `1h` | Every hour | `--interval "1h"` |
+| `6h` | Every 6 hours | `--interval "6h"` |
+| `1d` | Every day | `--interval "1d"` |
+
+### How scheduling works
+
+1. **`loafer schedule`** — Creates a job entry in the SQLite store (`loafer_jobs.sqlite`)
+2. **`loafer start`** — Starts the scheduler in foreground (blocks until Ctrl+C)
+3. **`loafer start -d`** — Starts the scheduler as a background daemon (PID file at `~/.loafer/scheduler.pid`)
+4. Jobs persist across restarts — stop and start the scheduler without losing schedules
 
 ---
 
