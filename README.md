@@ -287,7 +287,73 @@ uv run loafer run ~/my-pipeline/pipeline.yaml
 | `uv run loafer start -d` | Start scheduler in background |
 | `uv run loafer status` | Check scheduler status |
 | `uv run loafer list-schedules` | List scheduled jobs |
-| `uv run loafer unschedule <job-id>` | Remove a job | |
+| `uv run loafer unschedule <job-id>` | Remove a job |
+
+---
+
+## Running with Docker
+
+Build and run Loafer in a container without installing Python or dependencies locally.
+
+### Build the image
+
+```bash
+docker build -f docker/Dockerfile -t loafer .
+```
+
+### Run a pipeline
+
+Mount your config and data directories into the container:
+
+```bash
+# Run a pipeline from your local directory
+docker run --rm \
+  -v $(pwd)/my-pipeline:/configs \
+  -v $(pwd)/my-pipeline:/data \
+  -e GOOGLE_API_KEY=your-key-here \
+  loafer run /configs/pipeline.yaml
+
+# Validate a config
+docker run --rm \
+  -v $(pwd)/my-pipeline:/configs \
+  loafer validate /configs/pipeline.yaml
+
+# List connectors
+docker run --rm loafer connectors
+```
+
+### Use docker-compose (with databases)
+
+The `docker/docker-compose.yml` file includes Postgres, MongoDB, and Loafer:
+
+```bash
+# Start all services
+docker compose -f docker/docker-compose.yml up -d
+
+# Run a pipeline inside the container
+docker compose -f docker/docker-compose.yml exec loafer loafer run /app/examples/pipeline.quickstart.yaml
+
+# Stop all services
+docker compose -f docker/docker-compose.yml down
+```
+
+### Volume mounts
+
+| Container path | Purpose |
+|----------------|---------|
+| `/configs` | Pipeline YAML config files |
+| `/data` | Input data files and output files |
+| `/root/.loafer` | Scheduler state (PID, logs, job store) |
+
+### Environment variables
+
+| Variable | Purpose |
+|----------|---------|
+| `GOOGLE_API_KEY` | Google Gemini API key |
+| `OPENAI_API_KEY` | OpenAI API key |
+| `ANTHROPIC_API_KEY` | Anthropic Claude API key |
+| `DATABASE_URL` | PostgreSQL/MySQL connection string |
+| `MONGO_URL` | MongoDB connection string |
 
 ---
 
