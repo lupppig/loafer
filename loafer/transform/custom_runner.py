@@ -6,11 +6,13 @@ the transform function.  No LLM call.  No retry loop — one attempt.
 
 from __future__ import annotations
 
+import copy
 import time
 from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
+from loafer.core.destructive import detect_destructive_operations, raise_if_destructive
 from loafer.exceptions import TransformError
 from loafer.graph.state import PipelineState
 from loafer.transform import TransformRunner
@@ -85,6 +87,9 @@ class CustomTransformRunner(TransformRunner):
 
         start = time.monotonic()
 
+        # Snapshot raw data for destructive detection
+        raw_data_snapshot = copy.deepcopy(state.get("raw_data", []))
+
         try:
             transformed = _execute_transform(code, state)
         except TransformError:
@@ -101,6 +106,15 @@ class CustomTransformRunner(TransformRunner):
 
         if len(transformed) == 0:
             state.setdefault("warnings", []).append("Transform returned 0 rows")
+
+        # Destructive operation detection
+        before_state = {"raw_data": raw_data_snapshot}
+        after_state = {"transformed_data": transformed}
+        threshold = state.get("destructive_filter_threshold", 0.3)
+        warnings = detect_destructive_operations(before_state, after_state, threshold)
+        raise_if_destructive(warnings, state.get("auto_confirmed", False))
+        if warnings:
+            state.setdefault("destructive_warnings", []).extend(warnings)
 
         return state
 

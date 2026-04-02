@@ -14,6 +14,7 @@ from typing import Any
 
 import sqlglot
 
+from loafer.core.destructive import detect_destructive_operations, raise_if_destructive
 from loafer.exceptions import TransformError
 from loafer.graph.state import PipelineState
 from loafer.transform import TransformRunner
@@ -49,6 +50,19 @@ class SqlTransformRunner(TransformRunner):
             self._run_etl(state, sql)
 
         state["duration_ms"]["transform"] = (time.monotonic() - start) * 1000
+
+        # Destructive operation detection (ETL mode only — in-memory comparison)
+        if mode == "etl":
+            raw_data: list[dict[str, Any]] = state.get("raw_data", [])
+            transformed_data: list[dict[str, Any]] = state.get("transformed_data", [])
+            before_state = {"raw_data": raw_data}
+            after_state = {"transformed_data": transformed_data}
+            threshold = state.get("destructive_filter_threshold", 0.3)
+            warnings = detect_destructive_operations(before_state, after_state, threshold)
+            raise_if_destructive(warnings, state.get("auto_confirmed", False))
+            if warnings:
+                state.setdefault("destructive_warnings", []).extend(warnings)
+
         return state
 
     def _run_etl(self, state: PipelineState, sql: str) -> None:
