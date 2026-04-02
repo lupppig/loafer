@@ -196,6 +196,7 @@ class TestAiTransformRunner:
             "token_usage": {},
             "duration_ms": {},
             "warnings": [],
+            "auto_confirmed": True,
         }
         result = runner.run(state)
 

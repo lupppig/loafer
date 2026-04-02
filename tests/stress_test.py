@@ -61,10 +61,10 @@ def _run_pipeline(config_path: str) -> tuple[bool, float, float]:
 # ---------------------------------------------------------------------------
 
 
-def test_large_csv_to_json(tmp: Path) -> tuple[bool, str]:
+def test_large_csv_to_json(tmp_path: Path) -> tuple[bool, str]:
     """Stream 1M rows from CSV to JSON. Memory should stay flat."""
-    csv_path = tmp / "large.csv"
-    json_path = tmp / "large.json"
+    csv_path = tmp_path / "large.csv"
+    json_path = tmp_path / "large.json"
 
     # Generate 1M rows
     print("  Generating 1M rows...", end="", flush=True)
@@ -83,8 +83,8 @@ def test_large_csv_to_json(tmp: Path) -> tuple[bool, str]:
             )
     print(f" done ({_mem_mb():.0f}MB)")
 
-    transform_path = _make_transform(tmp)
-    config_path = tmp / "pipeline.yaml"
+    transform_path = _make_transform(tmp_path)
+    config_path = tmp_path / "pipeline.yaml"
     config_path.write_text(
         f"source:\n  type: csv\n  path: {csv_path}\n"
         f"target:\n  type: json\n  path: {json_path}\n"
@@ -114,10 +114,10 @@ def test_large_csv_to_json(tmp: Path) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 
-def test_large_csv_to_csv(tmp: Path) -> tuple[bool, str]:
+def test_large_csv_to_csv(tmp_path: Path) -> tuple[bool, str]:
     """Stream 5M rows from CSV to CSV. Tests raw throughput."""
-    csv_in = tmp / "big_in.csv"
-    csv_out = tmp / "big_out.csv"
+    csv_in = tmp_path / "big_in.csv"
+    csv_out = tmp_path / "big_out.csv"
 
     print("  Generating 5M rows...", end="", flush=True)
     with open(csv_in, "w", newline="") as f:
@@ -127,8 +127,8 @@ def test_large_csv_to_csv(tmp: Path) -> tuple[bool, str]:
             writer.writerow([i, f"val_{i}"])
     print(f" done ({_mem_mb():.0f}MB)")
 
-    transform_path = _make_transform(tmp)
-    config_path = tmp / "pipeline.yaml"
+    transform_path = _make_transform(tmp_path)
+    config_path = tmp_path / "pipeline.yaml"
     config_path.write_text(
         f"source:\n  type: csv\n  path: {csv_in}\n"
         f"target:\n  type: csv\n  path: {csv_out}\n"
@@ -163,10 +163,10 @@ def test_large_csv_to_csv(tmp: Path) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 
-def test_unicode_data(tmp: Path) -> tuple[bool, str]:
+def test_unicode_data(tmp_path: Path) -> tuple[bool, str]:
     """Handle unicode, emojis, and special characters."""
-    csv_path = tmp / "unicode.csv"
-    json_path = tmp / "unicode.json"
+    csv_path = tmp_path / "unicode.csv"
+    json_path = tmp_path / "unicode.json"
 
     rows = [
         {"id": "1", "name": "Café", "desc": "日本語テスト"},
@@ -186,8 +186,8 @@ def test_unicode_data(tmp: Path) -> tuple[bool, str]:
         writer.writeheader()
         writer.writerows(rows)
 
-    transform_path = _make_transform(tmp)
-    config_path = tmp / "pipeline.yaml"
+    transform_path = _make_transform(tmp_path)
+    config_path = tmp_path / "pipeline.yaml"
     config_path.write_text(
         f"source:\n  type: csv\n  path: {csv_path}\n"
         f"target:\n  type: json\n  path: {json_path}\n"
@@ -212,15 +212,15 @@ def test_unicode_data(tmp: Path) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 
-def test_empty_csv(tmp: Path) -> tuple[bool, str]:
+def test_empty_csv(tmp_path: Path) -> tuple[bool, str]:
     """Handle empty CSV file (header only). Should fail validation gracefully."""
-    csv_path = tmp / "empty.csv"
-    json_path = tmp / "empty.json"
+    csv_path = tmp_path / "empty.csv"
+    json_path = tmp_path / "empty.json"
 
     csv_path.write_text("id,name\n")
 
-    transform_path = _make_transform(tmp)
-    config_path = tmp / "pipeline.yaml"
+    transform_path = _make_transform(tmp_path)
+    config_path = tmp_path / "pipeline.yaml"
     config_path.write_text(
         f"source:\n  type: csv\n  path: {csv_path}\n"
         f"target:\n  type: json\n  path: {json_path}\n"
@@ -249,10 +249,10 @@ def test_empty_csv(tmp: Path) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 
-def test_malformed_rows(tmp: Path) -> tuple[bool, str]:
+def test_malformed_rows(tmp_path: Path) -> tuple[bool, str]:
     """Handle CSV with malformed rows (wrong column count)."""
-    csv_path = tmp / "malformed.csv"
-    json_path = tmp / "malformed.json"
+    csv_path = tmp_path / "malformed.csv"
+    json_path = tmp_path / "malformed.json"
 
     csv_path.write_text(
         "id,name,value\n"
@@ -263,8 +263,8 @@ def test_malformed_rows(tmp: Path) -> tuple[bool, str]:
         "5,Eve,400\n"
     )
 
-    transform_path = _make_transform(tmp)
-    config_path = tmp / "pipeline.yaml"
+    transform_path = _make_transform(tmp_path)
+    config_path = tmp_path / "pipeline.yaml"
     config_path.write_text(
         f"source:\n  type: csv\n  path: {csv_path}\n"
         f"target:\n  type: json\n  path: {json_path}\n"
@@ -290,16 +290,16 @@ def test_malformed_rows(tmp: Path) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 
-def test_transform_drops_all(tmp: Path) -> tuple[bool, str]:
+def test_transform_drops_all(tmp_path: Path) -> tuple[bool, str]:
     """Handle transform that filters out all rows."""
-    csv_path = tmp / "data.csv"
-    json_path = tmp / "dropped.json"
+    csv_path = tmp_path / "data.csv"
+    json_path = tmp_path / "dropped.json"
     csv_path.write_text("id,status\n1,active\n2,active\n3,active\n")
 
-    transform_path = tmp / "t.py"
+    transform_path = tmp_path / "t.py"
     transform_path.write_text("def transform(data):\n    return []\n")
 
-    config_path = tmp / "pipeline.yaml"
+    config_path = tmp_path / "pipeline.yaml"
     config_path.write_text(
         f"source:\n  type: csv\n  path: {csv_path}\n"
         f"target:\n  type: json\n  path: {json_path}\n"
@@ -324,10 +324,10 @@ def test_transform_drops_all(tmp: Path) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 
-def test_wide_rows(tmp: Path) -> tuple[bool, str]:
+def test_wide_rows(tmp_path: Path) -> tuple[bool, str]:
     """Handle CSV with 500 columns."""
-    csv_path = tmp / "wide.csv"
-    json_path = tmp / "wide.json"
+    csv_path = tmp_path / "wide.csv"
+    json_path = tmp_path / "wide.json"
     n_cols = 500
     n_rows = 1000
 
@@ -341,8 +341,8 @@ def test_wide_rows(tmp: Path) -> tuple[bool, str]:
             writer.writerow([f"r{i}_c{j}" for j in range(n_cols)])
     print(f" done ({_mem_mb():.0f}MB)")
 
-    transform_path = _make_transform(tmp)
-    config_path = tmp / "pipeline.yaml"
+    transform_path = _make_transform(tmp_path)
+    config_path = tmp_path / "pipeline.yaml"
     config_path.write_text(
         f"source:\n  type: csv\n  path: {csv_path}\n"
         f"target:\n  type: json\n  path: {json_path}\n"
@@ -373,18 +373,18 @@ def test_wide_rows(tmp: Path) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 
-def test_concurrent_pipelines(tmp: Path) -> tuple[bool, str]:
+def test_concurrent_pipelines(tmp_path: Path) -> tuple[bool, str]:
     """Run 3 pipelines simultaneously."""
     import subprocess
     import concurrent.futures
 
     configs = []
     for i in range(3):
-        csv_path = tmp / f"data_{i}.csv"
-        json_path = tmp / f"out_{i}.json"
+        csv_path = tmp_path / f"data_{i}.csv"
+        json_path = tmp_path / f"out_{i}.json"
         csv_path.write_text(f"id,name\n1,user_{i}\n2,user_{i + 1}\n")
-        transform_path = _make_transform(tmp)
-        config_path = tmp / f"pipeline_{i}.yaml"
+        transform_path = _make_transform(tmp_path)
+        config_path = tmp_path / f"pipeline_{i}.yaml"
         config_path.write_text(
             f"source:\n  type: csv\n  path: {csv_path}\n"
             f"target:\n  type: json\n  path: {json_path}\n"
@@ -425,17 +425,17 @@ def test_concurrent_pipelines(tmp: Path) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 
-def test_scheduler_load(tmp: Path) -> tuple[bool, str]:
+def test_scheduler_load(tmp_path: Path) -> tuple[bool, str]:
     """Schedule 10 jobs and verify they all persist."""
     import subprocess
 
     configs = []
     for i in range(10):
-        csv_path = tmp / f"data_{i}.csv"
-        json_path = tmp / f"out_{i}.json"
+        csv_path = tmp_path / f"data_{i}.csv"
+        json_path = tmp_path / f"out_{i}.json"
         csv_path.write_text(f"id,name\n1,user_{i}\n")
-        transform_path = _make_transform(tmp)
-        config_path = tmp / f"pipeline_{i}.yaml"
+        transform_path = _make_transform(tmp_path)
+        config_path = tmp_path / f"pipeline_{i}.yaml"
         config_path.write_text(
             f"source:\n  type: csv\n  path: {csv_path}\n"
             f"target:\n  type: json\n  path: {json_path}\n"
@@ -497,16 +497,16 @@ def test_scheduler_load(tmp: Path) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 
-def test_memory_leak(tmp: Path) -> tuple[bool, str]:
+def test_memory_leak(tmp_path: Path) -> tuple[bool, str]:
     """Run pipeline 5 times and check memory doesn't grow unbounded."""
-    csv_path = tmp / "data.csv"
-    json_path = tmp / "out.json"
+    csv_path = tmp_path / "data.csv"
+    json_path = tmp_path / "out.json"
     csv_path.write_text(
         "id,name,score\n"
         + "\n".join(f"{i},user_{i},{random.uniform(0, 100):.2f}" for i in range(10000))
     )
-    transform_path = _make_transform(tmp)
-    config_path = tmp / "pipeline.yaml"
+    transform_path = _make_transform(tmp_path)
+    config_path = tmp_path / "pipeline.yaml"
     config_path.write_text(
         f"source:\n  type: csv\n  path: {csv_path}\n"
         f"target:\n  type: json\n  path: {json_path}\n"
@@ -566,7 +566,7 @@ def main() -> int:
         print(f"{'─' * 70}")
 
         with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td)
+            tmp_path = Path(td)
             try:
                 ok, msg = test_fn(tmp)
             except Exception as e:
