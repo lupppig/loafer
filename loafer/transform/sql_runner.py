@@ -14,6 +14,7 @@ from typing import Any
 
 import sqlglot
 
+from loafer.config import PostgresTargetConfig, SQLTransformConfig
 from loafer.core.destructive import detect_destructive_operations, raise_if_destructive
 from loafer.exceptions import TransformError
 from loafer.graph.state import PipelineState
@@ -28,11 +29,13 @@ class SqlTransformRunner(TransformRunner):
 
     def run(self, state: PipelineState) -> PipelineState:
         transform_config = state.get("transform_config")
-        sql: str | None = transform_config.query if transform_config else None
+        if not isinstance(transform_config, SQLTransformConfig):
+            raise TransformError("sql transform requires a SQLTransformConfig")
+        sql: str = transform_config.query
         if not sql:
             raise TransformError("sql transform requires a 'query' in transform_config")
 
-        source_table: str = state.get("raw_table_name", "loafer_source")
+        source_table: str = state.get("raw_table_name") or "loafer_source"
 
         is_valid, reason = validate_transform_sql(sql)
         if not is_valid:
@@ -102,7 +105,10 @@ class SqlTransformRunner(TransformRunner):
     def _run_elt(self, state: PipelineState, sql: str, source_table: str) -> None:
         """Execute SQL in ELT mode — CREATE TABLE AS SELECT on target."""
         target_config = state.get("target_config")
-        output_table: str | None = target_config.table if target_config else None
+        if not isinstance(target_config, PostgresTargetConfig):
+            raise TransformError("ELT mode requires a Postgres target")
+
+        output_table: str = target_config.table
         if not output_table:
             raise TransformError("ELT mode requires a target table name")
 
@@ -115,7 +121,7 @@ class SqlTransformRunner(TransformRunner):
         except ImportError as exc:
             raise TransformError("ELT SQL transform requires 'psycopg2-binary'") from exc
 
-        target_url: str = target_config.url if target_config else ""
+        target_url: str = target_config.url
         conn: Any | None = None
         cursor: Any | None = None
         try:

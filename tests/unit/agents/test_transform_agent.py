@@ -259,12 +259,15 @@ class TestCustomTransformRunner:
         assert result["transformed_data"][0]["x"] == 1
 
     def test_file_not_found_raises(self, tmp_path: Any) -> None:
+        from loafer.config import CustomTransformConfig
         from loafer.transform.custom_runner import CustomTransformRunner
 
         runner = CustomTransformRunner()
-        # Use a dict to bypass Pydantic validation (tests runner logic, not config validation)
+        config = CustomTransformConfig.model_construct(
+            type="custom", path=str(tmp_path / "nonexistent.py")
+        )
         state: dict[str, Any] = {
-            "transform_config": MagicMock(type="custom", path=str(tmp_path / "nonexistent.py")),
+            "transform_config": config,
             "raw_data": [],
             "is_streaming": False,
             "duration_ms": {},

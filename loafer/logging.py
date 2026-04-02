@@ -50,7 +50,7 @@ def configure_logging(verbose: bool = False, json: bool = False) -> None:
         structlog.configure(
             processors=[
                 *shared_processors,
-                structlog.dev.ConsoleRenderer(exception_formatter="traceback"),
+                structlog.dev.ConsoleRenderer(),
             ],
             wrapper_class=structlog.stdlib.BoundLogger,
             cache_logger_on_first_use=True,
@@ -59,4 +59,4 @@ def configure_logging(verbose: bool = False, json: bool = False) -> None:
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:
     """Get a structured logger bound to the given name."""
-    return structlog.get_logger(name)
+    return structlog.get_logger(name)  # type: ignore[no-any-return]

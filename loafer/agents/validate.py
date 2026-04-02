@@ -52,7 +52,8 @@ def validate_agent(state: PipelineState) -> PipelineState:
         return state
 
     if is_streaming and not raw_data:
-        total = len(state.get("_first_chunk", []))
+        first_chunk = state.get("_first_chunk", [])
+        total = len(first_chunk) if isinstance(first_chunk, list) else 0
     else:
         total = len(raw_data) if raw_data else 0
 

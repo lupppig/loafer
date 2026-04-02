@@ -294,7 +294,7 @@ def _stream_dry_run(
     nodes_executed: set[str] = set()
 
     try:
-        for event in compiled.stream(state, stream_mode="updates"):
+        for event in compiled.stream(state, stream_mode="updates"):  # type: ignore[arg-type]
             for node_name, delta in event.items():
                 nodes_executed.add(node_name)
                 for key, value in delta.items():
@@ -357,7 +357,7 @@ def _run_dry_run(graph: Any, state: PipelineState, mode: str) -> PipelineState:
     dry_graph.add_edge("transform", END)
 
     compiled = dry_graph.compile()
-    return compiled.invoke(state)
+    return compiled.invoke(state)  # type: ignore[arg-type, return-value]
 
 
 def _print_summary(state: PipelineState) -> None:
@@ -365,15 +365,15 @@ def _print_summary(state: PipelineState) -> None:
     from rich.console import Console
 
     console = Console()
-    console.print(f"\n[bold]Pipeline Summary[/bold] (run_id={state['run_id']})")
+    console.print(f"\n[bold]Pipeline Summary[/bold] (run_id={state.get('run_id', 'unknown')})")
     console.print(f"  Rows extracted: {state.get('rows_extracted', 0)}")
     console.print(f"  Rows loaded:    {state.get('rows_loaded', 0)}")
     console.print(f"  Warnings:       {len(state.get('warnings', []))}")
 
     if state.get("token_usage"):
-        console.print(f"  Token usage:    {state['token_usage']}")
+        console.print(f"  Token usage:    {state.get('token_usage', {})}")
 
-    console.print(f"  Duration:       {state['duration_ms'].get('total', 0):.0f}ms")
+    console.print(f"  Duration:       {state.get('duration_ms', {}).get('total', 0):.0f}ms")
 
     if state.get("warnings"):
         console.print("\n[yellow]Warnings:[/yellow]")

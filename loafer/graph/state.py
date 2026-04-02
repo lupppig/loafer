@@ -38,6 +38,7 @@ class PipelineState(TypedDict, total=False):
     strict_validation: bool
 
     # LLM
+    llm_provider: Any
     generated_code: str
     retry_count: int
     last_error: str | None
@@ -60,3 +61,6 @@ class PipelineState(TypedDict, total=False):
     # Destructive operation detection
     destructive_warnings: list[Any]
     auto_confirmed: bool
+
+    # Internal (not exposed to agents)
+    _source_connector: Any | None

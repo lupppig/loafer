@@ -669,15 +669,15 @@ def init(
     yaml_path.write_text(yaml.dump(pipeline_config, default_flow_style=False, sort_keys=False))
 
     # Write transform.py if custom
-    transform_path = target / "transform.py" if transform_type == "custom" else None
     if transform_type == "custom":
+        transform_path = target / "transform.py"
         transform_path.write_text(
             'def transform(data):\n    """Transform the extracted data.\n\n    Args:\n        data: list[dict] — rows from the source.\n\n    Returns:\n        list[dict] — transformed rows.\n    """\n    return data\n'
         )
 
     # Write sample data if CSV
-    sample_csv = target / "data" / "input.csv" if source_type == "csv" else None
     if source_type == "csv":
+        sample_csv = target / "data" / "input.csv"
         sample_csv.write_text(
             "id,name,email,score\n1,Alice,alice@example.com,95.5\n2,Bob,bob@example.com,88.0\n"
         )

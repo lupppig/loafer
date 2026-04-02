@@ -12,6 +12,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
+from loafer.config import CustomTransformConfig
 from loafer.core.destructive import detect_destructive_operations, raise_if_destructive
 from loafer.exceptions import TransformError
 from loafer.graph.state import PipelineState
@@ -71,7 +72,9 @@ class CustomTransformRunner(TransformRunner):
 
     def run(self, state: PipelineState) -> PipelineState:
         transform_config = state.get("transform_config")
-        path_str: str | None = transform_config.path if transform_config else None
+        if not isinstance(transform_config, CustomTransformConfig):
+            raise TransformError("custom transform requires a CustomTransformConfig")
+        path_str: str = transform_config.path
         if not path_str:
             raise TransformError("custom transform requires a 'path' in transform_config")
 

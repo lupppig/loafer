@@ -51,7 +51,7 @@ class PipelineScheduler:
 
     @property
     def running(self) -> bool:
-        return self._scheduler.running
+        return bool(self._scheduler.running)
 
     def start(self, paused: bool = False) -> None:
         """Start the scheduler."""

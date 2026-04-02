@@ -47,6 +47,9 @@ class _PeekableStream:
         for chunk in self._source:
             yield chunk
 
+    def __next__(self) -> list[dict[str, Any]]:
+        return next(self._source)
+
 
 def extract_agent(state: PipelineState) -> PipelineState:
     """Extract data from the configured source.

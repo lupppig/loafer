@@ -80,8 +80,8 @@ def _write_stream_raw(
     """Consume the stream iterator and write each chunk to the target as raw data."""
     total_loaded = 0
 
-    first_chunk: list[dict[str, Any]] | None = state.get("_first_chunk")
-    if first_chunk:
+    first_chunk = state.get("_first_chunk")
+    if isinstance(first_chunk, list):
         written = connector.write_chunk(first_chunk)
         total_loaded += written
 
