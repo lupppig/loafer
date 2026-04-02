@@ -115,13 +115,41 @@ class RestApiSourceConfig(BaseModel):
     timeout: int = 30
 
 
+class SqliteSourceConfig(BaseModel):
+    type: Literal["sqlite"]
+    path: str
+    query: str
+
+    @field_validator("path")
+    @classmethod
+    def path_must_exist(cls, v: str) -> str:
+        if not Path(v).exists():
+            raise ValueError(f"SQLite database not found: {v}")
+        return v
+
+
+class PdfSourceConfig(BaseModel):
+    type: Literal["pdf"]
+    path: str
+    extract_tables: bool = True
+
+    @field_validator("path")
+    @classmethod
+    def path_must_exist(cls, v: str) -> str:
+        if not Path(v).exists():
+            raise ValueError(f"PDF file not found: {v}")
+        return v
+
+
 SourceConfig = Annotated[
     PostgresSourceConfig
     | MySQLSourceConfig
     | MongoSourceConfig
     | CsvSourceConfig
     | ExcelSourceConfig
-    | RestApiSourceConfig,
+    | RestApiSourceConfig
+    | SqliteSourceConfig
+    | PdfSourceConfig,
     Field(discriminator="type"),
 ]
 
@@ -150,8 +178,16 @@ class JsonTargetConfig(BaseModel):
     write_mode: Literal["overwrite", "error"] = "overwrite"
 
 
+class MongoTargetConfig(BaseModel):
+    type: Literal["mongo"]
+    url: str
+    database: str
+    collection: str
+    write_mode: Literal["append", "replace", "error"] = "append"
+
+
 TargetConfig = Annotated[
-    PostgresTargetConfig | CsvTargetConfig | JsonTargetConfig,
+    PostgresTargetConfig | CsvTargetConfig | JsonTargetConfig | MongoTargetConfig,
     Field(discriminator="type"),
 ]
 
