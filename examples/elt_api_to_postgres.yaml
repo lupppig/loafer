@@ -1,0 +1,49 @@
+# ELT pipeline: REST API → PostgreSQL
+#
+# Extracts data from a REST API, loads raw into PostgreSQL, then
+# generates and executes an in-target SQL transform.
+#
+# Run: loafer run examples/elt_api_to_postgres.yaml
+
+name: API to Postgres ELT
+
+source:
+  type: rest_api
+  url: https://api.example.com/v1/users
+  response_key: data
+  pagination:
+    type: offset
+    offset_param: offset
+    limit_param: limit
+    limit: 100
+  headers:
+    Authorization: Bearer ${API_TOKEN}
+  timeout: 30
+
+target:
+  type: postgres
+  url: ${DATABASE_URL}
+  table: raw_users
+  write_mode: append
+
+transform:
+  type: ai
+  instruction: >
+    Create a clean users table from raw_users: extract nested JSON fields
+    into flat columns, parse created_at timestamps, compute age from
+    birth_date, and drop records with invalid emails.
+
+mode: elt
+
+chunk_size: 500
+streaming_threshold: 5000
+destructive_filter_threshold: 0.3
+
+validation:
+  max_null_rate: 0.5
+  strict: false
+
+llm:
+  provider: gemini
+  model: gemini-2.5-flash
+  api_key: ${GEMINI_API_KEY}
