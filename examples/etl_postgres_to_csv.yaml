@@ -1,0 +1,41 @@
+# ETL pipeline: PostgreSQL → CSV
+#
+# Extracts orders from PostgreSQL, applies an AI transform to enrich
+# the data, validates quality, and writes the result to a CSV file.
+#
+# Run: loafer run examples/etl_postgres_to_csv.yaml
+
+name: Postgres Orders to CSV
+
+source:
+  type: postgres
+  url: ${DATABASE_URL}
+  query: "SELECT id, customer_email, amount, status, created_at FROM orders"
+  timeout: 60
+
+target:
+  type: csv
+  path: ./output/orders_clean.csv
+  write_mode: overwrite
+
+transform:
+  type: ai
+  instruction: >
+    Filter to only completed orders, convert amount to USD using a
+    fixed rate, add a full_name column from first_name and last_name,
+    and drop the customer_email column for anonymisation.
+
+mode: etl
+
+chunk_size: 1000
+streaming_threshold: 10000
+destructive_filter_threshold: 0.3
+
+validation:
+  max_null_rate: 0.5
+  strict: false
+
+llm:
+  provider: gemini
+  model: gemini-2.5-flash
+  api_key: ${GEMINI_API_KEY}
