@@ -6,6 +6,7 @@ logic should exist outside this module.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 from loafer.connectors.base import SourceConnector, TargetConnector
@@ -81,6 +82,10 @@ def _build_source(cls: type[SourceConnector], config: SourceConfig) -> SourceCon
                 config.verify_ssl,
                 config.timeout,
             )  # type: ignore[call-arg]
+        case "sqlite":
+            return cls(config.path, config.query)  # type: ignore[call-arg]
+        case "pdf":
+            return cls(config.path, config.extract_tables)  # type: ignore[call-arg]
     msg = f"source connector '{config.type}' not implemented"
     raise RegistryError(msg)
 
@@ -93,6 +98,8 @@ def _build_target(cls: type[TargetConnector], config: TargetConfig) -> TargetCon
             return cls(config.path, config.write_mode)  # type: ignore[call-arg]
         case "postgres":
             return cls(config.url, config.table, config.write_mode)  # type: ignore[call-arg]
+        case "mongo":
+            return cls(config.url, config.database, config.collection, config.write_mode)  # type: ignore[call-arg]
     msg = f"target connector '{config.type}' not implemented"
     raise RegistryError(msg)
 
@@ -824,3 +831,207 @@ class PostgresTargetConnector(TargetConnector):
 
 
 _register_target("postgres", PostgresTargetConnector)
+
+
+# -- sqlite source connector --------------------------------------------------
+
+
+class SqliteSourceConnector(SourceConnector):
+    """Stream rows from a SQLite database via SQL query."""
+
+    def __init__(
+        self,
+        path: str,
+        query: str,
+    ) -> None:
+        self._path = path
+        self._query = query
+        self._conn: Any = None
+        self._cursor: Any = None
+
+    def connect(self) -> None:
+        import sqlite3
+
+        try:
+            self._conn = sqlite3.connect(self._path)
+            self._conn.row_factory = sqlite3.Row
+            self._cursor = self._conn.cursor()
+        except sqlite3.Error as exc:
+            from loafer.exceptions import ConnectorError
+
+            raise ConnectorError(f"failed to connect to SQLite: {exc}") from exc
+
+    def disconnect(self) -> None:
+        if self._conn:
+            self._conn.close()
+            self._conn = None
+            self._cursor = None
+
+    def stream(self, chunk_size: int) -> Iterator[list[dict[str, Any]]]:
+        if self._cursor is None:
+            raise ConnectorError("not connected")
+
+        self._cursor.execute(self._query)
+        while True:
+            rows = self._cursor.fetchmany(chunk_size)
+            if not rows:
+                break
+            yield [dict(row) for row in rows]
+
+    def count(self) -> int | None:
+        if self._conn is None:
+            return None
+        try:
+            cursor = self._conn.cursor()
+            cursor.execute(f"SELECT COUNT(*) FROM ({self._query})")
+            row = cursor.fetchone()
+            return int(row[0]) if row else None
+        except Exception:
+            return None
+
+
+_register_source("sqlite", SqliteSourceConnector)
+
+
+# -- pdf source connector -----------------------------------------------------
+
+
+class PdfSourceConnector(SourceConnector):
+    """Extract text and tables from a PDF file using pdfplumber."""
+
+    def __init__(
+        self,
+        path: str,
+        extract_tables: bool = True,
+    ) -> None:
+        self._path = path
+        self._extract_tables = extract_tables
+        self._doc: Any = None
+
+    def connect(self) -> None:
+        try:
+            import pdfplumber
+        except ImportError:
+            raise _import_error("pdfplumber", "pdfplumber")()
+
+        try:
+            self._doc = pdfplumber.open(self._path)
+        except Exception as exc:
+            from loafer.exceptions import ConnectorError
+
+            raise ConnectorError(f"failed to open PDF: {exc}") from exc
+
+    def disconnect(self) -> None:
+        if self._doc:
+            self._doc.close()
+            self._doc = None
+
+    def stream(self, chunk_size: int) -> Iterator[list[dict[str, Any]]]:
+        if self._doc is None:
+            raise ConnectorError("not connected")
+
+        chunk: list[dict[str, Any]] = []
+        for page_num, page in enumerate(self._doc.pages, start=1):
+            text = page.extract_text() or ""
+            row: dict[str, Any] = {
+                "page": page_num,
+                "text": text,
+            }
+
+            if self._extract_tables:
+                tables = page.extract_tables()
+                row["tables"] = tables if tables else []
+                row["table_count"] = len(tables) if tables else 0
+
+            chunk.append(row)
+
+            if len(chunk) >= chunk_size:
+                yield chunk
+                chunk = []
+
+        if chunk:
+            yield chunk
+
+    def count(self) -> int | None:
+        if self._doc is None:
+            return None
+        return len(self._doc.pages)
+
+
+_register_source("pdf", PdfSourceConnector)
+
+
+# -- mongo target connector ---------------------------------------------------
+
+
+class MongoTargetConnector(TargetConnector):
+    """Write data to a MongoDB collection."""
+
+    def __init__(
+        self,
+        url: str,
+        database: str,
+        collection: str,
+        write_mode: str = "append",
+    ) -> None:
+        self._url = url
+        self._database = database
+        self._collection_name = collection
+        self._write_mode = write_mode
+        self._client: Any = None
+        self._collection: Any = None
+
+    def connect(self) -> None:
+        try:
+            import pymongo
+        except ImportError:
+            raise _import_error("pymongo", "pymongo")()
+
+        try:
+            self._client = pymongo.MongoClient(self._url)
+            db = self._client[self._database]
+            self._collection = db[self._collection_name]
+
+            if self._write_mode == "replace":
+                self._collection.drop()
+            elif (
+                self._write_mode == "error" and self._collection_name in db.list_collection_names()
+            ):
+                from loafer.exceptions import LoadError
+
+                raise LoadError(
+                    f"collection '{self._collection_name}' already exists and write_mode is 'error'"
+                )
+        except pymongo.errors.PyMongoError as exc:
+            from loafer.exceptions import ConnectorError
+
+            raise ConnectorError(f"failed to connect to MongoDB: {exc}") from exc
+
+    def disconnect(self) -> None:
+        if self._client:
+            self._client.close()
+            self._client = None
+            self._collection = None
+
+    def write_chunk(self, chunk: list[dict[str, Any]]) -> int:
+        if self._collection is None:
+            raise ConnectorError("not connected")
+
+        if not chunk:
+            return 0
+
+        clean_chunk: list[dict[str, Any]] = []
+        for doc in chunk:
+            clean_doc: dict[str, Any] = {}
+            for key, val in doc.items():
+                clean_doc[key] = val
+            clean_chunk.append(clean_doc)
+
+        result = self._collection.insert_many(clean_chunk)
+        return len(result.inserted_ids)
+
+    def finalize(self) -> None:
+        pass
+
+
+_register_target("mongo", MongoTargetConnector)
