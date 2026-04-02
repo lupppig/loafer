@@ -28,6 +28,7 @@ dependencies = [
     "apscheduler>=3.10,<4",
     "tenacity>=9.1.4",
     "sqlalchemy>=2.0.48",
+    "pdfplumber>=0.11.9",
 ]
 
 [project.scripts]
