@@ -42,7 +42,7 @@ docker run --rm -v $(pwd):/workspace -w /workspace ghcr.io/lupppig/loafer:latest
 ### From Source
 To contribute or use the latest unreleased features:
 ```bash
-git clone https://github.com/yourusername/loafer.git
+git clone https://github.com/lupppig/loafer.git
 cd loafer
 pip install -e .
 ```
@@ -214,7 +214,7 @@ Keep things simple and ensure any new features include appropriate tests.
 
 ## Links
 
-- **GitHub Repository**: [https://github.com/yourusername/loafer](https://github.com/yourusername/loafer)
+- **GitHub Repository**: [https://github.com/lupppig/loafer](https://github.com/lupppig/loafer)
 - **PyPI Package**: [https://pypi.org/project/loafer-etl/](https://pypi.org/project/loafer-etl/)
 
 ## License
