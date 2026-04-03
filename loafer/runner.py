@@ -250,26 +250,20 @@ def _stream_graph(
         else ["extract", "load_raw", "transform_in_target"]
     )
 
+    # Yield "running" before the first stage starts
+    if stage_order:
+        yield (stage_order[0], "running", state)
+
     try:
         for event in graph.stream(state, stream_mode="updates"):
             for node_name, delta in event.items():
-                # Yield "running" for the next expected stage before processing
-                remaining = [s for s in stage_order if s not in nodes_executed]
-                if node_name in remaining:
-                    for upcoming in remaining:
-                        if upcoming == node_name:
-                            yield (node_name, "running", state)
-                            break
-                        yield (upcoming, "skipped", state)
-
                 nodes_executed.add(node_name)
 
                 # Merge delta into state
                 for key, value in delta.items():
                     state[key] = value  # type: ignore[literal-required]
 
-                # Determine status
-                status = "done"
+                # Yield "done" for completed stages
                 if node_name in (
                     "extract",
                     "validate",
@@ -278,7 +272,12 @@ def _stream_graph(
                     "load_raw",
                     "transform_in_target",
                 ):
-                    yield (node_name, status, state)
+                    yield (node_name, "done", state)
+
+                    # Yield "running" for the next expected stage
+                    next_stages = [s for s in stage_order if s not in nodes_executed]
+                    if next_stages:
+                        yield (next_stages[0], "running", state)
 
         # Mark skipped stages
         expected = set(stage_order)
@@ -287,8 +286,11 @@ def _stream_graph(
             yield (stage, "skipped", state)
 
     except Exception as exc:
-        # Determine which stage failed
-        failed_stage = _last_executed_node(nodes_executed, mode)
+        # The stage that failed is the next expected stage that hasn't completed
+        failed_stage = next(
+            (s for s in stage_order if s not in nodes_executed),
+            _last_executed_node(nodes_executed, mode),
+        )
         if failed_stage:
             yield (failed_stage, "failed", state)
         total_ms = (time.monotonic() - start) * 1000

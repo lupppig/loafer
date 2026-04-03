@@ -80,10 +80,18 @@ class TestRunPipelineStreaming:
         )
 
         events = list(run_pipeline_streaming(config_file))
-        for node_name, status, _state in events:
+        statuses = {node_name: status for node_name, status, _state in events}
+        # "running" events are emitted before stages complete, "done" after
+        for node_name, status in statuses.items():
             assert status in ("running", "done", "skipped"), (
                 f"Stage {node_name} had unexpected status: {status}"
             )
+        # Verify each stage eventually reaches "done"
+        done_stages = {n for n, s in statuses.items() if s == "done"}
+        assert "extract" in done_stages
+        assert "validate" in done_stages
+        assert "transform" in done_stages
+        assert "load" in done_stages
 
     def test_streaming_state_has_rows_extracted(self, tmp_path: Path) -> None:
         """After extract stage, state should have rows_extracted set."""
