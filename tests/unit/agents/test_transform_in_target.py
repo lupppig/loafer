@@ -9,11 +9,10 @@ import pytest
 
 from loafer.agents.transform_in_target import transform_in_target_agent
 from loafer.config import PostgresTargetConfig
-from loafer.exceptions import TransformError
 
 
 class TestTransformInTargetAgent:
-    def test_missing_raw_table_raises(self) -> None:
+    def test_missing_raw_table_sets_error(self) -> None:
         state: dict[str, Any] = {
             "llm_provider": MagicMock(),
             "target_config": PostgresTargetConfig(
@@ -24,10 +23,10 @@ class TestTransformInTargetAgent:
             "duration_ms": {},
             "warnings": [],
         }
-        with pytest.raises(TransformError, match="raw_table_name"):
-            transform_in_target_agent(state)
+        result = transform_in_target_agent(state)
+        assert "raw_table_name" in result["last_error"]
 
-    def test_missing_target_table_raises(self) -> None:
+    def test_missing_target_table_sets_error(self) -> None:
         state: dict[str, Any] = {
             "llm_provider": MagicMock(),
             "raw_table_name": "raw_data",
@@ -39,10 +38,10 @@ class TestTransformInTargetAgent:
             "duration_ms": {},
             "warnings": [],
         }
-        with pytest.raises(Exception, match="target table"):
-            transform_in_target_agent(state)
+        result = transform_in_target_agent(state)
+        assert "target table" in result["last_error"]
 
-    def test_llm_failure_retries(self) -> None:
+    def test_llm_failure_sets_error(self) -> None:
         mock_llm = MagicMock()
         mock_llm.generate_elt_sql.side_effect = Exception("LLM error")
 
@@ -57,10 +56,10 @@ class TestTransformInTargetAgent:
             "duration_ms": {},
             "warnings": [],
         }
-        with pytest.raises(TransformError, match="failed after 3 attempts"):
-            transform_in_target_agent(state)
+        result = transform_in_target_agent(state)
+        assert "LLM error" in result["last_error"]
 
-    def test_invalid_sql_retries(self) -> None:
+    def test_invalid_sql_sets_error(self) -> None:
         mock_llm = MagicMock()
         mock_llm.generate_elt_sql.return_value = MagicMock(
             sql="DROP TABLE users",
@@ -79,5 +78,5 @@ class TestTransformInTargetAgent:
             "duration_ms": {},
             "warnings": [],
         }
-        with pytest.raises(TransformError, match="validation failed"):
-            transform_in_target_agent(state)
+        result = transform_in_target_agent(state)
+        assert "validation failed" in result["last_error"]

@@ -8,6 +8,15 @@ from unittest.mock import MagicMock
 import pytest
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--benchmark",
+        action="store_true",
+        default=False,
+        help="run performance benchmark tests",
+    )
+
+
 @pytest.fixture()
 def sample_schema() -> dict[str, dict[str, Any]]:
     """Realistic schema sample with 5 columns, mixed types."""
