@@ -4,7 +4,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-232%20passing-brightgreen.svg)](https://github.com/lupppig/loafer)
+[![Tests](https://img.shields.io/badge/tests-406%20passing-brightgreen.svg)](https://github.com/lupppig/loafer)
 [![Ruff](https://img.shields.io/badge/style-ruff-darkgreen.svg)](https://docs.astral.sh/ruff/)
 
 ---
@@ -18,7 +18,9 @@ Describe **what** you want in plain English and Loafer generates the transformat
 - **Live progress bars** — see each stage (extract → validate → transform → load) with row counts and timing
 - **Streaming by default** — no full dataset ever sits in memory
 - **Three transform modes** — AI-generated, hand-written Python, or SQL
+- **ETL and ELT** — transform before loading, or load raw then transform in-database
 - **Cron scheduling** — run pipelines on a schedule with persistent job storage
+- **Four LLM providers** — Gemini, Claude, OpenAI, Qwen
 
 ### Example
 
@@ -68,106 +70,96 @@ Total: 4.6s
 
 ## Architecture
 
+Loafer follows a **Ports and Adapters** (Hexagonal) architecture. The core pipeline logic (agents, graph, runner) knows nothing about external systems. Connectors and LLM providers are pluggable adapters.
+
 ```
-┌─────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────┐
-│   Source    │───▶│   Extract    │───▶│   Validate   │───▶│ Transform│
-│  Connectors │    │   Agent      │    │   Agent      │    │  Agent   │
-└─────────────┘    └──────────────┘    └──────────────┘    └──────────┘
-                                                               │
-                      ┌────────────────────────────────────────┘
-                      ▼
-                ┌──────────────┐    ┌──────────┐
-                │    Load      │◀───│  Runner   │
-                │   Agent      │    │ (LangGraph│
-                └──────────────┘    └──────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                          Core (Ports)                               │
+│                                                                     │
+│  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐         │
+│  │ Extract  │──▶│ Validate │──▶│Transform │──▶│  Load    │         │
+│  │  Agent   │   │  Agent   │   │  Agent   │   │  Agent   │         │
+│  └──────────┘   └──────────┘   └──────────┘   └──────────┘         │
+│       ▲                                              │              │
+│       │              LangGraph StateGraph             │              │
+│       └──────────────────────────────────────────────┘              │
+│                                                                     │
+└───────────────────────────┬─────────────────────────────────────────┘
+                            │
+           ┌────────────────┼────────────────┐
+           │                │                │
+    ┌──────▼──────┐  ┌─────▼─────┐  ┌──────▼──────┐
+    │  Adapters   │  │  Adapters │  │  Adapters   │
+    │  (Sources)  │  │ (Targets) │  │    (LLM)    │
+    │             │  │           │  │             │
+    │ CSV         │  │ CSV       │  │ Gemini      │
+    │ Excel       │  │ JSON      │  │ Claude      │
+    │ PostgreSQL  │  │ PostgreSQL│  │ OpenAI      │
+    │ MySQL       │  │ MongoDB   │  │ Qwen        │
+    │ MongoDB     │  │           │  │             │
+    │ REST API    │  │           │  │             │
+    │ SQLite      │  │           │  │             │
+    │ PDF         │  │           │  │             │
+    └─────────────┘  └───────────┘  └─────────────┘
 ```
 
 ### Design Principles
 
+- **Ports and Adapters** — Core agents import nothing from adapters. New connectors are added without touching pipeline logic.
 - **Streaming-first** — Data flows through generators in chunks. Full datasets are never buffered in memory.
 - **Config-driven** — Pipelines are defined in YAML and validated by Pydantic v2.
 - **AI-assisted, not AI-dependent** — Three transform modes: AI (LLM-generated), custom (user `.py` file), and SQL.
 - **Safety by default** — Generated code is AST-validated for dangerous imports before execution. SQL is parsed and validated via sqlglot.
 - **Pure functions** — Agents are pure functions over `PipelineState`. No agent imports from another agent.
-- **Typed** — Strict type annotations throughout, checked with mypy.
 
 ---
 
-## Project Structure
+## For Users — End-to-End Guide
 
-```
-loafer/
-├── agents/                      # Pure functions — pipeline stages
-│   ├── extract.py               # Resolve connector, stream/read, build schema
-│   ├── validate.py              # Null rates, consistency, hard/soft failures
-│   ├── transform.py             # Route to AI/custom/SQL runner
-│   ├── load.py                  # Resolve target, write chunks, finalize
-│   └── transform_in_target.py   # ELT-only: LLM SQL → CREATE TABLE AS SELECT
-│
-├── connectors/                  # Data source/target adapters
-│   ├── base.py                  # SourceConnector / TargetConnector ABCs
-│   ├── registry.py              # Single source of truth: type → connector
-│   ├── sources/
-│   │   ├── csv_source.py        # Streaming CSV reader
-│   │   └── excel_source.py      # Streaming Excel reader (openpyxl)
-│   └── targets/
-│       ├── csv_target.py        # Streaming CSV writer
-│       └── json_target.py       # Streaming JSON array writer
-│
-├── transform/                   # Transform execution engines
-│   ├── __init__.py              # TransformRunner ABC
-│   ├── ai_runner.py             # LLM code gen → validate → exec with retry
-│   ├── custom_runner.py         # User .py file → validate → exec
-│   └── sql_runner.py            # SQL validate → transpile → execute
-│
-├── llm/                         # LLM provider layer
-│   ├── base.py                  # LLMProvider ABC
-│   ├── gemini.py                # Google Gemini implementation (google-genai SDK)
-│   ├── schema.py                # Schema sampler (type inference)
-│   └── prompt_builder.py        # Structured prompts for code/SQL generation
-│
-├── graph/                       # LangGraph state and pipeline graphs
-│   ├── state.py                 # PipelineState TypedDict
-│   ├── etl.py                   # ETL pipeline graph (LangGraph StateGraph)
-│   └── elt.py                   # ELT pipeline graph (LangGraph StateGraph)
-│
-├── runner.py                    # Composition root — config → state → graph execution
-├── scheduler.py                 # APScheduler-based cron scheduling with SQLite persistence
-├── daemon.py                    # Background daemon management (PID file, log tailing)
-├── config.py                    # Pydantic v2 config models + YAML parsing
-├── exceptions.py                # Domain error hierarchy
-└── cli.py                       # Typer CLI — run, validate, schedule, init, daemon
+This section walks you through running Loafer from scratch. No prior knowledge needed.
 
-tests/
-├── unit/
-│   ├── agents/                  # Agent tests (37 tests)
-│   ├── connectors/              # Connector tests (72 tests)
-│   └── ...                      # LLM, config, validator, scheduler, daemon tests
-└── manual_test.py               # End-to-end manual verification script
-```
+### Prerequisites
 
----
+- **Python 3.11 or later** — check with `python3 --version`
+- **uv** — a fast Python package manager. Install it:
+  ```bash
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  ```
+  On macOS you can also run `brew install uv`.
 
-## Quick Start
-
-### Step 1: Install
+### Step 1: Clone and Install
 
 ```bash
-# Install uv (Python package manager)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Clone and install
 git clone https://github.com/lupppig/loafer.git
 cd loafer
 uv sync
 ```
 
-### Step 2: Run your first pipeline (AI mode)
+This creates a virtual environment and installs all dependencies. The `loafer` command is now available via `uv run loafer`.
 
-Create a directory and set up your files:
+### Step 2: Set Up an LLM API Key
+
+Loafer needs an LLM to generate transform code in AI mode. Pick one:
+
+| Provider | Env Variable | Get Key |
+|----------|-------------|---------|
+| **Gemini** (default) | `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) |
+| **Claude** | `ANTHROPIC_API_KEY` | [Anthropic Console](https://console.anthropic.com/) |
+| **OpenAI** | `OPENAI_API_KEY` | [OpenAI Platform](https://platform.openai.com/api-keys) |
+| **Qwen** | `DASHSCOPE_API_KEY` | [DashScope](https://dashscope.console.aliyun.com/) |
+
+Export your key:
 
 ```bash
-mkdir ~/my-pipeline && cd ~/my-pipeline
+export GEMINI_API_KEY="your-key-here"
+```
+
+### Step 3: Run Your First Pipeline
+
+Create a working directory:
+
+```bash
+mkdir ~/loafer-demo && cd ~/loafer-demo
 ```
 
 **Create sample data** (`data.csv`):
@@ -177,11 +169,11 @@ id,name,email,score,status
 1,Alice,alice@example.com,95.5,active
 2,Bob,bob@example.com,88.0,inactive
 3,Charlie,charlie@example.com,72.3,active
+4,Diana,diana@example.com,91.0,active
+5,Eve,eve@example.com,65.0,inactive
 ```
 
 **Create the pipeline config** (`pipeline.yaml`):
-
-> You don't need to write any Python or SQL — just describe your transformation in plain English.
 
 ```yaml
 name: My First Pipeline
@@ -201,60 +193,94 @@ transform:
 mode: etl
 ```
 
-**Set up your LLM API key:**
-
-```bash
-export GEMINI_API_KEY="your-key-here"
-```
-
 **Run it:**
 
 ```bash
-# From the loafer directory:
-uv run loafer run ~/my-pipeline/pipeline.yaml
-
-# Or with the --config flag:
-uv run loafer run --config ~/my-pipeline/pipeline.yaml
-
-# Or with the short flag:
-uv run loafer run -c ~/my-pipeline/pipeline.yaml
+uv run loafer run ~/loafer-demo/pipeline.yaml
 ```
 
-Output:
-
-```
-Running: My First Pipeline [ETL]
-────────────────────────────────────────────────────────────────────────────────
-  ✓  Extracting from CSV                 3 rows
-  ✓  Validating data                     3 passed
-  ✓  Transforming data (ai)              3 → 2
-  ✓  Loading to JSON                     2 rows
-
-─────────────────────────────── Pipeline Summary ───────────────────────────────
- Stage               Status    Rows       Duration
- Extracting from     ✓         3 rows          1ms
- source
- Validating data     ✓         3 passed        0ms
- Transforming data   ✓         3 → 2           0ms
- Loading to target   ✓         2 rows          2ms
-
-Total: 0.9s
-```
-
-Check the output:
+You'll see a live progress bar for each stage. When it finishes:
 
 ```bash
-cat ~/my-pipeline/output.json
+cat ~/loafer-demo/output.json
 ```
 
-### Step 3: Use custom transforms (optional)
+Output should contain only Alice and Diana (the active rows), each with a `"grade": "A"` field.
 
-If you prefer to write your own Python instead of using AI, change `pipeline.yaml`:
+### Step 4: Try a Database Source
+
+If you have a running PostgreSQL:
 
 ```yaml
+name: Postgres to CSV
+source:
+  type: postgres
+  url: ${DATABASE_URL}
+  query: "SELECT id, name, email, created_at FROM users"
+
+target:
+  type: csv
+  path: ./users.csv
+
+transform:
+  type: ai
+  instruction: "lowercase all email addresses, rename 'name' to 'full_name'"
+
+mode: etl
+```
+
+```bash
+export DATABASE_URL="postgresql://user:pass@localhost/mydb"
+uv run loafer run ~/loafer-demo/db_pipeline.yaml
+```
+
+### Step 5: Try ELT Mode (Load Raw, Then Transform In-Database)
+
+ELT loads raw data into the target database first, then generates SQL to create the output table. This requires a **PostgreSQL target**:
+
+```yaml
+name: ELT Pipeline
+source:
+  type: csv
+  path: ./data.csv
+
+target:
+  type: postgres
+  url: ${DATABASE_URL}
+  table: processed_users
+  write_mode: replace
+
+transform:
+  type: ai
+  instruction: "select only active rows, add a grade column"
+
+mode: elt
+```
+
+```bash
+uv run loafer run ~/loafer-demo/elt_pipeline.yaml
+```
+
+This creates two tables in your database:
+- `loafer_raw_postgres_<random>` — the raw staging table
+- `processed_users` — the final transformed table
+
+### Step 6: Use Custom Python Transforms (No LLM Needed)
+
+If you prefer to write your own Python:
+
+```yaml
+name: Custom Transform Pipeline
+source:
+  type: csv
+  path: ./data.csv
+target:
+  type: json
+  path: ./output.json
 transform:
   type: custom
   path: ./transform.py
+mode: etl
 ```
 
 Create `transform.py`:
@@ -269,33 +295,229 @@ def transform(data):
     ]
 ```
 
-Run the same command:
-
 ```bash
-uv run loafer run ~/my-pipeline/pipeline.yaml
+uv run loafer run ~/loafer-demo/custom_pipeline.yaml
 ```
 
-### Step 4: Common commands
+No LLM call. No API key needed. Instant execution.
+
+### Step 7: Schedule a Pipeline
+
+```bash
+# Run daily at 9am
+uv run loafer schedule ~/loafer-demo/pipeline.yaml --cron "0 9 * * *"
+
+# Start the scheduler in the background
+uv run loafer start -d
+
+# Check what's scheduled
+uv run loafer list-schedules
+
+# View scheduler status
+uv run loafer status
+
+# Stop the scheduler
+uv run loafer stop
+```
+
+Jobs are persisted in SQLite (`~/.loafer/loafer_jobs.sqlite`) and survive restarts.
+
+### Common Commands Reference
 
 | Command | What it does |
 |---------|-------------|
 | `uv run loafer run pipeline.yaml` | Run a pipeline |
 | `uv run loafer run pipeline.yaml --dry-run` | Test without loading |
-| `uv run loafer run pipeline.yaml --quiet` | Summary only |
-| `uv run loafer validate pipeline.yaml` | Check config |
-| `uv run loafer connectors` | List connectors |
-| `uv run loafer init my-project` | Scaffold interactively |
-| `uv run loafer schedule pipeline.yaml --cron "0 9 * * *"` | Schedule daily |
+| `uv run loafer run pipeline.yaml --verbose` | Print full traceback on errors |
+| `uv run loafer validate pipeline.yaml` | Check config validity |
+| `uv run loafer connectors` | List all available connectors |
+| `uv run loafer init my-project` | Scaffold a new project interactively |
+| `uv run loafer schedule pipeline.yaml --cron "0 9 * * *"` | Schedule daily at 9am |
+| `uv run loafer schedule pipeline.yaml --interval "30m"` | Run every 30 minutes |
 | `uv run loafer start -d` | Start scheduler in background |
 | `uv run loafer status` | Check scheduler status |
-| `uv run loafer list-schedules` | List scheduled jobs |
-| `uv run loafer unschedule <job-id>` | Remove a job |
+| `uv run loafer list-schedules` | List all scheduled jobs |
+| `uv run loafer unschedule <job-id>` | Remove a scheduled job |
+| `uv run loafer stop` | Stop the background scheduler |
+| `uv run loafer logs` | View scheduler logs |
+
+---
+
+## For Developers — Contributing Guide
+
+### Development Setup
+
+```bash
+git clone https://github.com/lupppig/loafer.git
+cd loafer
+uv sync --all-extras
+```
+
+### Running Tests
+
+```bash
+# All unit tests
+uv run pytest tests/unit/ -v
+
+# Specific module
+uv run pytest tests/unit/agents/ -v
+
+# With coverage
+uv run pytest tests/unit/ --cov=loafer --cov-report=term-missing
+
+# Integration tests (requires running Postgres and MongoDB)
+uv run pytest tests/integration/ -v -m integration
+
+# E2E tests
+uv run pytest tests/e2e/ -v -m e2e
+
+# Benchmark tests (gated behind --benchmark flag)
+uv run pytest tests/unit/ --benchmark -v
+```
+
+### Linting & Formatting
+
+```bash
+# Check for lint errors
+uv run ruff check .
+
+# Auto-fix what's fixable
+uv run ruff check . --fix
+
+# Check formatting
+uv run ruff format --check .
+
+# Auto-format
+uv run ruff format .
+```
+
+### Project Structure
+
+```
+loafer/
+├── ports/                          # Abstract interfaces
+│   ├── connector.py                # SourceConnector / TargetConnector ABCs
+│   └── llm.py                      # LLMProvider ABC
+│
+├── adapters/                       # Concrete implementations
+│   ├── sources/                    # CSV, Excel, Postgres, MySQL, Mongo, REST, SQLite, PDF
+│   └── targets/                    # CSV, JSON, Postgres, Mongo
+│
+├── agents/                         # Pure functions — pipeline stages
+│   ├── extract.py                  # Resolve connector, stream/read, build schema
+│   ├── validate.py                 # Null rates, consistency, hard/soft failures
+│   ├── transform.py                # Route to AI/custom/SQL runner
+│   ├── load.py                     # Resolve target, write chunks, finalize
+│   ├── load_raw.py                 # ELT-only: load raw data to staging table
+│   └── transform_in_target.py      # ELT-only: LLM SQL → CREATE TABLE AS SELECT
+│
+├── connectors/                     # Registry and backward-compat re-exports
+│   ├── registry.py                 # Single source of truth: type → connector
+│   └── base.py                     # Re-exports from ports/
+│
+├── transform/                      # Transform execution engines
+│   ├── ai_runner.py                # LLM code gen → validate → exec with retry
+│   ├── custom_runner.py            # User .py file → validate → exec
+│   └── sql_runner.py               # SQL validate → transpile → execute
+│
+├── llm/                            # LLM provider layer
+│   ├── gemini.py                   # Google Gemini (google-genai SDK)
+│   ├── claude.py                   # Anthropic Claude (anthropic SDK)
+│   ├── openai.py                   # OpenAI (openai SDK)
+│   ├── qwen.py                     # Alibaba Qwen (dashscope SDK)
+│   ├── registry.py                 # Provider lookup table
+│   ├── schema.py                   # Schema sampler (type inference)
+│   └── prompt_builder.py           # Structured prompts for code/SQL generation
+│
+├── graph/                          # LangGraph state and pipeline graphs
+│   ├── state.py                    # PipelineState TypedDict
+│   ├── etl.py                      # ETL: extract → validate → transform → load
+│   └── elt.py                      # ELT: extract → validate → load_raw → transform_in_target
+│
+├── core/                           # Cross-cutting concerns
+│   └── destructive.py              # Destructive operation detection
+│
+├── runner.py                       # Composition root — config → state → graph execution
+├── scheduler.py                    # APScheduler-based cron scheduling with SQLite persistence
+├── daemon.py                       # Background daemon management (PID file, log tailing)
+├── config.py                       # Pydantic v2 config models + YAML parsing
+├── exceptions.py                   # Domain error hierarchy
+├── logging.py                      # Structured logging (structlog)
+└── cli.py                          # Typer CLI — run, validate, schedule, init, daemon
+
+tests/
+├── unit/                           # Fast, no external services
+│   ├── agents/                     # Agent tests
+│   ├── connectors/                 # Connector tests
+│   └── ...                         # LLM, config, validator, scheduler, daemon, edge cases, benchmarks
+├── integration/                    # Requires running databases
+└── e2e/                            # End-to-end CLI tests
+```
+
+### Adding a New Connector
+
+1. Create the adapter in `loafer/adapters/sources/` or `loafer/adapters/targets/`
+2. Implement the `SourceConnector` or `TargetConnector` ABC from `loafer/ports/connector.py`
+3. Register it in `loafer/connectors/registry.py`:
+   ```python
+   from loafer.adapters.sources.my_source import MySourceConnector as _My
+   _register_source("my_type", _My)
+   ```
+4. Add a `_build_source` or `_build_target` case in `registry.py` to construct it from config
+5. Write tests in `tests/unit/connectors/`
+
+### Adding a New LLM Provider
+
+1. Create `loafer/llm/my_provider.py` implementing `LLMProvider` from `loafer/ports/llm.py`
+2. Register it in `loafer/llm/registry.py`:
+   ```python
+   def _register_my_provider() -> None:
+       from loafer.llm.my_provider import MyProvider
+       def _factory(**kwargs): ...
+       register_provider("my_provider", _factory)
+   _register_my_provider()
+   ```
+3. Write tests in `tests/unit/`
+
+### Code Conventions
+
+- **Type annotations** on every function signature and return type
+- **No comments** unless explaining non-obvious behavior
+- **Docstrings** for modules and public classes only
+- **Pure functions** for agents — no side effects, no connector instantiation
+- **Streaming** — generators over lists for data flow
+- **Error handling** — domain-specific exceptions, never bare `except:`
+- **Run `ruff check . --fix && ruff format .` before committing**
+
+---
+
+## Supported Connectors
+
+### Sources
+
+| Connector | Type | Streaming | Notes |
+|-----------|------|-----------|-------|
+| CSV | `csv` | Yes | UTF-8 with latin-1 fallback, malformed row skipping |
+| Excel | `excel` | Yes | Formula values, unmerge cells, mixed type coercion |
+| PostgreSQL | `postgres` | Yes | Server-side cursor, type conversion (Decimal→float, UUID→string, datetime→ISO 8601) |
+| MySQL | `mysql` | Yes | fetchmany-based streaming, type conversion |
+| MongoDB | `mongo` | Yes | ObjectId→string, nested docs passthrough |
+| REST API | `rest_api` | Yes | Pagination, rate limit retry, Bearer auth |
+| SQLite | `sqlite` | Yes | File-based, no server needed |
+| PDF | `pdf` | Yes | Text and table extraction via pdfplumber |
+
+### Targets
+
+| Connector | Type | Streaming | Notes |
+|-----------|------|-----------|-------|
+| CSV | `csv` | Yes | Auto-create directories, None→empty string |
+| JSON | `json` | Yes | Streaming JSON array write |
+| PostgreSQL | `postgres` | Yes | Auto-create table, schema inference, batch rollback |
+| MongoDB | `mongo` | Yes | Auto-create collection, write modes (append/error) |
 
 ---
 
 ## Running with Docker
-
-Build and run Loafer in a container without installing Python or dependencies locally.
 
 ### Build the image
 
@@ -305,31 +527,18 @@ docker build -f docker/Dockerfile -t loafer .
 
 ### Run a pipeline
 
-Mount your config and data directories into the container:
-
 ```bash
-# Run a pipeline from your local directory
 docker run --rm \
   -v $(pwd)/my-pipeline:/configs \
   -v $(pwd)/my-pipeline:/data \
   -e GEMINI_API_KEY=your-key-here \
   loafer run /configs/pipeline.yaml
-
-# Validate a config
-docker run --rm \
-  -v $(pwd)/my-pipeline:/configs \
-  loafer validate /configs/pipeline.yaml
-
-# List connectors
-docker run --rm loafer connectors
 ```
 
 ### Use docker-compose (with databases)
 
-The `docker/docker-compose.yml` file includes Postgres, MongoDB, and Loafer:
-
 ```bash
-# Start all services
+# Start Postgres, MongoDB, and Loafer
 docker compose -f docker/docker-compose.yml up -d
 
 # Run a pipeline inside the container
@@ -347,16 +556,6 @@ docker compose -f docker/docker-compose.yml down
 | `/data` | Input data files and output files |
 | `/root/.loafer` | Scheduler state (PID, logs, job store) |
 
-### Environment variables
-
-| Variable | Purpose |
-|----------|---------|
-| `GEMINI_API_KEY` | Google Gemini API key |
-| `OPENAI_API_KEY` | OpenAI API key |
-| `ANTHROPIC_API_KEY` | Anthropic Claude API key |
-| `DATABASE_URL` | PostgreSQL/MySQL connection string |
-| `MONGO_URL` | MongoDB connection string |
-
 ---
 
 ## Configuration Reference
@@ -367,420 +566,32 @@ Every pipeline is defined in a single YAML file. All fields are validated at par
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `name` | string | `""` | Human-readable pipeline name, shown in CLI output and scheduler |
-| `source` | object | *(required)* | Source connector configuration (see below) |
-| `target` | object | *(required)* | Target connector configuration (see below) |
-| `transform` | object / string | *(required)* | Transform config — can be a shorthand string for AI mode (e.g. `transform: "rename x to y"`) |
-| `mode` | `"etl"` \| `"elt"` | `"etl"` | ETL: transform before loading; ELT: load raw then transform in-target via SQL |
-| `chunk_size` | int | `500` | Number of rows per batch for processing and loading |
-| `streaming_threshold` | int | `10_000` | Row count above which streaming mode activates (data flows through generators instead of being buffered) |
-| `destructive_filter_threshold` | float | `0.3` | Warn if transform drops more than this fraction of rows (0.3 = 30%) |
-| `validation` | object | | Data quality validation settings (see below) |
-| `llm` | object | | LLM provider configuration (see below) |
+| `name` | string | `""` | Human-readable pipeline name |
+| `source` | object | *(required)* | Source connector configuration |
+| `target` | object | *(required)* | Target connector configuration |
+| `transform` | object / string | *(required)* | Transform config — shorthand string for AI mode |
+| `mode` | `"etl"` \| `"elt"` | `"etl"` | ETL: transform before loading; ELT: load raw then transform in-target |
+| `chunk_size` | int | `500` | Rows per batch |
+| `streaming_threshold` | int | `10_000` | Auto-activate streaming above this row count |
+| `destructive_filter_threshold` | float | `0.3` | Warn if transform drops more than this fraction |
+| `validation` | object | | Data quality settings |
+| `llm` | object | | LLM provider configuration |
 
-### Source Configurations
+### Environment Variable Interpolation
 
-#### CSV (`type: csv`)
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `path` | string | *(required)* | Path to the CSV file |
-| `has_header` | bool | `true` | Whether the first row is a header |
-| `encoding` | string | `"utf-8"` | File encoding (falls back to latin-1 on UTF-8 decode error) |
-| `column_names` | list[string] | `null` | Required if `has_header: false` — column names to use |
-
-#### Excel (`type: excel`)
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `path` | string | *(required)* | Path to the `.xlsx` file |
-| `sheet` | string | `null` | Sheet name (defaults to first sheet) |
-
-#### PostgreSQL (`type: postgres`)
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `url` | string | *(required)* | PostgreSQL connection URL (e.g. `postgresql://user:pass@host/db`) |
-| `query` | string | *(required)* | SQL SELECT query to execute |
-| `timeout` | int | `30` | Connection timeout in seconds |
-
-#### MySQL (`type: mysql`)
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `url` | string | *(required)* | MySQL connection URL (e.g. `mysql://user:pass@host/db`) |
-| `query` | string | *(required)* | SQL SELECT query to execute |
-| `timeout` | int | `30` | Connection timeout in seconds |
-
-#### MongoDB (`type: mongo`)
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `url` | string | *(required)* | MongoDB connection URL (e.g. `mongodb://user:pass@host/db`) |
-| `database` | string | *(required)* | Database name |
-| `collection` | string | *(required)* | Collection name |
-| `filter` | object | `{}` | MongoDB query filter |
-
-#### REST API (`type: rest_api`)
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `url` | string | *(required)* | API endpoint URL |
-| `method` | `"GET"` \| `"POST"` | `"GET"` | HTTP method |
-| `headers` | object | `{}` | HTTP headers |
-| `params` | object | `{}` | Query parameters |
-| `body` | object | `null` | Request body (for POST) |
-| `response_key` | string | `null` | JSON key to extract array from (e.g. `"results"`) |
-| `pagination` | object | `null` | Pagination config (offset/limit or cursor-based) |
-| `auth_token` | string | `null` | Bearer token for authorization |
-| `verify_ssl` | bool | `true` | SSL certificate verification |
-| `timeout` | int | `30` | Request timeout in seconds |
-
-### Target Configurations
-
-#### CSV (`type: csv`)
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `path` | string | *(required)* | Output CSV file path |
-| `write_mode` | `"overwrite"` \| `"error"` | `"overwrite"` | Whether to overwrite existing file or error |
-
-#### JSON (`type: json`)
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `path` | string | *(required)* | Output JSON file path (writes a JSON array) |
-| `write_mode` | `"overwrite"` \| `"error"` | `"overwrite"` | Whether to overwrite existing file or error |
-
-#### PostgreSQL (`type: postgres`)
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `url` | string | *(required)* | PostgreSQL connection URL |
-| `table` | string | *(required)* | Target table name (auto-created if it doesn't exist) |
-| `write_mode` | `"append"` \| `"replace"` \| `"error"` | `"append"` | Whether to append, replace, or error if table exists |
-
-### Transform Configurations
-
-#### AI (`type: ai`)
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `instruction` | string | *(required)* | Natural language description of the transformation |
-
-The LLM generates a Python `transform(data) -> list[dict]` function. Code is AST-validated for safety before execution. On failure, the traceback is fed back to the LLM for up to 3 retry attempts.
-
-#### Custom (`type: custom`)
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `path` | string | *(required)* | Path to a `.py` file containing a `transform(data)` function |
-
-No LLM call. The file is loaded, validated, and executed directly.
-
-#### SQL (`type: sql`)
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `query` | string | *(required)* | SQL query with `{{source}}` placeholder for the source table |
-
-Validated via sqlglot — only SELECT allowed. Transpiled to the target dialect.
-
-### Validation
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `max_null_rate` | float | `0.5` | Maximum fraction of null values allowed per column before hard failure (0.5 = 50%) |
-| `strict` | bool | `false` | If true, any validation failure stops the pipeline; if false, soft warnings are logged but execution continues |
-
-### LLM
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `provider` | `"gemini"` \| `"claude"` \| `"openai"` \| `"qwen"` | `"gemini"` | LLM provider for AI transforms and ELT SQL generation |
-| `model` | string | `"gemini-2.5-flash"` | Model name (provider-specific) |
-| `api_key` | string | `""` | API key — supports `${ENV_VAR}` syntax for environment variable interpolation |
-
-Example with environment variable:
+Use `${ENV_VAR}` syntax anywhere in your config:
 
 ```yaml
+source:
+  type: postgres
+  url: ${DATABASE_URL}
+
 llm:
   provider: gemini
-  model: gemini-2.5-flash
   api_key: ${GEMINI_API_KEY}
 ```
 
-#### Setting up LLM providers
-
-**Google Gemini (default)**
-
-1. Get an API key from [Google AI Studio](https://aistudio.google.com/apikey)
-2. Set the environment variable:
-   ```bash
-   export GEMINI_API_KEY="your-api-key-here"
-   ```
-3. Configure your pipeline:
-   ```yaml
-   llm:
-     provider: gemini
-     model: gemini-2.5-flash
-     api_key: ${GEMINI_API_KEY}
-   ```
-
-**OpenAI**
-
-1. Get an API key from [OpenAI Platform](https://platform.openai.com/api-keys)
-2. Set the environment variable:
-   ```bash
-   export OPENAI_API_KEY="your-api-key-here"
-   ```
-3. Configure your pipeline:
-   ```yaml
-   llm:
-     provider: openai
-     model: gpt-4o-mini
-     api_key: ${OPENAI_API_KEY}
-   ```
-
-**Anthropic Claude**
-
-1. Get an API key from [Anthropic Console](https://console.anthropic.com/)
-2. Set the environment variable:
-   ```bash
-   export ANTHROPIC_API_KEY="your-api-key-here"
-   ```
-3. Configure your pipeline:
-   ```yaml
-   llm:
-     provider: claude
-     model: claude-sonnet-4-20250514
-     api_key: ${ANTHROPIC_API_KEY}
-   ```
-
-**Qwen**
-
-1. Get an API key from [DashScope](https://dashscope.console.aliyun.com/)
-2. Set the environment variable:
-   ```bash
-   export DASHSCOPE_API_KEY="your-api-key-here"
-   ```
-3. Configure your pipeline:
-   ```yaml
-   llm:
-     provider: qwen
-     model: qwen-plus
-     api_key: ${DASHSCOPE_API_KEY}
-   ```
-
----
-
-## Supported Connectors
-
-### Sources
-
-| Connector | Type | Streaming | Notes |
-|-----------|------|-----------|-------|
-| CSV | `csv` | ✅ | UTF-8 with latin-1 fallback, malformed row skipping |
-| Excel | `excel` | ✅ | Formula values, unmerge cells, mixed type coercion |
-| PostgreSQL | `postgres` | ✅ | Server-side cursor, type conversion (Decimal→float, UUID→string, datetime→ISO 8601) |
-| MySQL | `mysql` | ✅ | fetchmany-based streaming, type conversion |
-| MongoDB | `mongo` | ✅ | ObjectId→string, nested docs passthrough |
-| REST API | `rest_api` | ✅ | Pagination, rate limit retry, Bearer auth |
-
-### Targets
-
-| Connector | Type | Streaming | Notes |
-|-----------|------|-----------|-------|
-| CSV | `csv` | ✅ | Auto-create directories, None→empty string |
-| JSON | `json` | ✅ | Streaming JSON array write |
-| PostgreSQL | `postgres` | ✅ | Auto-create table, schema inference, batch rollback |
-
----
-
-## Transform Modes
-
-### AI Mode (LLM-Generated)
-
-Describe your transformation in natural language. The LLM generates Python code, validates it for safety, and executes it with automatic retry on failure.
-
-```yaml
-transform:
-  type: ai
-  instruction: "rename 'full_name' to 'name', convert 'price' to float, drop rows where 'status' is 'inactive'"
-```
-
-- **Retry loop**: Up to 3 attempts. On failure, the full traceback is fed back to the LLM.
-- **Safety check**: AST-based validation blocks `import os`, `import subprocess`, `eval()`, `exec()`, and other dangerous patterns.
-- **Token tracking**: All token usage across retries is accumulated in state.
-
-### Custom Mode (User-Provided Python)
-
-Write your own `.py` file with a `transform(data) -> list[dict]` function.
-
-```yaml
-transform:
-  type: custom
-  path: ./my_transform.py
-```
-
-```python
-# my_transform.py
-def transform(data):
-    return [
-        {**row, "total": row["price"] * row["quantity"]}
-        for row in data
-        if row["status"] == "active"
-    ]
-```
-
-No LLM call. No retry. One attempt. Validation failures are caught immediately.
-
-### SQL Mode
-
-Write SQL with `{{source}}` placeholder. Validated via sqlglot AST analysis, transpiled to the target dialect.
-
-```yaml
-transform:
-  type: sql
-  query: "SELECT id, name, price * quantity AS total FROM {{source}} WHERE status = 'active'"
-```
-
-- **Safety**: Only SELECT allowed. DROP/DELETE/UPDATE/INSERT/TRUNCATE/ALTER/CREATE rejected before any DB connection.
-- **Table names**: Substituted via `psycopg2.sql.Identifier`, never raw string interpolation.
-- **Transpilation**: `sqlglot.transpile()` converts to the correct target dialect.
-
----
-
-## Scheduling
-
-Schedule pipelines to run on a cron or interval basis. Jobs are persisted in SQLite so they survive restarts.
-
-### Schedule a pipeline
-
-```bash
-# Run daily at 9am UTC
-uv run loafer schedule pipeline.yaml --cron "0 9 * * *"
-
-# Run every 30 minutes
-uv run loafer schedule pipeline.yaml --interval "30m"
-
-# Run every 2 hours with a custom job ID
-uv run loafer schedule pipeline.yaml --interval "2h" --id my-etl-job
-```
-
-### Manage schedules
-
-```bash
-# List all scheduled jobs
-uv run loafer list-schedules
-
-# Remove a scheduled job
-uv run loafer unschedule my-etl-job
-
-# Start in the foreground
-uv run loafer start
-
-# Start in the background (daemon mode)
-uv run loafer start -d
-
-# Check status
-uv run loafer status
-
-# Stop the background scheduler
-uv run loafer stop
-
-# View logs
-uv run loafer logs
-```
-
-### Cron expressions
-
-Cron uses standard 5-field syntax: `minute hour day month day_of_week`
-
-| Expression | Description | Example |
-|------------|-------------|---------|
-| `0 9 * * *` | Daily at 9am UTC | `--cron "0 9 * * *"` |
-| `0 */2 * * *` | Every 2 hours | `--cron "0 */2 * * *"` |
-| `0 9 * * 1-5` | Weekdays at 9am | `--cron "0 9 * * 1-5"` |
-| `0 0 1 * *` | First of every month | `--cron "0 0 1 * *"` |
-| `*/15 * * * *` | Every 15 minutes | `--cron "*/15 * * * *"` |
-
-### Interval strings
-
-| Format | Description | Example |
-|--------|-------------|---------|
-| `30m` | Every 30 minutes | `--interval "30m"` |
-| `1h` | Every hour | `--interval "1h"` |
-| `6h` | Every 6 hours | `--interval "6h"` |
-| `1d` | Every day | `--interval "1d"` |
-
-### How scheduling works
-
-1. **`loafer schedule`** — Creates a job entry in the SQLite store (`loafer_jobs.sqlite`)
-2. **`loafer start`** — Starts the scheduler in foreground (blocks until Ctrl+C)
-3. **`loafer start -d`** — Starts the scheduler as a background daemon (PID file at `~/.loafer/scheduler.pid`)
-4. Jobs persist across restarts — stop and start the scheduler without losing schedules
-
----
-
-## For Contributors
-
-### Development Setup
-
-```bash
-uv sync --all-extras
-```
-
-### Running Tests
-
-```bash
-# All unit tests
-uv run pytest tests/unit/ -v
-
-# Specific module
-uv run pytest tests/unit/agents/ -v
-
-# With coverage
-uv run pytest tests/unit/ --cov=loafer --cov-report=term-missing
-```
-
-### Linting & Type Checking
-
-```bash
-uv run ruff check loafer/ tests/
-uv run mypy loafer/ --ignore-missing-imports
-```
-
-### Code Conventions
-
-- **Type annotations** on every function signature and return type
-- **No comments** unless explaining non-obvious behavior
-- **Docstrings** for modules and public classes only
-- **Pure functions** for agents — no side effects, no connector instantiation
-- **Streaming** — generators over lists for data flow
-- **Error handling** — domain-specific exceptions, never bare `except:`
-
-### Adding a New Connector
-
-1. Implement the connector class in `loafer/connectors/sources/` or `targets/`
-2. Add a wrapper class in `loafer/connectors/registry.py`
-3. Register it: `_register_source("my_type", MyConnector)` or `_register_target(...)`
-4. Add `_build_source` / `_build_target` case in `registry.py`
-5. Write tests in `tests/unit/connectors/`
-
-### Adding a New Agent
-
-1. Create `loafer/agents/my_agent.py`
-2. Define a function `my_agent(state: PipelineState) -> PipelineState`
-3. Import and use in the appropriate LangGraph graph
-4. Write tests against `conftest.py` fixtures
-
----
-
-## Planned Features
-
-- [ ] Additional LLM providers (Claude, OpenAI)
-- [ ] Additional connectors (S3, BigQuery, Snowflake, Redshift)
+Missing variables raise a `ConfigError` at parse time — before any I/O happens.
 
 ---
 
