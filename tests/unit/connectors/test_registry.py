@@ -9,10 +9,14 @@ import pytest
 
 class TestRegistrySourceResolution:
     def test_resolve_csv_source(self) -> None:
-        from loafer.connectors.registry import get_source_connector
+        from loafer.connectors.registry import _SOURCE_REGISTRY, get_source_connector
 
-        with patch("loafer.connectors.sources.csv_source.CsvSourceConnector") as mock_cls:
-            mock_cls.return_value = MagicMock()
+        mock_cls = MagicMock()
+        mock_cls.return_value = MagicMock()
+        mock_cls.__name__ = "CsvSourceConnector"
+        original = _SOURCE_REGISTRY.get("csv")
+        _SOURCE_REGISTRY["csv"] = mock_cls  # type: ignore[assignment]
+        try:
             config = MagicMock()
             config.type = "csv"
             config.path = "/tmp/data.csv"
@@ -21,22 +25,32 @@ class TestRegistrySourceResolution:
             config.column_names = None
 
             conn = get_source_connector(config)
-            assert conn.__class__.__name__ == "CsvSourceConnector"
+            assert conn.__class__.__name__ == "MagicMock"
             mock_cls.assert_called_once()
+        finally:
+            if original is not None:
+                _SOURCE_REGISTRY["csv"] = original
 
     def test_resolve_excel_source(self) -> None:
-        from loafer.connectors.registry import get_source_connector
+        from loafer.connectors.registry import _SOURCE_REGISTRY, get_source_connector
 
-        with patch("loafer.connectors.sources.excel_source.ExcelSourceConnector") as mock_cls:
-            mock_cls.return_value = MagicMock()
+        mock_cls = MagicMock()
+        mock_cls.return_value = MagicMock()
+        mock_cls.__name__ = "ExcelSourceConnector"
+        original = _SOURCE_REGISTRY.get("excel")
+        _SOURCE_REGISTRY["excel"] = mock_cls  # type: ignore[assignment]
+        try:
             config = MagicMock()
             config.type = "excel"
             config.path = "/tmp/data.xlsx"
             config.sheet = None
 
             conn = get_source_connector(config)
-            assert conn.__class__.__name__ == "ExcelSourceConnector"
+            assert conn.__class__.__name__ == "MagicMock"
             mock_cls.assert_called_once()
+        finally:
+            if original is not None:
+                _SOURCE_REGISTRY["excel"] = original
 
     def test_resolve_postgres_source(self) -> None:
         from loafer.connectors.registry import get_source_connector
@@ -101,32 +115,46 @@ class TestRegistrySourceResolution:
 
 class TestRegistryTargetResolution:
     def test_resolve_csv_target(self) -> None:
-        from loafer.connectors.registry import get_target_connector
+        from loafer.connectors.registry import _TARGET_REGISTRY, get_target_connector
 
-        with patch("loafer.connectors.targets.csv_target.CsvTargetConnector") as mock_cls:
-            mock_cls.return_value = MagicMock()
+        mock_cls = MagicMock()
+        mock_cls.return_value = MagicMock()
+        mock_cls.__name__ = "CsvTargetConnector"
+        original = _TARGET_REGISTRY.get("csv")
+        _TARGET_REGISTRY["csv"] = mock_cls  # type: ignore[assignment]
+        try:
             config = MagicMock()
             config.type = "csv"
             config.path = "/tmp/out.csv"
             config.write_mode = "overwrite"
 
             conn = get_target_connector(config)
-            assert conn.__class__.__name__ == "CsvTargetConnector"
+            assert conn.__class__.__name__ == "MagicMock"
             mock_cls.assert_called_once()
+        finally:
+            if original is not None:
+                _TARGET_REGISTRY["csv"] = original
 
     def test_resolve_json_target(self) -> None:
-        from loafer.connectors.registry import get_target_connector
+        from loafer.connectors.registry import _TARGET_REGISTRY, get_target_connector
 
-        with patch("loafer.connectors.targets.json_target.JsonTargetConnector") as mock_cls:
-            mock_cls.return_value = MagicMock()
+        mock_cls = MagicMock()
+        mock_cls.return_value = MagicMock()
+        mock_cls.__name__ = "JsonTargetConnector"
+        original = _TARGET_REGISTRY.get("json")
+        _TARGET_REGISTRY["json"] = mock_cls  # type: ignore[assignment]
+        try:
             config = MagicMock()
             config.type = "json"
             config.path = "/tmp/out.json"
             config.write_mode = "overwrite"
 
             conn = get_target_connector(config)
-            assert conn.__class__.__name__ == "JsonTargetConnector"
+            assert conn.__class__.__name__ == "MagicMock"
             mock_cls.assert_called_once()
+        finally:
+            if original is not None:
+                _TARGET_REGISTRY["json"] = original
 
     def test_resolve_postgres_target(self) -> None:
         from loafer.connectors.registry import get_target_connector
