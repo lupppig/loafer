@@ -71,6 +71,12 @@ transform:
   instruction: >
     Drop cancelled orders, normalize currency to USD, and 
     combine first_name and last_name into full_name.
+
+llm:
+  # Supported providers: gemini, openai, claude, qwen
+  provider: gemini
+  model: gemini-2.5-flash
+  api_key: ${GEMINI_API_KEY}
 ```
 
 Run the pipeline from your terminal:
@@ -151,6 +157,13 @@ target:
 transform:
   type: custom
   path: ./transforms/clean_users.py
+
+# Optional: LLM Configuration (required if using type: ai or mode: elt)
+llm:
+  # Supported providers: gemini, openai, claude, qwen
+  provider: gemini
+  model: gemini-2.5-flash
+  api_key: ${GEMINI_API_KEY}
 
 # Performance & Validation
 chunk_size: 1000
