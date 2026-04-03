@@ -44,7 +44,11 @@ mode: etl
 ```
 
 ```bash
+# With uv:
 uv run loafer run pipeline.yaml
+
+# With pip (after `pip install -e .`):
+loafer run pipeline.yaml
 ```
 
 ```
@@ -121,37 +125,125 @@ This section walks you through running Loafer from scratch. No prior knowledge n
 ### Prerequisites
 
 - **Python 3.11 or later** — check with `python3 --version`
-- **uv** — a fast Python package manager. Install it:
-  ```bash
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-  ```
-  On macOS you can also run `brew install uv`.
 
 ### Step 1: Clone and Install
 
+**Option A: Using uv (recommended — fastest)**
+
 ```bash
+# Install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Clone and install
 git clone https://github.com/lupppig/loafer.git
 cd loafer
 uv sync
 ```
 
-This creates a virtual environment and installs all dependencies. The `loafer` command is now available via `uv run loafer`.
+**Option B: Using pip (no extra tools needed)**
+
+```bash
+# Clone
+git clone https://github.com/lupppig/loafer.git
+cd loafer
+
+# Create and activate a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate   # On Windows: .venv\Scripts\activate
+
+# Install
+pip install -e .
+```
+
+After installing with **Option A**, run commands with `uv run loafer ...`.
+After installing with **Option B**, run commands with just `loafer ...`.
+
+This guide uses `uv run loafer` by default. If you used pip, replace every `uv run loafer` with just `loafer`.
 
 ### Step 2: Set Up an LLM API Key
 
-Loafer needs an LLM to generate transform code in AI mode. Pick one:
+Loafer needs an LLM to generate transform code in AI mode. You can configure it **two ways**: via environment variable (quick), or inside your pipeline YAML (portable). Pick one provider:
 
-| Provider | Env Variable | Get Key |
-|----------|-------------|---------|
-| **Gemini** (default) | `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) |
-| **Claude** | `ANTHROPIC_API_KEY` | [Anthropic Console](https://console.anthropic.com/) |
-| **OpenAI** | `OPENAI_API_KEY` | [OpenAI Platform](https://platform.openai.com/api-keys) |
-| **Qwen** | `DASHSCOPE_API_KEY` | [DashScope](https://dashscope.console.aliyun.com/) |
+| Provider | Env Variable | Default Model | Get Key |
+|----------|-------------|---------------|---------|
+| **Gemini** (default) | `GEMINI_API_KEY` | `gemini-2.5-flash` | [Google AI Studio](https://aistudio.google.com/apikey) |
+| **Claude** | `ANTHROPIC_API_KEY` | `claude-sonnet-4-20250514` | [Anthropic Console](https://console.anthropic.com/) |
+| **OpenAI** | `OPENAI_API_KEY` | `gpt-4o-mini` | [OpenAI Platform](https://platform.openai.com/api-keys) |
+| **Qwen** | `DASHSCOPE_API_KEY` | `qwen-plus` | [DashScope](https://dashscope.console.aliyun.com/) |
 
-Export your key:
+#### Method A: Environment variable (quickest)
+
+Export the key in your shell before running any pipeline:
 
 ```bash
 export GEMINI_API_KEY="your-key-here"
+```
+
+That's it. Loafer picks it up automatically. No YAML changes needed.
+
+#### Method B: Inside your pipeline YAML (recommended for projects)
+
+Add an `llm` block to your `pipeline.yaml`:
+
+```yaml
+name: My First Pipeline
+
+source:
+  type: csv
+  path: ./data.csv
+
+target:
+  type: json
+  path: ./output.json
+
+transform:
+  type: ai
+  instruction: "filter active rows, add grade column (A if score >= 90, else B)"
+
+mode: etl
+
+# ── LLM configuration ──
+llm:
+  provider: gemini          # or: claude, openai, qwen
+  model: gemini-2.5-flash   # optional — defaults to provider's recommended model
+  api_key: ${GEMINI_API_KEY}  # or paste the key directly (not recommended)
+```
+
+You can still use `${ENV_VAR}` syntax inside the YAML so the key never sits in plain text:
+
+```yaml
+llm:
+  provider: claude
+  api_key: ${ANTHROPIC_API_KEY}
+```
+
+#### Switching providers
+
+Change the `provider` field — no other changes needed:
+
+```yaml
+llm:
+  provider: openai
+  model: gpt-4o
+  api_key: ${OPENAI_API_KEY}
+```
+
+```yaml
+llm:
+  provider: qwen
+  model: qwen-max
+  api_key: ${DASHSCOPE_API_KEY}
+```
+
+#### No LLM? No problem.
+
+If you use `transform.type: custom` (your own Python file) or `transform.type: sql`, no LLM call is made. You don't need any API key:
+
+```yaml
+transform:
+  type: custom
+  path: ./transform.py
+# No llm block needed
 ```
 
 ### Step 3: Run Your First Pipeline
@@ -324,6 +416,8 @@ Jobs are persisted in SQLite (`~/.loafer/loafer_jobs.sqlite`) and survive restar
 
 ### Common Commands Reference
 
+> **Note**: If you installed with pip (`pip install -e .`), replace `uv run loafer` with just `loafer` in every command below.
+
 | Command | What it does |
 |---------|-------------|
 | `uv run loafer run pipeline.yaml` | Run a pipeline |
@@ -350,7 +444,13 @@ Jobs are persisted in SQLite (`~/.loafer/loafer_jobs.sqlite`) and survive restar
 ```bash
 git clone https://github.com/lupppig/loafer.git
 cd loafer
+
+# With uv (recommended):
 uv sync --all-extras
+
+# With pip:
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
 ```
 
 ### Running Tests
