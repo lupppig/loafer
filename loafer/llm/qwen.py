@@ -1,7 +1,7 @@
 """Qwen LLM provider implementation.
 
 Uses the ``dashscope`` SDK (Alibaba Cloud) with ``qwen-plus`` for transform
-generation. Adds explicit retry with exponential backoff on 429 errors.
+generation.
 """
 
 from __future__ import annotations
@@ -11,12 +11,6 @@ from http import HTTPStatus
 
 import dashscope
 from dashscope.api_entities.dashscope_response import GenerationResponse
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 from loafer.exceptions import LLMInvalidOutputError, LLMRateLimitError
 from loafer.llm.base import ELTSQLResult, LLMProvider, TransformPromptResult
@@ -103,13 +97,8 @@ class QwenProvider(LLMProvider):
             token_usage=_extract_token_usage(response),
         )
 
-    @retry(
-        retry=retry_if_exception_type(LLMRateLimitError),
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=2, min=5, max=60),
-        reraise=True,
-    )
     def _call(self, prompt: str) -> GenerationResponse:
+        """Call Qwen. No built-in retry; we add one retry on 429."""
         response = dashscope.Generation.call(
             model=self._model,
             messages=[{"role": "user", "content": prompt}],

@@ -13,12 +13,6 @@ import re
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 from loafer.exceptions import LLMInvalidOutputError, LLMRateLimitError
 from loafer.llm.base import ELTSQLResult, LLMProvider, TransformPromptResult
@@ -100,17 +94,8 @@ class GeminiProvider(LLMProvider):
 
     # -- internals -----------------------------------------------------------
 
-    @retry(
-        retry=retry_if_exception_type(LLMRateLimitError),
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=2, min=5, max=60),
-        reraise=True,
-    )
     def _call_with_retry(self, prompt: str) -> types.GenerateContentResponse:
-        """Call Gemini with exponential backoff on rate-limit errors.
-
-        Retries 3 times with waits of 5s, 10s, 20s (total ~35s).
-        """
+        """Call Gemini. The SDK already retries 429/5xx internally (5 attempts)."""
         try:
             return self._client.models.generate_content(
                 model=self._model,

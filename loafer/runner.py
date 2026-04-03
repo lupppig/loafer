@@ -244,9 +244,24 @@ def _stream_graph(
     """Stream graph execution, yielding per-node updates."""
     nodes_executed: set[str] = set()
 
+    stage_order = (
+        ["extract", "validate", "transform", "load"]
+        if mode == "etl"
+        else ["extract", "load_raw", "transform_in_target"]
+    )
+
     try:
         for event in graph.stream(state, stream_mode="updates"):
             for node_name, delta in event.items():
+                # Yield "running" for the next expected stage before processing
+                remaining = [s for s in stage_order if s not in nodes_executed]
+                if node_name in remaining:
+                    for upcoming in remaining:
+                        if upcoming == node_name:
+                            yield (node_name, "running", state)
+                            break
+                        yield (upcoming, "skipped", state)
+
                 nodes_executed.add(node_name)
 
                 # Merge delta into state
@@ -266,10 +281,7 @@ def _stream_graph(
                     yield (node_name, status, state)
 
         # Mark skipped stages
-        if mode == "etl":
-            expected = {"extract", "validate", "transform", "load"}
-        else:
-            expected = {"extract", "load_raw", "transform_in_target"}
+        expected = set(stage_order)
 
         for stage in expected - nodes_executed:
             yield (stage, "skipped", state)

@@ -577,6 +577,19 @@ def run(
 
         _time.sleep(0.02)
 
+    # Track which stages have completed so we know what's running next
+    _completed_stages: set[str] = set()
+    _etl_stages = ["extract", "validate", "transform", "load"]
+    _elt_stages = ["extract", "load_raw", "transform_in_target"]
+
+    def _next_stage_label(current_node: str, state: Any) -> str:
+        """Return the label for the next expected stage."""
+        stages = _etl_stages if mode == "etl" else _elt_stages
+        for s in stages:
+            if s not in _completed_stages:
+                return _get_stage_label(s, state)
+        return "Finishing up…"
+
     try:
         for node_name, status, state in run_pipeline_streaming(
             config_path=actual_config,
@@ -600,15 +613,18 @@ def run(
                 icon = "[red]✗[/red]"
                 console.print(f"  {icon}  [red]{label}[/red]")
             elif status == "skipped":
+                _completed_stages.add(node_name)
                 icon = "[dim]⊘[/dim]"
                 console.print(f"  {icon}  [dim]{label}[/dim]")
             else:
+                _completed_stages.add(node_name)
                 icon = "[green]✓[/green]"
                 console.print(f"  {icon}  [green]{label}[/green]  {row_info}")
 
-            # Start spinner for the next stage
+            # Start spinner showing the NEXT expected stage
             if status not in ("failed", "skipped"):
-                _start_spinner(label)
+                next_label = _next_stage_label(node_name, state)
+                _start_spinner(next_label)
 
     except PipelineError as exc:
         _stop_spinner()

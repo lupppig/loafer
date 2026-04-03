@@ -102,7 +102,7 @@ class TestGeminiProviderTransform:
             with pytest.raises(LLMInvalidOutputError):
                 provider.generate_transform_function({}, "noop")
 
-    def test_rate_limit_raises_after_retries(self) -> None:
+    def test_rate_limit_raises(self) -> None:
         from google.genai import errors as genai_errors
 
         mock_client = MagicMock()
@@ -115,8 +115,8 @@ class TestGeminiProviderTransform:
             with pytest.raises(LLMRateLimitError):
                 provider.generate_transform_function({}, "noop")
 
-        # Should have retried 3 times (stop_after_attempt(3))
-        assert mock_client.models.generate_content.call_count == 3
+        # SDK handles retries internally; we just verify the error propagates
+        assert mock_client.models.generate_content.call_count >= 1
 
 
 class TestGeminiProviderEltSql:
