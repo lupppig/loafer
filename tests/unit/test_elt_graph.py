@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
-import pytest
-
 from loafer.graph.elt import _check_transform_in_target_retry, _check_validation, build_elt_graph
 
 

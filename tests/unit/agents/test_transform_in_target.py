@@ -136,15 +136,17 @@ class TestTransformInTargetAgent:
             "last_error": None,
         }
 
-        with patch(
-            "loafer.agents.transform_in_target._execute_elt_sql",
-            return_value=42,
-        ):
-            with patch(
+        with (
+            patch(
+                "loafer.agents.transform_in_target._execute_elt_sql",
+                return_value=42,
+            ),
+            patch(
                 "loafer.agents.transform_in_target._table_exists",
                 return_value=False,
-            ):
-                result = transform_in_target_agent(state)
+            ),
+        ):
+            result = transform_in_target_agent(state)
 
         assert result["rows_loaded"] == 42
         assert result["generated_sql"] == "SELECT id FROM raw"
@@ -230,6 +232,8 @@ class TestExecuteEltSql:
         mock_cursor.execute.side_effect = psycopg2.Error("syntax error")
         mock_conn.cursor.return_value = mock_cursor
 
-        with patch("psycopg2.connect", return_value=mock_conn):
-            with pytest.raises(TransformError, match="syntax error"):
-                _execute_elt_sql("postgresql://localhost/db", "BAD SQL", "output")
+        with (
+            patch("psycopg2.connect", return_value=mock_conn),
+            pytest.raises(TransformError, match="syntax error"),
+        ):
+            _execute_elt_sql("postgresql://localhost/db", "BAD SQL", "output")

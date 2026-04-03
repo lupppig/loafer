@@ -16,7 +16,7 @@ import time
 import traceback
 from pathlib import Path
 from types import ModuleType
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from loafer.config import AITransformConfig
 from loafer.core.destructive import detect_destructive_operations, raise_if_destructive
@@ -26,9 +26,6 @@ from loafer.llm.base import LLMProvider, TransformPromptResult
 from loafer.llm.prompt_builder import build_etl_transform_prompt
 from loafer.transform import TransformRunner
 from loafer.transform.code_validator import validate_transform_function
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
 
 # Maximum number of retry attempts for AI-generated code.
 _MAX_RETRIES = 3
@@ -239,12 +236,11 @@ class AiTransformRunner(TransformRunner):
 
         if ai_code:
             # Human review if requested
-            if transform_config.review:
-                if not _ask_user_confirmation(ai_code):
-                    # User rejected — skip AI, keep custom result if any
-                    state["transformed_data"] = data
-                    state["duration_ms"]["transform"] = (time.monotonic() - start) * 1000
-                    return state
+            if transform_config.review and not _ask_user_confirmation(ai_code):
+                # User rejected — skip AI, keep custom result if any
+                state["transformed_data"] = data
+                state["duration_ms"]["transform"] = (time.monotonic() - start) * 1000
+                return state
 
             data = self._run_ai_code(ai_code, data, state)
 

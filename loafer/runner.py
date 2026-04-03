@@ -41,7 +41,6 @@ def _build_llm_provider(config: PipelineConfig) -> LLMProvider:
         if env_var:
             api_key = os.environ.get(env_var, "")
         if not api_key:
-            env_vars = ", ".join(_PROVIDER_ENV_VARS.values())
             raise LLMError(
                 f"Missing API key for {provider}.\n"
                 f"Set 'llm.api_key' in your config file, or export the environment variable:\n"

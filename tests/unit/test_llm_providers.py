@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -113,6 +112,7 @@ class TestClaudeProvider:
 
     def test_rate_limit_error_429(self) -> None:
         from anthropic import APIStatusError
+
         from loafer.llm.claude import ClaudeProvider
 
         mock_client = MagicMock()
@@ -128,6 +128,7 @@ class TestClaudeProvider:
 
     def test_non_rate_limit_error_propagates(self) -> None:
         from anthropic import APIStatusError
+
         from loafer.llm.claude import ClaudeProvider
 
         mock_client = MagicMock()
@@ -262,6 +263,7 @@ class TestOpenAIProvider:
 
     def test_rate_limit_error_429(self) -> None:
         from openai import APIStatusError
+
         from loafer.llm.openai import OpenAIProvider
 
         mock_client = MagicMock()
@@ -277,6 +279,7 @@ class TestOpenAIProvider:
 
     def test_non_rate_limit_error_propagates(self) -> None:
         from openai import APIStatusError
+
         from loafer.llm.openai import OpenAIProvider
 
         mock_client = MagicMock()

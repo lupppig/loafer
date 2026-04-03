@@ -91,13 +91,12 @@ class TestLoadRawAgent:
             "duration_ms": {},
         }
 
-        with pytest.raises(LoadError, match="refused"):
-            with pytest.MonkeyPatch.context() as mp:
-                mp.setattr(
-                    "loafer.agents.load_raw.get_target_connector",
-                    lambda cfg: mock_connector,
-                )
-                load_raw_agent(state)
+        with pytest.raises(LoadError, match="refused"), pytest.MonkeyPatch.context() as mp:
+            mp.setattr(
+                "loafer.agents.load_raw.get_target_connector",
+                lambda cfg: mock_connector,
+            )
+            load_raw_agent(state)
 
     def test_loads_raw_data_non_streaming(self) -> None:
         mock_connector = MagicMock()
@@ -187,12 +186,11 @@ class TestLoadRawAgent:
             "duration_ms": {},
         }
 
-        with pytest.raises(LoadError, match="boom"):
-            with pytest.MonkeyPatch.context() as mp:
-                mp.setattr(
-                    "loafer.agents.load_raw.get_target_connector",
-                    lambda cfg: mock_connector,
-                )
-                load_raw_agent(state)
+        with pytest.raises(LoadError, match="boom"), pytest.MonkeyPatch.context() as mp:
+            mp.setattr(
+                "loafer.agents.load_raw.get_target_connector",
+                lambda cfg: mock_connector,
+            )
+            load_raw_agent(state)
 
         mock_connector.disconnect.assert_called_once()

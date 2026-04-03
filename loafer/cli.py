@@ -454,7 +454,6 @@ def _print_error_panel(
 ) -> None:
     """Print a rich error panel with context and tips."""
     run_id = state.get("run_id", "unknown")
-    error_str = str(error)
 
     user_msg = _format_user_error(error, stage=failed_stage)
 

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from loafer.logging import configure_logging, get_logger
 
 
