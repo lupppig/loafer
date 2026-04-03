@@ -44,8 +44,7 @@ class _PeekableStream:
     def __iter__(self) -> Iterator[list[dict[str, Any]]]:
         if self._peeked and self._first_chunk:
             yield self._first_chunk
-        for chunk in self._source:
-            yield chunk
+        yield from self._source
 
     def __next__(self) -> list[dict[str, Any]]:
         return next(self._source)

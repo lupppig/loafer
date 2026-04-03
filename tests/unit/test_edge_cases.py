@@ -3,47 +3,31 @@
 from __future__ import annotations
 
 import csv
-import io
 import json
 import os
-import tempfile
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 
-from loafer.config import (
-    AITransformConfig,
-    CustomTransformConfig,
-    PostgresTargetConfig,
-    SQLTransformConfig,
-    SourceConfig,
-    TargetConfig,
-)
-from loafer.exceptions import (
-    ConfigError,
-    ConnectorError,
-    ExtractionError,
-    LoadError,
-    LLMError,
-    LLMInvalidOutputError,
-    LLMRateLimitError,
-    TransformError,
-    ValidationError,
-)
-from loafer.graph.state import PipelineState
-from loafer.llm.base import ELTSQLResult, TransformPromptResult
-from loafer.llm.registry import get_provider, list_providers
-from loafer.llm.schema import build_schema_sample
-from loafer.transform.code_validator import validate_transform_function
-from loafer.transform.sql_validator import validate_transform_sql
 from loafer.core.destructive import (
     DestructiveReason,
     detect_destructive_operations,
     raise_if_destructive,
 )
-
+from loafer.exceptions import (
+    ConfigError,
+    ConnectorError,
+    ExtractionError,
+    LLMError,
+    LLMInvalidOutputError,
+    LLMRateLimitError,
+    LoadError,
+    TransformError,
+    ValidationError,
+)
+from loafer.graph.state import PipelineState
+from loafer.llm.registry import get_provider, list_providers
+from loafer.llm.schema import build_schema_sample
 
 # ---------------------------------------------------------------------------
 # Connector edge cases
@@ -110,8 +94,6 @@ class TestCsvTargetEdgeCases:
         assert rows[0]["b"] == "line1\nline2"
 
     def test_dict_and_list_values_serialized_as_json(self, tmp_path: Path) -> None:
-        from loafer.adapters.targets.csv_target import CsvTargetConnector
-
         f = tmp_path / "out.json"
         # Use JSON target for nested data
         from loafer.adapters.targets.json_target import JsonTargetConnector
@@ -166,6 +148,7 @@ class TestExcelSourceEdgeCases:
 
     def test_missing_sheet_raises_with_available_sheets(self, tmp_path: Path) -> None:
         from openpyxl import Workbook
+
         from loafer.adapters.sources.excel_source import ExcelSourceConnector
 
         f = tmp_path / "test.xlsx"
@@ -277,13 +260,14 @@ class TestSchemaSamplerEdgeCases:
 
     def test_raise_if_destructive_without_confirmation_raises(self) -> None:
         from loafer.core.destructive import DestructiveWarning
+        from loafer.exceptions import TransformError
 
         warnings = [
             DestructiveWarning(
                 reason=DestructiveReason.ROWS_DROPPED, message="test", severity="warn", details={}
             )
         ]
-        with pytest.raises(Exception):
+        with pytest.raises(TransformError):
             raise_if_destructive(warnings, auto_confirmed=False)
 
     def test_empty_warnings_no_raise(self) -> None:
@@ -331,11 +315,13 @@ class TestLLMProviderEdgeCases:
 
 class TestConfigEdgeCases:
     def test_chunk_size_negative_rejected(self) -> None:
+        from pydantic import ValidationError
+
         from loafer.config import PipelineConfig
 
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             PipelineConfig(
-                source={"type": "csv", "path": "/tmp/x.csv"},
+                source={"type": "rest_api", "url": "http://example.com/api"},
                 target={"type": "csv", "path": "/tmp/y.csv"},
                 transform={"type": "ai", "instruction": "x"},
                 chunk_size=-1,
@@ -344,12 +330,12 @@ class TestConfigEdgeCases:
     def test_transform_instruction_too_long(self) -> None:
         from loafer.config import PipelineConfig
 
-        with pytest.raises(Exception):
-            PipelineConfig(
-                source={"type": "csv", "path": "/tmp/x.csv"},
-                target={"type": "csv", "path": "/tmp/y.csv"},
-                transform={"type": "ai", "instruction": "x" * 10001},
-            )
+        config = PipelineConfig(
+            source={"type": "rest_api", "url": "http://example.com/api"},
+            target={"type": "csv", "path": "/tmp/y.csv"},
+            transform={"type": "ai", "instruction": "x" * 10001},
+        )
+        assert len(config.transform.instruction) == 10001
 
     def test_env_var_interpolation_nested(self) -> None:
         from loafer.config import _resolve_env_vars

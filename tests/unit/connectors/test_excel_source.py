@@ -45,15 +45,21 @@ class TestExcelSourceConnector:
             assert sum(len(c) for c in chunks) == 10
 
     def test_file_not_found(self, tmp_path: Any) -> None:
-        with pytest.raises(ExtractionError, match="not found"), ExcelSourceConnector(str(tmp_path / "nope.xlsx")) as _:
-                pass
+        with (
+            pytest.raises(ExtractionError, match="not found"),
+            ExcelSourceConnector(str(tmp_path / "nope.xlsx")) as _,
+        ):
+            pass
 
     def test_missing_sheet(self, tmp_path: Any) -> None:
         f = tmp_path / "data.xlsx"
         _create_xlsx(f, [["a"], [1]], sheet_name="Data")
 
-        with pytest.raises(ExtractionError, match="not found"), ExcelSourceConnector(str(f), sheet="Missing") as _:
-                pass
+        with (
+            pytest.raises(ExtractionError, match="not found"),
+            ExcelSourceConnector(str(f), sheet="Missing") as _,
+        ):
+            pass
 
     def test_empty_workbook(self, tmp_path: Any) -> None:
         import openpyxl

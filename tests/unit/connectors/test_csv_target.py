@@ -50,8 +50,11 @@ class TestCsvTargetConnector:
         f = tmp_path / "existing.csv"
         f.write_text("old data")
 
-        with pytest.raises(LoadError, match="already exists"), CsvTargetConnector(str(f), write_mode="error") as _:
-                pass
+        with (
+            pytest.raises(LoadError, match="already exists"),
+            CsvTargetConnector(str(f), write_mode="error") as _,
+        ):
+            pass
 
     def test_write_mode_overwrite(self, tmp_path: Any) -> None:
         f = tmp_path / "existing.csv"

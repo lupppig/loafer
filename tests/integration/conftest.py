@@ -60,7 +60,6 @@ def pg_conn(postgres_url: str) -> Generator[Any, None, None]:
 @pytest.fixture()
 def pg_test_table(pg_conn: Any) -> Generator[str, None, None]:
     """Create a temporary table, drop it after the test."""
-    import psycopg2
 
     table = "test_loafer_integration"
     cur = pg_conn.cursor()
@@ -143,9 +142,9 @@ _MYSQL_URL = os.environ.get(
 
 def _mysql_available() -> bool:
     try:
-        import pymysql
-
         from urllib.parse import urlparse
+
+        import pymysql
 
         parsed = urlparse(_MYSQL_URL)
         conn = pymysql.connect(

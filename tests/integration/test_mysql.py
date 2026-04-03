@@ -6,7 +6,6 @@ Requires a running MySQL instance. Tests are skipped if MySQL is not available.
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any
 
 import pytest
 

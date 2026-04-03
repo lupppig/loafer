@@ -11,7 +11,7 @@ import re
 import anthropic
 from anthropic import APIStatusError
 
-from loafer.exceptions import LLMInvalidOutputError, LLMRateLimitError
+from loafer.exceptions import LLMRateLimitError
 from loafer.llm.base import ELTSQLResult, LLMProvider, TransformPromptResult
 from loafer.llm.prompt_builder import build_elt_sql_prompt, build_etl_transform_prompt
 

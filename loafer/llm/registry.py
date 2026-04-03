@@ -66,10 +66,10 @@ def _register_claude() -> None:
     from loafer.llm.claude import ClaudeProvider
 
     def _factory(**kwargs: object) -> ClaudeProvider:
-        api_key = kwargs.get("api_key", "")
-        model = kwargs.get("model", "claude-sonnet-4-20250514")
-        max_tokens = kwargs.get("max_tokens", 4096)
-        return ClaudeProvider(api_key=str(api_key), model=str(model), max_tokens=int(max_tokens))
+        api_key = str(kwargs.get("api_key", ""))
+        model = str(kwargs.get("model", "claude-sonnet-4-20250514"))
+        max_tokens = int(kwargs.get("max_tokens", 4096))
+        return ClaudeProvider(api_key=api_key, model=model, max_tokens=max_tokens)
 
     register_provider("claude", _factory)
 

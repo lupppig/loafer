@@ -63,8 +63,11 @@ class TestJsonTargetConnector:
         f = tmp_path / "existing.json"
         f.write_text("[]")
 
-        with pytest.raises(LoadError, match="already exists"), JsonTargetConnector(str(f), write_mode="error") as _:
-                pass
+        with (
+            pytest.raises(LoadError, match="already exists"),
+            JsonTargetConnector(str(f), write_mode="error") as _,
+        ):
+            pass
 
     def test_creates_parent_dirs(self, tmp_path: Any) -> None:
         f = tmp_path / "sub" / "out.json"

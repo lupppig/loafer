@@ -130,7 +130,7 @@ class TestMongoSourceConnector:
             database="test_loafer",
             collection="nonexistent_collection_xyz",
         )
-        with pytest.raises(ExtractionError, match="collection.*not found"):
+        with pytest.raises(ExtractionError, match=r"collection.*not found"):
             conn.connect()
 
     def test_stream_before_connect_raises(self, mongo_url: str, mongo_client: Any) -> None:

@@ -5,11 +5,14 @@ line-length = 100
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM", "TCH", "RUF"]
 ignore = [
     "E501",
+    "E402",   # Connector registry registers on import
     "TC001",  # LangGraph needs PipelineState at runtime for state_schema
+    "TC002",  # dashscope has no type stubs
     "TC003",  # Same reason — TypedDict runtime references
     "SIM105",  # contextlib.suppress is less readable for simple pass blocks
     "SIM108",  # ternary operators hurt readability in try/except blocks
     "SIM115",  # file handle managed by subprocess.Popen, not leaked
+    "B008",   # typer.Argument/Option is the standard pattern
     "B904",    # raise without from is intentional for ImportError chains
 ]
 

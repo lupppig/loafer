@@ -13,7 +13,7 @@ import time
 from typing import Any
 
 from loafer.config import PostgresTargetConfig
-from loafer.exceptions import LoadError
+from loafer.exceptions import TransformError
 from loafer.graph.state import PipelineState
 from loafer.llm.base import ELTSQLResult, LLMProvider
 from loafer.llm.prompt_builder import build_elt_sql_prompt
@@ -56,7 +56,7 @@ def transform_in_target_agent(state: PipelineState) -> PipelineState:
     previous_error: str | None = state.get("last_error")
 
     try:
-        prompt = build_elt_sql_prompt(
+        build_elt_sql_prompt(
             target_schema,
             raw_table_name,
             instruction,

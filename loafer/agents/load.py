@@ -13,8 +13,6 @@ from loafer.connectors.registry import get_target_connector
 from loafer.exceptions import LoadError
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
-
     from loafer.connectors.base import TargetConnector
     from loafer.graph.state import PipelineState
 

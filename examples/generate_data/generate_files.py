@@ -2,7 +2,6 @@
 """Generate sample CSV and Excel files for ETL demo pipelines."""
 
 import csv
-import os
 import random
 from datetime import datetime, timedelta
 from pathlib import Path

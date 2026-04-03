@@ -156,11 +156,14 @@ class TestMongoTargetConnector:
         mock_db.__getitem__ = MagicMock(return_value=mock_collection)
         mock_db.list_collection_names.return_value = []
 
-        with patch("pymongo.MongoClient", return_value=mock_client), MongoTargetConnector(
-            url="mongodb://localhost:27017",
-            database="testdb",
-            collection="testcoll",
-        ) as conn:
+        with (
+            patch("pymongo.MongoClient", return_value=mock_client),
+            MongoTargetConnector(
+                url="mongodb://localhost:27017",
+                database="testdb",
+                collection="testcoll",
+            ) as conn,
+        ):
             count = conn.write_chunk([{"x": 1}])
 
         assert count == 1

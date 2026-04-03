@@ -11,16 +11,13 @@ from __future__ import annotations
 import csv
 import gc
 import json
-import os
 import random
 import resource
-import string
 import sys
 import tempfile
 import time
 import traceback
 from pathlib import Path
-from typing import Any
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -195,7 +192,7 @@ def test_unicode_data(tmp_path: Path) -> tuple[bool, str]:
         f"mode: etl\n"
     )
 
-    success, duration, mem_delta = _run_pipeline(str(config_path))
+    success, duration, _mem_delta = _run_pipeline(str(config_path))
     if not success:
         return False, "Pipeline failed on unicode data"
 
@@ -375,8 +372,8 @@ def test_wide_rows(tmp_path: Path) -> tuple[bool, str]:
 
 def test_concurrent_pipelines(tmp_path: Path) -> tuple[bool, str]:
     """Run 3 pipelines simultaneously."""
-    import subprocess
     import concurrent.futures
+    import subprocess
 
     configs = []
     for i in range(3):
@@ -409,7 +406,7 @@ def test_concurrent_pipelines(tmp_path: Path) -> tuple[bool, str]:
         results = [f.result() for f in futures]
     duration = time.monotonic() - t0
 
-    for i, (result, (_, json_path)) in enumerate(zip(results, configs)):
+    for i, (result, (_, json_path)) in enumerate(zip(results, configs, strict=False)):
         if result.returncode != 0:
             return False, f"Pipeline {i} failed: {result.stderr}"
         with open(json_path) as f:
@@ -489,7 +486,7 @@ def test_scheduler_load(tmp_path: Path) -> tuple[bool, str]:
             timeout=30,
         )
 
-    return True, f"10 jobs scheduled and listed"
+    return True, "10 jobs scheduled and listed"
 
 
 # ---------------------------------------------------------------------------
@@ -517,8 +514,8 @@ def test_memory_leak(tmp_path: Path) -> tuple[bool, str]:
     mems = []
     for i in range(5):
         gc.collect()
-        mem_before = _mem_mb()
-        success, duration, _ = _run_pipeline(str(config_path))
+        _mem_mb()
+        success, _duration, _ = _run_pipeline(str(config_path))
         gc.collect()
         mem_after = _mem_mb()
         mems.append(mem_after)
@@ -566,9 +563,9 @@ def main() -> int:
         print(f"{'─' * 70}")
 
         with tempfile.TemporaryDirectory() as td:
-            tmp_path = Path(td)
+            td_path = Path(td)
             try:
-                ok, msg = test_fn(tmp)
+                ok, msg = test_fn(td_path)
             except Exception as e:
                 ok = False
                 msg = f"{e}\n{traceback.format_exc()}"

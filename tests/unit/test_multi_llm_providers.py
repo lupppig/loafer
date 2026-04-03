@@ -30,7 +30,9 @@ class TestProviderRegistration:
         assert provider.__class__.__name__ == "QwenProvider"
 
     def test_unknown_provider_raises(self) -> None:
-        with pytest.raises(Exception):
+        from loafer.exceptions import LLMError
+
+        with pytest.raises(LLMError):
             get_provider("unknown", api_key="test-key")
 
 

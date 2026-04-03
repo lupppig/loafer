@@ -5,8 +5,6 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
-import pytest
-
 from loafer.agents.transform_in_target import transform_in_target_agent
 from loafer.config import PostgresTargetConfig
 

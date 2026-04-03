@@ -6,9 +6,20 @@ logic should exist outside this module.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
+from loafer.adapters.sources.csv_source import CsvSourceConnector as _Csv
+from loafer.adapters.sources.excel_source import ExcelSourceConnector as _Excel
+from loafer.adapters.sources.mongo import MongoSourceConnector as _Mongo
+from loafer.adapters.sources.mysql import MySQLSourceConnector as _MySQL
+from loafer.adapters.sources.pdf import PdfSourceConnector as _Pdf
+from loafer.adapters.sources.postgres import PostgresSourceConnector as _Postgres
+from loafer.adapters.sources.rest_api import RestApiSourceConnector as _Rest
+from loafer.adapters.sources.sqlite import SqliteSourceConnector as _Sqlite
+from loafer.adapters.targets.csv_target import CsvTargetConnector as _CsvTarget
+from loafer.adapters.targets.json_target import JsonTargetConnector as _JsonTarget
+from loafer.adapters.targets.mongo import MongoTargetConnector as _MongoTarget
+from loafer.adapters.targets.postgres import PostgresTargetConnector as _PgTarget
 from loafer.connectors.base import SourceConnector, TargetConnector
 from loafer.exceptions import ConnectorError
 
@@ -41,6 +52,21 @@ def _register_source(type_name: str, cls: type[SourceConnector]) -> None:
 
 def _register_target(type_name: str, cls: type[TargetConnector]) -> None:
     _TARGET_REGISTRY[type_name] = cls
+
+
+_register_source("csv", _Csv)
+_register_source("excel", _Excel)
+_register_source("postgres", _Postgres)
+_register_source("mysql", _MySQL)
+_register_source("mongo", _Mongo)
+_register_source("rest_api", _Rest)
+_register_source("sqlite", _Sqlite)
+_register_source("pdf", _Pdf)
+
+_register_target("csv", _CsvTarget)
+_register_target("json", _JsonTarget)
+_register_target("postgres", _PgTarget)
+_register_target("mongo", _MongoTarget)
 
 
 def get_source_connector(config: SourceConfig) -> SourceConnector:
@@ -125,38 +151,6 @@ def _resolve_url(url: str) -> dict[str, Any]:
         "password": parsed.password,
     }
 
-
-# -- source connectors --------------------------------------------------------
-
-from loafer.adapters.sources.csv_source import CsvSourceConnector as _Csv
-from loafer.adapters.sources.excel_source import ExcelSourceConnector as _Excel
-from loafer.adapters.sources.mongo import MongoSourceConnector as _Mongo
-from loafer.adapters.sources.mysql import MySQLSourceConnector as _MySQL
-from loafer.adapters.sources.pdf import PdfSourceConnector as _Pdf
-from loafer.adapters.sources.postgres import PostgresSourceConnector as _Postgres
-from loafer.adapters.sources.rest_api import RestApiSourceConnector as _Rest
-from loafer.adapters.sources.sqlite import SqliteSourceConnector as _Sqlite
-
-_register_source("csv", _Csv)
-_register_source("excel", _Excel)
-_register_source("postgres", _Postgres)
-_register_source("mysql", _MySQL)
-_register_source("mongo", _Mongo)
-_register_source("rest_api", _Rest)
-_register_source("sqlite", _Sqlite)
-_register_source("pdf", _Pdf)
-
-# -- target connectors --------------------------------------------------------
-
-from loafer.adapters.targets.csv_target import CsvTargetConnector as _CsvTarget
-from loafer.adapters.targets.json_target import JsonTargetConnector as _JsonTarget
-from loafer.adapters.targets.mongo import MongoTargetConnector as _MongoTarget
-from loafer.adapters.targets.postgres import PostgresTargetConnector as _PgTarget
-
-_register_target("csv", _CsvTarget)
-_register_target("json", _JsonTarget)
-_register_target("postgres", _PgTarget)
-_register_target("mongo", _MongoTarget)
 
 # -- backward compatibility: re-export connector classes ----------------------
 

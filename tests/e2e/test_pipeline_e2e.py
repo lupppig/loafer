@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import csv
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -16,7 +15,7 @@ import pytest
 
 # Import integration fixtures so they're visible here
 sys.path.insert(0, str(Path(__file__).parent.parent / "integration"))
-from conftest import _pg_available, _POSTGRES_URL  # noqa: E402
+from conftest import _POSTGRES_URL, _pg_available
 
 from loafer.runner import run_pipeline
 

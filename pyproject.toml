@@ -43,8 +43,6 @@ dev = [
     "pytest-asyncio>=0.23",
     "pytest-cov>=4.0",
     "ruff>=0.4",
-    "mypy>=1.9",
-    "types-PyYAML>=6.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -60,5 +58,8 @@ markers = [
 [tool.ruff.lint]
 ignore = [
     "TC001",  # Move application import into type-checking block (LangGraph needs these at runtime)
+    "TC002",  # Move third-party import into type-checking block (dashscope has no stubs)
     "TC003",  # Move stdlib import into type-checking block (same reason)
+    "B008",   # Do not perform function call in argument defaults (typer.Argument/Option is the standard pattern)
+    "E402",   # Module level import not at top of file (connector registry registers on import)
 ]
