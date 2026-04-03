@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "loafer-etl"
-version = "0.1.0"
+dynamic = ["version"]
 description = "AI-assisted ETL and ELT pipelines from the command line"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -48,6 +48,9 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["loafer"]
 
+[tool.hatch.version]
+source = "vcs"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
@@ -62,4 +65,9 @@ ignore = [
     "TC003",  # Move stdlib import into type-checking block (same reason)
     "B008",   # Do not perform function call in argument defaults (typer.Argument/Option is the standard pattern)
     "E402",   # Module level import not at top of file (connector registry registers on import)
+]
+
+[dependency-groups]
+dev = [
+    "hatch-vcs>=0.5.0",
 ]
