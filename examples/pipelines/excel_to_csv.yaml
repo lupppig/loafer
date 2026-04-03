@@ -9,8 +9,11 @@ target:
   path: ../output/inventory_flat.csv
 
 transform:
-  type: custom
-  path: ../transforms/excel_transform.py
+  type: ai
+  instruction: "convert is_active column to 0 or 1 to represent true false value"
 
+llm:
+  provider: gemini
+  model: gemini-2.0-flash
 mode: etl
 chunk_size: 5000

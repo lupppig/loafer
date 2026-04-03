@@ -9,17 +9,20 @@ All user-facing output uses rich.console.Console. Never use print().
 from __future__ import annotations
 
 import signal
+import time
 from pathlib import Path
 from typing import Any
 
 import click
 import typer
 from rich.console import Console
+from rich.live import Live
 from rich.panel import Panel
 from rich.rule import Rule
+from rich.spinner import Spinner
 from rich.table import Table
 
-from loafer.exceptions import PipelineError, SchedulerError
+from loafer.exceptions import LLMError, PipelineError, SchedulerError
 from loafer.runner import list_connectors, run_pipeline_streaming, validate_config
 
 app = typer.Typer(
@@ -32,6 +35,283 @@ console = Console()
 err_console = Console(stderr=True)
 
 _config_arg = typer.Argument(..., help="Path to pipeline YAML config")
+
+
+# ---------------------------------------------------------------------------
+# Animated stage loaders
+# ---------------------------------------------------------------------------
+
+_STAGE_SPINNERS = {
+    "extract": ("dots", "cyan"),
+    "validate": ("dots2", "blue"),
+    "transform": ("dots3", "magenta"),
+    "load": ("dots4", "green"),
+    "load_raw": ("dots5", "green"),
+    "transform_in_target": ("dots6", "magenta"),
+}
+
+_STAGE_MESSAGES = {
+    "extract": [
+        "Connecting to source…",
+        "Reading data…",
+        "Parsing rows…",
+        "Extracting records…",
+    ],
+    "validate": [
+        "Checking schema…",
+        "Validating null rates…",
+        "Verifying data types…",
+        "Running quality checks…",
+    ],
+    "transform": [
+        "Preparing transformation…",
+        "Generating code…",
+        "Processing data…",
+        "Applying transforms…",
+    ],
+    "load": [
+        "Opening target…",
+        "Writing rows…",
+        "Flushing to disk…",
+        "Finalizing load…",
+    ],
+    "load_raw": [
+        "Creating raw table…",
+        "Loading raw data…",
+        "Writing to target…",
+        "Finalizing load…",
+    ],
+    "transform_in_target": [
+        "Analyzing schema…",
+        "Generating SQL…",
+        "Executing query…",
+        "Transforming in target…",
+    ],
+}
+
+
+class StageAnimator:
+    """Manages animated spinner feedback for a single pipeline stage."""
+
+    def __init__(self, stage: str, label: str) -> None:
+        self.stage = stage
+        self.label = label
+        spinner_name, spinner_color = _STAGE_SPINNERS.get(stage, ("dots", "white"))
+        self.spinner = Spinner(
+            spinner_name, text=f"[{spinner_color}]{label}[/]", style=spinner_color
+        )
+        self.messages = _STAGE_MESSAGES.get(stage, ["Working…"])
+        self._msg_idx = 0
+        self._start = time.monotonic()
+        self._live: Live | None = None
+        self._done = False
+
+    def start(self) -> None:
+        self._live = Live(self.spinner, refresh_per_second=12, console=console)
+        self._live.start()
+        self._start = time.monotonic()
+
+    def pulse(self) -> None:
+        if self._done or self._live is None:
+            return
+        elapsed = time.monotonic() - self._start
+        msg = self.messages[self._msg_idx % len(self.messages)]
+        self._msg_idx += 1
+        _, color = _STAGE_SPINNERS.get(self.stage, ("dots", "white"))
+        self.spinner.update(
+            text=f"[{color}]{msg}[/] [{color}][{elapsed:.1f}s][/]",
+        )
+
+    def finish(self, status: str, row_info: str = "") -> None:
+        if self._live is None:
+            return
+        self._done = True
+        elapsed = time.monotonic() - self._start
+        self._live.stop()
+
+        if status == "done":
+            icon = "[green]✓[/green]"
+            console.print(f"  {icon}  [green]{self.label}[/green]  [{elapsed:.1f}s]  {row_info}")
+        elif status == "failed":
+            icon = "[red]✗[/red]"
+            console.print(f"  {icon}  [red]{self.label}[/red]  [{elapsed:.1f}s]")
+        elif status == "skipped":
+            icon = "[dim]⊘[/dim]"
+            console.print(f"  {icon}  [dim]{self.label}[/dim]")
+
+
+# ---------------------------------------------------------------------------
+# Human-readable error formatting
+# ---------------------------------------------------------------------------
+
+
+def _format_user_error(error: Exception, stage: str | None = None) -> str:
+    """Convert raw exceptions into human-readable messages."""
+    msg = str(error)
+
+    # Pydantic validation errors — strip the noise
+    if "validation error" in msg.lower() and "pydantic" in msg.lower():
+        return _parse_pydantic_error(msg)
+
+    # LLM API errors
+    if "404" in msg or "not_found" in msg.lower() or "not found" in msg.lower():
+        if "model" in msg.lower() or "gemini" in msg.lower() or "claude" in msg.lower():
+            return _parse_model_not_found(msg)
+        if "api" in msg.lower() or "endpoint" in msg.lower():
+            return (
+                "The API endpoint could not be reached.\n"
+                "  • Check your internet connection\n"
+                "  • Verify the API key is valid and has not expired\n"
+                "  • Make sure the model name is correct for your provider"
+            )
+
+    # Rate limit / quota errors
+    if "429" in msg or "rate" in msg.lower() or "quota" in msg.lower():
+        return (
+            "You've hit the rate limit or exhausted your API quota.\n"
+            "  • Wait a moment and try again\n"
+            "  • Check your provider dashboard for quota usage\n"
+            "  • Consider upgrading your plan or switching providers"
+        )
+
+    # Authentication errors
+    if "401" in msg or "unauthorized" in msg.lower() or "authentication" in msg.lower():
+        return (
+            "Authentication failed — your API key is invalid or expired.\n"
+            "  • Check that your API key is correct\n"
+            "  • Make sure it hasn't expired or been revoked\n"
+            '  • Set it with: export GEMINI_API_KEY="your-key" (or your provider\'s var)'
+        )
+
+    # Permission errors
+    if "403" in msg or "permission" in msg.lower() or "forbidden" in msg.lower():
+        return (
+            "Access denied — your API key doesn't have permission for this operation.\n"
+            "  • Check your API key has the required scopes\n"
+            "  • Verify your account is in good standing"
+        )
+
+    # LLM transform failures (after retries)
+    if "transform failed" in msg.lower() and "attempt" in msg.lower():
+        # Extract the inner error
+        if "last error:" in msg.lower():
+            inner = msg.split("last error:", 1)[1].strip()
+            return f"AI transformation failed after 3 retries.\n\n  {inner}"
+        return (
+            "AI transformation failed after 3 retries.\n"
+            "  • Check your transform instruction is clear and specific\n"
+            "  • Make sure your API key has sufficient quota\n"
+            "  • Try with a smaller dataset to isolate the issue"
+        )
+
+    # File not found
+    if "not found" in msg.lower() or "no such file" in msg.lower():
+        return (
+            f"File not found.\n"
+            f"  • Check the file path in your config is correct\n"
+            f"  • Paths are resolved relative to the config file's directory\n"
+            f"  • Details: {msg}"
+        )
+
+    # Connection errors
+    if "connection" in msg.lower() or "refused" in msg.lower():
+        return (
+            "Could not connect to the database or service.\n"
+            "  • Make sure the service is running\n"
+            "  • Check the connection URL is correct\n"
+            "  • Verify your network / firewall settings"
+        )
+
+    # Timeout
+    if "timeout" in msg.lower() or "timed out" in msg.lower():
+        return (
+            "The operation timed out.\n"
+            "  • The source might be slow or the dataset is very large\n"
+            "  • Try increasing the timeout in your config\n"
+            "  • Check your network connection"
+        )
+
+    # Dependency missing
+    if "module" in msg.lower() and "not found" in msg.lower():
+        module = msg.split("'")[1] if "'" in msg else "unknown"
+        return (
+            f"Missing dependency: {module}\n"
+            f"  • Install it with: uv add {module}\n"
+            f"  • Or: pip install {module}"
+        )
+
+    # Generic — include stage context
+    prefix = f"[{stage}] " if stage else ""
+    return f"{prefix}{msg}"
+
+
+def _parse_pydantic_error(raw: str) -> str:
+    """Extract the actual validation issues from a Pydantic error dump."""
+    lines = []
+    in_errors = False
+    current_field = None
+    for line in raw.split("\n"):
+        stripped = line.strip()
+        if "validation error" in stripped.lower():
+            in_errors = True
+            lines.append("[bold red]Configuration Error[/bold red]")
+            lines.append("")
+            continue
+        if in_errors:
+            if stripped.startswith("For further"):
+                continue
+            # Field path lines like: source.excel.path
+            if stripped and not stripped.startswith("type=") and "." in stripped[:30]:
+                current_field = stripped
+                continue
+            if stripped.startswith("Value error,"):
+                detail = stripped.replace("Value error,", "").strip()
+                if current_field:
+                    lines.append(f"  [yellow]•[/yellow] {current_field}: {detail}")
+                else:
+                    lines.append(f"  [yellow]•[/yellow] {detail}")
+            elif stripped.startswith("Input should be") or stripped.startswith("Field required"):
+                if current_field:
+                    lines.append(f"  [yellow]•[/yellow] {current_field}: {stripped}")
+                else:
+                    lines.append(f"  [yellow]•[/yellow] {stripped}")
+            elif stripped.startswith("type="):
+                pass
+            elif stripped and current_field:
+                lines.append(f"  [yellow]•[/yellow] {current_field}: {stripped}")
+    if not lines:
+        return raw
+    lines.append("")
+    lines.append("[dim]Tip: Paths in your config are relative to the config file's location.[/dim]")
+    return "\n".join(lines)
+
+
+def _parse_model_not_found(raw: str) -> str:
+    """Extract model name from a 404 model-not-found error."""
+    model = "unknown"
+    for part in raw.split():
+        if part.startswith("gemini") or part.startswith("claude") or part.startswith("gpt"):
+            model = part.strip("',.")
+            break
+    if "gemini" in model.lower():
+        return (
+            f"Model [bold]{model}[/bold] was not found.\n"
+            f"\n"
+            f"  Google has renamed or deprecated this model.\n"
+            f"  Try one of these instead:\n"
+            f"    • gemini-2.0-flash  (fast, cheap — recommended)\n"
+            f"    • gemini-2.5-flash  (newer)\n"
+            f"    • gemini-2.0-flash-lite\n"
+            f"\n"
+            f"  Update your config:\n"
+            f"    llm:\n"
+            f"      model: gemini-2.0-flash"
+        )
+    return (
+        f"Model [bold]{model}[/bold] was not found.\n"
+        f"  • Check the model name is correct for your provider\n"
+        f"  • Visit your provider's docs for available models"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -165,48 +445,30 @@ def _print_summary_table(state: dict[str, Any], mode: str, failed_stage: str | N
             console.print(f"  [yellow]⚠[/yellow] {w}")
 
 
-def _print_error_panel(state: dict[str, Any], error: Exception, verbose: bool) -> None:
+def _print_error_panel(
+    state: dict[str, Any],
+    error: Exception,
+    verbose: bool,
+    failed_stage: str | None = None,
+) -> None:
     """Print a rich error panel with context and tips."""
     run_id = state.get("run_id", "unknown")
     error_str = str(error)
 
-    # Build tip
-    tip = _get_error_tip(error_str)
+    user_msg = _format_user_error(error, stage=failed_stage)
 
-    content = f"[red]{error_str}[/red]"
-    if tip:
-        content += f"\n\n[dim]💡 {tip}[/dim]"
+    content = f"[red]{user_msg}[/red]"
 
     if verbose:
         import traceback
 
         tb = traceback.format_exc()
-        content += f"\n\n[dim]{tb}[/dim]"
+        content += f"\n\n[dim]Full traceback:[/dim]\n[dim]{tb}[/dim]"
 
     console.print()
     err_console.print(
         Panel(content, title=f"[red bold]Pipeline Failed[/red bold] (run_id={run_id})"),
     )
-
-
-def _get_error_tip(error_str: str) -> str:
-    """Return a helpful tip based on the error message."""
-    lower = error_str.lower()
-    if "api key" in lower or "api_key" in lower or "gemini_api_key" in lower:
-        return "Set your API key in the config file (llm.api_key) or the GEMINI_API_KEY environment variable."
-    if "not found" in lower or "file not found" in lower:
-        return "Check that the file path in your config is correct."
-    if "connection" in lower or "refused" in lower:
-        return "Check that your database is running and the connection URL is correct."
-    if "permission" in lower or "denied" in lower:
-        return "Check file permissions or database access rights."
-    if "validation failed" in lower:
-        return "Review your transform instruction or SQL query for syntax errors."
-    if "duckdb" in lower:
-        return "Install duckdb with: uv add duckdb"
-    if "psycopg2" in lower or "postgres" in lower:
-        return "Install psycopg2 with: uv add psycopg2-binary"
-    return "Run with --verbose for full traceback."
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +488,6 @@ def run(
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress progress output"),
 ) -> None:
     """Run an ETL or ELT pipeline with live progress."""
-    # Resolve config path: option takes precedence over positional
     actual_config = config or config_file
     if not actual_config:
         err_console.print(
@@ -237,22 +498,34 @@ def run(
         err_console.print(f"[red]Config file not found: {actual_config}[/red]")
         raise typer.Exit(1)
 
-    # Read config for display name
     from loafer.config import load_config as _load_config
 
     try:
         cfg = _load_config(actual_config)
         pipeline_name = cfg.name or actual_config.stem
         mode = cfg.mode
-    except Exception:
-        pipeline_name = actual_config.stem
-        mode = "etl"
+    except Exception as exc:
+        user_msg = _format_user_error(exc)
+        err_console.print(f"\n[red]{user_msg}[/red]")
+        raise typer.Exit(1) from exc
+
+    # Validate LLM provider is available before starting
+    if cfg.transform.type == "ai":
+        from loafer.runner import _build_llm_provider
+
+        try:
+            _build_llm_provider(cfg)
+        except LLMError as exc:
+            user_msg = _format_user_error(exc)
+            err_console.print(f"\n[red]{user_msg}[/red]")
+            raise typer.Exit(1) from exc
 
     console.print(f"\n[bold]Running: {pipeline_name}[/bold] [{mode.upper()}]")
     console.print(Rule(style="dim"))
 
     failed_stage: str | None = None
     final_state: Any = None
+    active_animator: StageAnimator | None = None
 
     try:
         for node_name, status, state in run_pipeline_streaming(
@@ -264,22 +537,56 @@ def run(
             label = _get_stage_label(node_name, state)
             row_info = _get_row_info(node_name, state)
 
-            if not quiet:
-                _print_progress_bar(node_name, label, status, row_info)
+            if quiet:
+                if status == "failed":
+                    failed_stage = node_name
+                continue
 
-            if status == "failed":
-                failed_stage = node_name
+            if status == "running":
+                if active_animator is None or active_animator.stage != node_name:
+                    if active_animator:
+                        active_animator.finish("done", row_info)
+                    active_animator = StageAnimator(node_name, label)
+                    active_animator.start()
+                else:
+                    active_animator.pulse()
+            else:
+                if active_animator and active_animator.stage == node_name:
+                    active_animator.finish(status, row_info)
+                    active_animator = None
+                else:
+                    if active_animator:
+                        active_animator.finish("done", row_info)
+                        active_animator = None
+                    _print_progress_bar(node_name, label, status, row_info)
+
+                if status == "failed":
+                    failed_stage = node_name
 
     except PipelineError as exc:
+        if active_animator:
+            active_animator.finish("failed")
+            active_animator = None
         if not final_state:
             final_state = {"run_id": "unknown", "duration_ms": {}, "warnings": []}
-        _print_error_panel(final_state, exc, verbose)
+        _print_error_panel(final_state, exc, verbose, failed_stage)
+        raise typer.Exit(1) from exc
+    except LLMError as exc:
+        if active_animator:
+            active_animator.finish("failed")
+            active_animator = None
+        user_msg = _format_user_error(exc)
+        err_console.print(f"\n[red]{user_msg}[/red]")
         raise typer.Exit(1) from exc
 
     if failed_stage:
+        if active_animator:
+            active_animator.finish("failed")
         if not final_state:
             final_state = {"run_id": "unknown", "duration_ms": {}, "warnings": []}
-        _print_error_panel(final_state, Exception(f"Stage '{failed_stage}' failed"), verbose)
+        _print_error_panel(
+            final_state, Exception(f"Stage '{failed_stage}' failed"), verbose, failed_stage
+        )
         raise typer.Exit(1)
 
     _print_summary_table(final_state, mode)

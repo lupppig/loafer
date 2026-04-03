@@ -253,7 +253,7 @@ class ValidationConfig(BaseModel):
 
 class LLMConfig(BaseModel):
     provider: Literal["gemini", "claude", "openai", "qwen"] = "gemini"
-    model: str = "gemini-1.5-flash"
+    model: str = "gemini-2.0-flash"
     api_key: str | None = None
 
 

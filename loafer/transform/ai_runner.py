@@ -14,7 +14,7 @@ from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 from loafer.core.destructive import detect_destructive_operations, raise_if_destructive
-from loafer.exceptions import TransformError
+from loafer.exceptions import LLMError, LLMRateLimitError, TransformError
 from loafer.graph.state import PipelineState
 from loafer.llm.base import LLMProvider, TransformPromptResult
 from loafer.llm.prompt_builder import build_etl_transform_prompt
@@ -74,6 +74,57 @@ def _build_safe_globals() -> dict[str, Any]:
     return safe_globals
 
 
+def _human_readable_llm_error(exc: Exception) -> str:
+    """Convert raw LLM exceptions into user-friendly messages."""
+    msg = str(exc)
+
+    if isinstance(exc, LLMRateLimitError):
+        return (
+            "Rate limited by the AI provider — you've sent too many requests.\n"
+            "  • Wait a moment and try again\n"
+            "  • Check your provider dashboard for quota usage"
+        )
+
+    if isinstance(exc, LLMError):
+        return msg
+
+    # 404 model not found
+    if "404" in msg or "not_found" in msg.lower() or "not found" in msg.lower():
+        if "model" in msg.lower() or "gemini" in msg.lower() or "claude" in msg.lower():
+            model = "unknown"
+            for part in msg.split():
+                if part.startswith(("gemini", "claude", "gpt", "qwen")):
+                    model = part.strip("',.")
+                    break
+            if "gemini" in model.lower():
+                return (
+                    f"Model '{model}' was not found. Google has renamed or deprecated it.\n"
+                    f"  Try: gemini-2.0-flash, gemini-2.5-flash, or gemini-2.0-flash-lite"
+                )
+            return (
+                f"Model '{model}' was not found. Check your provider's docs for available models."
+            )
+        return "The API endpoint could not be reached. Check your internet connection."
+
+    # 401 auth errors
+    if "401" in msg or "unauthorized" in msg.lower():
+        return (
+            "Authentication failed — your API key is invalid or expired.\n"
+            "  • Check that your API key is correct\n"
+            "  • Make sure it hasn't expired or been revoked"
+        )
+
+    # 429 rate limit in raw string
+    if "429" in msg or "rate" in msg.lower() or "quota" in msg.lower():
+        return (
+            "Rate limited or quota exhausted.\n"
+            "  • Wait a moment and try again\n"
+            "  • Check your provider dashboard for quota usage"
+        )
+
+    return msg
+
+
 class AiTransformRunner(TransformRunner):
     """Generate, validate, and execute transform code via an LLM."""
 
@@ -104,7 +155,8 @@ class AiTransformRunner(TransformRunner):
                 )
             except Exception as exc:
                 retry_count += 1
-                previous_error = f"LLM call failed: {exc}"
+                user_msg = _human_readable_llm_error(exc)
+                previous_error = f"LLM call failed: {user_msg}"
                 previous_code = None
                 state["last_error"] = previous_error
                 state["retry_count"] = retry_count

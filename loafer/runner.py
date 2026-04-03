@@ -6,6 +6,7 @@ correct graph (ETL or ELT), and invokes it.
 
 from __future__ import annotations
 
+import os
 import time
 import uuid
 from collections.abc import Iterator
@@ -13,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from loafer.config import PipelineConfig, load_config
-from loafer.exceptions import PipelineError
+from loafer.exceptions import LLMError, PipelineError
 from loafer.graph.state import PipelineState
 
 if TYPE_CHECKING:
@@ -21,27 +22,52 @@ if TYPE_CHECKING:
 
     from loafer.llm.base import LLMProvider
 
+_PROVIDER_ENV_VARS = {
+    "gemini": "GEMINI_API_KEY",
+    "claude": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "qwen": "DASHSCOPE_API_KEY",
+}
+
 
 def _build_llm_provider(config: PipelineConfig) -> LLMProvider:
     """Instantiate the LLM provider from config."""
     llm_config = config.llm
+    provider = llm_config.provider
     api_key = llm_config.api_key
-    if not api_key:
-        import os
 
-        api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
-        raise PipelineError(
-            "LLM API key not found. Set 'llm.api_key' in config or GEMINI_API_KEY env var."
-        )
+        env_var = _PROVIDER_ENV_VARS.get(provider)
+        if env_var:
+            api_key = os.environ.get(env_var, "")
+        if not api_key:
+            env_vars = ", ".join(_PROVIDER_ENV_VARS.values())
+            raise LLMError(
+                f"Missing API key for {provider}.\n"
+                f"Set 'llm.api_key' in your config file, or export the environment variable:\n"
+                f'  export {_PROVIDER_ENV_VARS.get(provider, "API_KEY")}="your-key"'
+            )
 
-    match llm_config.provider:
+    match provider:
         case "gemini":
             from loafer.llm.gemini import GeminiProvider
 
             return GeminiProvider(api_key=api_key, model=llm_config.model)
+        case "claude":
+            from loafer.llm.claude import ClaudeProvider
+
+            return ClaudeProvider(api_key=api_key, model=llm_config.model)
+        case "openai":
+            from loafer.llm.openai import OpenAIProvider
+
+            return OpenAIProvider(api_key=api_key, model=llm_config.model)
+        case "qwen":
+            from loafer.llm.qwen import QwenProvider
+
+            return QwenProvider(api_key=api_key, model=llm_config.model)
         case _:
-            raise PipelineError(f"Unsupported LLM provider: {llm_config.provider}")
+            available = ", ".join(_PROVIDER_ENV_VARS.keys())
+            raise LLMError(f"Unknown LLM provider: {provider!r}.\nSupported providers: {available}")
 
 
 def _build_initial_state(config: PipelineConfig) -> PipelineState:
