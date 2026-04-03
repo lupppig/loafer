@@ -107,7 +107,7 @@ class StageAnimator:
         self._done = False
 
     def start(self) -> None:
-        self._live = Live(self.spinner, refresh_per_second=12, console=console)
+        self._live = Live(self.spinner, refresh_per_second=12, console=console, transient=True)
         self._live.start()
         self._start = time.monotonic()
 
@@ -128,6 +128,7 @@ class StageAnimator:
         self._done = True
         elapsed = time.monotonic() - self._start
         self._live.stop()
+        self._live = None
 
         if status == "done":
             icon = "[green]✓[/green]"
@@ -525,7 +526,56 @@ def run(
 
     failed_stage: str | None = None
     final_state: Any = None
-    active_animator: StageAnimator | None = None
+
+    # Background spinner — runs between yields to show animated feedback
+    import sys as _sys
+    import threading as _threading
+
+    _spinner_stop = _threading.Event()
+    _spinner_text: list[str] = [""]
+    _spinner_lock = _threading.Lock()
+    _spinner_printed = _threading.Event()
+
+    def _spinner_loop() -> None:
+        spinner_chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        idx = 0
+        while not _spinner_stop.is_set():
+            with _spinner_lock:
+                text = _spinner_text[0]
+            if text:
+                _sys.stdout.write(f"\r  {spinner_chars[idx % len(spinner_chars)]}  {text}  ")
+                _sys.stdout.flush()
+                _spinner_printed.set()
+                idx += 1
+            _spinner_stop.wait(0.1)
+        # Clear the spinner line and print a newline
+        _sys.stdout.write("\r" + " " * 120 + "\r\n")
+        _sys.stdout.flush()
+
+    _spinner_thread: _threading.Thread | None = None
+
+    def _start_spinner(label: str) -> None:
+        nonlocal _spinner_thread
+        _spinner_stop.clear()
+        _spinner_printed.clear()
+        with _spinner_lock:
+            _spinner_text[0] = label
+        _spinner_thread = _threading.Thread(target=_spinner_loop, daemon=True)
+        _spinner_thread.start()
+        _spinner_printed.wait(timeout=0.3)
+
+    def _stop_spinner() -> None:
+        nonlocal _spinner_thread
+        _spinner_stop.set()
+        if _spinner_thread:
+            _spinner_thread.join(timeout=2)
+            _spinner_thread = None
+        with _spinner_lock:
+            _spinner_text[0] = ""
+        # Small sleep to let the thread finish clearing the line
+        import time as _time
+
+        _time.sleep(0.02)
 
     try:
         for node_name, status, state in run_pipeline_streaming(
@@ -542,46 +592,39 @@ def run(
                     failed_stage = node_name
                 continue
 
-            if status == "running":
-                if active_animator is None or active_animator.stage != node_name:
-                    if active_animator:
-                        active_animator.finish("done", row_info)
-                    active_animator = StageAnimator(node_name, label)
-                    active_animator.start()
-                else:
-                    active_animator.pulse()
-            else:
-                if active_animator and active_animator.stage == node_name:
-                    active_animator.finish(status, row_info)
-                    active_animator = None
-                else:
-                    if active_animator:
-                        active_animator.finish("done", row_info)
-                        active_animator = None
-                    _print_progress_bar(node_name, label, status, row_info)
+            # Stop spinner from previous stage
+            _stop_spinner()
 
-                if status == "failed":
-                    failed_stage = node_name
+            if status == "failed":
+                failed_stage = node_name
+                icon = "[red]✗[/red]"
+                console.print(f"  {icon}  [red]{label}[/red]")
+            elif status == "skipped":
+                icon = "[dim]⊘[/dim]"
+                console.print(f"  {icon}  [dim]{label}[/dim]")
+            else:
+                icon = "[green]✓[/green]"
+                console.print(f"  {icon}  [green]{label}[/green]  {row_info}")
+
+            # Start spinner for the next stage
+            if status not in ("failed", "skipped"):
+                _start_spinner(label)
 
     except PipelineError as exc:
-        if active_animator:
-            active_animator.finish("failed")
-            active_animator = None
+        _stop_spinner()
         if not final_state:
             final_state = {"run_id": "unknown", "duration_ms": {}, "warnings": []}
         _print_error_panel(final_state, exc, verbose, failed_stage)
         raise typer.Exit(1) from exc
     except LLMError as exc:
-        if active_animator:
-            active_animator.finish("failed")
-            active_animator = None
+        _stop_spinner()
         user_msg = _format_user_error(exc)
         err_console.print(f"\n[red]{user_msg}[/red]")
         raise typer.Exit(1) from exc
+    else:
+        _stop_spinner()
 
     if failed_stage:
-        if active_animator:
-            active_animator.finish("failed")
         if not final_state:
             final_state = {"run_id": "unknown", "duration_ms": {}, "warnings": []}
         _print_error_panel(
