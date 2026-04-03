@@ -115,8 +115,8 @@ class TestGeminiProviderTransform:
             with pytest.raises(LLMRateLimitError):
                 provider.generate_transform_function({}, "noop")
 
-        # Should have retried 4 times (stop_after_attempt(4))
-        assert mock_client.models.generate_content.call_count == 4
+        # Should have retried 3 times (stop_after_attempt(3))
+        assert mock_client.models.generate_content.call_count == 3
 
 
 class TestGeminiProviderEltSql:

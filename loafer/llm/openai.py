@@ -1,7 +1,7 @@
 """OpenAI LLM provider implementation.
 
 Uses the ``openai`` SDK with ``gpt-4o-mini`` for transform generation.
-The SDK includes built-in retry on 429/5xx errors.
+Adds explicit retry with exponential backoff on 429 errors.
 """
 
 from __future__ import annotations
@@ -10,6 +10,12 @@ import re
 
 import openai
 from openai import APIStatusError
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from loafer.exceptions import LLMRateLimitError
 from loafer.llm.base import ELTSQLResult, LLMProvider, TransformPromptResult
@@ -84,6 +90,12 @@ class OpenAIProvider(LLMProvider):
             },
         )
 
+    @retry(
+        retry=retry_if_exception_type(LLMRateLimitError),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=2, min=5, max=60),
+        reraise=True,
+    )
     def _call(self, prompt: str) -> openai.types.chat.ChatCompletion:
         try:
             return self._client.chat.completions.create(

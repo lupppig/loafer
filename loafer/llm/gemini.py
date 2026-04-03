@@ -102,17 +102,14 @@ class GeminiProvider(LLMProvider):
 
     @retry(
         retry=retry_if_exception_type(LLMRateLimitError),
-        stop=stop_after_attempt(4),
-        wait=wait_exponential(multiplier=1, min=2, max=30),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=2, min=5, max=60),
         reraise=True,
     )
     def _call_with_retry(self, prompt: str) -> types.GenerateContentResponse:
         """Call Gemini with exponential backoff on rate-limit errors.
 
-        The new SDK already retries 429/5xx internally (5 attempts by
-        default).  This outer tenacity layer converts SDK exceptions
-        into our domain ``LLMRateLimitError`` so the retry decorator
-        can trigger, and adds an additional safety net.
+        Retries 3 times with waits of 5s, 10s, 20s (total ~35s).
         """
         try:
             return self._client.models.generate_content(

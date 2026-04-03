@@ -169,10 +169,11 @@ def _format_user_error(error: Exception, stage: str | None = None) -> str:
     # Rate limit / quota errors
     if "429" in msg or "rate" in msg.lower() or "quota" in msg.lower():
         return (
-            "You've hit the rate limit or exhausted your API quota.\n"
-            "  • Wait a moment and try again\n"
-            "  • Check your provider dashboard for quota usage\n"
-            "  • Consider upgrading your plan or switching providers"
+            "Gemini free tier allows 15 requests per minute — you've hit the limit.\n"
+            "  • The pipeline will automatically retry with backoff (up to ~8 minutes)\n"
+            "  • If it keeps failing, wait 1 minute and try again\n"
+            "  • Check your usage at https://aistudio.google.com/\n"
+            "  • Consider upgrading to Gemini paid for higher limits"
         )
 
     # Authentication errors

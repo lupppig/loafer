@@ -83,9 +83,10 @@ def _human_readable_llm_error(exc: Exception) -> str:
 
     if isinstance(exc, LLMRateLimitError):
         return (
-            "Rate limited by the AI provider — you've sent too many requests.\n"
-            "  • Wait a moment and try again\n"
-            "  • Check your provider dashboard for quota usage"
+            "Rate limited by Gemini — free tier allows 15 requests per minute.\n"
+            "  • The pipeline will automatically retry with exponential backoff\n"
+            "  • If retries are exhausted, wait 1 minute and try again\n"
+            "  • Check your usage at https://aistudio.google.com/"
         )
 
     if isinstance(exc, LLMError):
