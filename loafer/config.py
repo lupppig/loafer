@@ -211,6 +211,22 @@ TargetConfig = Annotated[
 class AITransformConfig(BaseModel):
     type: Literal["ai"] = "ai"
     instruction: str
+    # Optional custom Python transform to combine with AI
+    custom_path: str | None = None
+    # Order: "custom_first" (default) runs custom then AI,
+    # "ai_first" runs AI then custom
+    custom_order: Literal["custom_first", "ai_first"] = "custom_first"
+    # If true, skip AI entirely and just run custom transform
+    bypass_ai: bool = False
+    # If true, show generated AI code and wait for user confirmation before executing
+    review: bool = False
+
+    @field_validator("custom_path")
+    @classmethod
+    def custom_path_must_exist(cls, v: str | None) -> str | None:
+        if v is not None and not Path(v).exists():
+            raise ValueError(f"custom transform file not found: {v}")
+        return v
 
 
 class CustomTransformConfig(BaseModel):

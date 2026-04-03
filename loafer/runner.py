@@ -147,8 +147,10 @@ def run_pipeline(
     state["auto_confirmed"] = yes
 
     if config.transform.type == "ai":
-        llm_provider = _build_llm_provider(config)
-        state["llm_provider"] = llm_provider
+        ai_config = config.transform
+        if not ai_config.bypass_ai:
+            llm_provider = _build_llm_provider(config)
+            state["llm_provider"] = llm_provider
 
     mode = config.mode
 
@@ -203,8 +205,10 @@ def run_pipeline_streaming(
     state["auto_confirmed"] = yes
 
     if config.transform.type == "ai":
-        llm_provider = _build_llm_provider(config)
-        state["llm_provider"] = llm_provider
+        ai_config = config.transform
+        if not ai_config.bypass_ai:
+            llm_provider = _build_llm_provider(config)
+            state["llm_provider"] = llm_provider
 
     mode = config.mode
 

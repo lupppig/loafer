@@ -511,7 +511,7 @@ def run(
         raise typer.Exit(1) from exc
 
     # Validate LLM provider is available before starting
-    if cfg.transform.type == "ai":
+    if cfg.transform.type == "ai" and not cfg.transform.bypass_ai:
         from loafer.runner import _build_llm_provider
 
         try:

@@ -15,11 +15,15 @@ def build_etl_transform_prompt(
     instruction: str,
     previous_error: str | None = None,
     previous_code: str | None = None,
+    custom_code: str | None = None,
 ) -> str:
     """Build the ETL transform prompt.
 
     If *previous_error* is present the prompt includes the error and the
     previous code so the LLM can self-correct.
+
+    If *custom_code* is present, the AI is told about existing custom transform
+    logic so it does not duplicate or override it.
 
     The prompt instructs the model to return **only** a Python function
     named ``transform`` with signature::
@@ -50,6 +54,20 @@ def build_etl_transform_prompt(
         "5. Return ONLY the function code. No markdown fences, no explanation, no examples.",
         "6. You may define helper functions above `transform`.",
     ]
+
+    if custom_code:
+        parts.extend(
+            [
+                "",
+                "## Existing Custom Transform",
+                "The pipeline already has a custom transform function that will run",
+                "separately. Your generated code should NOT duplicate or override it.",
+                "Focus ONLY on the task described above.",
+                "",
+                "### Custom Transform Code (for reference only — do NOT copy or modify it)",
+                f"```python\n{custom_code}\n```",
+            ]
+        )
 
     if previous_error and previous_code:
         parts.extend(
