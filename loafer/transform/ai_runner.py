@@ -84,7 +84,7 @@ def _human_readable_llm_error(exc: Exception) -> str:
     if isinstance(exc, LLMRateLimitError):
         return (
             "Rate limited by Gemini — free tier allows 15 requests per minute.\n"
-            "  • The pipeline will automatically retry with exponential backoff\n"
+            "  • Retrying with exponential backoff (2s, 4s, 8s)...\n"
             "  • If retries are exhausted, wait 1 minute and try again\n"
             "  • Check your usage at https://aistudio.google.com/"
         )
@@ -285,6 +285,9 @@ class AiTransformRunner(TransformRunner):
         raw_data_snapshot = copy.deepcopy(state.get("raw_data", []))
 
         while retry_count < _MAX_RETRIES:
+            if retry_count > 0:
+                wait = 2**retry_count  # 2s, 4s, 8s
+                time.sleep(wait)
             build_etl_transform_prompt(schema_sample, instruction, previous_error, previous_code)
 
             try:
@@ -413,6 +416,9 @@ class AiTransformRunner(TransformRunner):
         total_tokens: dict[str, int] = state.get("token_usage", {})
 
         while retry_count < _MAX_RETRIES:
+            if retry_count > 0:
+                wait = 2**retry_count  # 2s, 4s, 8s
+                time.sleep(wait)
             build_etl_transform_prompt(
                 schema_sample, instruction, previous_error, previous_code, custom_code
             )
