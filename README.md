@@ -4,7 +4,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-406%20passing-brightgreen.svg)](https://github.com/lupppig/loafer)
+[![Tests](https://img.shields.io/badge/tests-486%20passing-brightgreen.svg)](https://github.com/lupppig/loafer)
 [![Ruff](https://img.shields.io/badge/style-ruff-darkgreen.svg)](https://docs.astral.sh/ruff/)
 
 ---
@@ -15,7 +15,7 @@ Loafer extracts data from databases, files, and APIs, transforms it according to
 
 Describe **what** you want in plain English and Loafer generates the transformation code. Or write your own Python or SQL. Either way, you get:
 
-- **Live progress bars** — see each stage (extract → validate → transform → load) with row counts and timing
+- **Animated terminal spinners** — see each stage (extract → validate → transform → load) with live progress, row counts, and timing
 - **Streaming by default** — no full dataset ever sits in memory
 - **Three transform modes** — AI-generated, hand-written Python, or SQL
 - **ETL and ELT** — transform before loading, or load raw then transform in-database
@@ -246,6 +246,15 @@ transform:
 # No llm block needed
 ```
 
+You can also use AI mode with `bypass_ai: true` to skip the LLM call while still running a custom transform:
+
+```yaml
+transform:
+  type: ai
+  custom_path: ./transform.py
+  bypass_ai: true                    # skips LLM, only runs custom
+```
+
 ### Step 3: Run Your First Pipeline
 
 Create a working directory:
@@ -392,6 +401,61 @@ uv run loafer run ~/loafer-demo/custom_pipeline.yaml
 ```
 
 No LLM call. No API key needed. Instant execution.
+
+### Step 6b: Combine Custom + AI Transforms
+
+You can run **both** custom and AI transforms in the same pipeline. The AI is shown your custom code so it doesn't duplicate or override it.
+
+```yaml
+name: Combined Transform Pipeline
+source:
+  type: csv
+  path: ./data.csv
+target:
+  type: json
+  path: ./output.json
+transform:
+  type: ai
+  instruction: "clean null values, normalize phone numbers"
+  custom_path: ./my_transform.py      # your custom logic
+  custom_order: custom_first           # run custom first, then AI (default)
+  review: true                         # show AI code and ask for confirmation
+mode: etl
+```
+
+Data flows through both transforms:
+
+| `custom_order` | Flow |
+|---|---|
+| `custom_first` (default) | raw data → custom transform → AI transform → output |
+| `ai_first` | raw data → AI transform → custom transform → output |
+
+**Bypass AI entirely** — set `bypass_ai: true` to skip the LLM call and only run your custom transform (no API key needed):
+
+```yaml
+transform:
+  type: ai
+  instruction: "this is ignored when bypass_ai is true"
+  custom_path: ./my_transform.py
+  bypass_ai: true                    # skip AI, only run custom
+```
+
+**Human review** — set `review: true` to see the AI-generated code with syntax highlighting before it executes:
+
+```
+⚠ Human Review Required
+AI-generated transform code is ready for review.
+Review the code below. If it looks correct, type 'y' to execute.
+
+  1  def transform(data):
+  2      return [
+  3          {**row, "phone": re.sub(r'\D', '', row.get('phone', ''))}
+  4          for row in data
+  5          if row.get('phone')
+  6      ]
+
+Execute this code? [y/N]:
+```
 
 ### Step 7: Schedule a Pipeline
 
@@ -676,6 +740,18 @@ Every pipeline is defined in a single YAML file. All fields are validated at par
 | `destructive_filter_threshold` | float | `0.3` | Warn if transform drops more than this fraction |
 | `validation` | object | | Data quality settings |
 | `llm` | object | | LLM provider configuration |
+
+### Transform Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `type` | `"ai"` \| `"custom"` \| `"sql"` | *(required)* | Transform mode |
+| `instruction` | string | — | Natural language instruction (AI mode) |
+| `path` | string | — | Path to `.py` file (custom mode) or SQL query (sql mode) |
+| `custom_path` | string | `null` | Optional custom `.py` file to combine with AI |
+| `custom_order` | `"custom_first"` \| `"ai_first"` | `"custom_first"` | Execution order when combining custom + AI |
+| `bypass_ai` | bool | `false` | Skip AI entirely, only run custom transform |
+| `review` | bool | `false` | Show AI-generated code and wait for confirmation before executing |
 
 ### Environment Variable Interpolation
 
