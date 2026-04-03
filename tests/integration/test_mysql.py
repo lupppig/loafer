@@ -11,6 +11,8 @@ import pytest
 
 from loafer.connectors.registry import MySQLSourceConnector
 
+pytestmark = pytest.mark.integration
+
 
 class TestMySQLSourceConnector:
     """Test MySQL source connector against a real database."""

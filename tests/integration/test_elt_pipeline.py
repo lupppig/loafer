@@ -13,6 +13,10 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import pytest
+
+pytestmark = pytest.mark.integration
+
 from loafer.config import (
     CsvSourceConfig,
     CsvTargetConfig,

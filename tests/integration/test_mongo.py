@@ -11,6 +11,8 @@ import pytest
 
 from loafer.connectors.registry import MongoSourceConnector
 
+pytestmark = pytest.mark.integration
+
 
 class TestMongoSourceConnector:
     """Test MongoDB source connector against a real database."""

@@ -11,6 +11,8 @@ import pytest
 
 from loafer.connectors.registry import PostgresSourceConnector, PostgresTargetConnector
 
+pytestmark = pytest.mark.integration
+
 
 class TestPostgresSourceConnector:
     """Test PostgreSQL source connector against a real database."""

@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
+
 from loafer.config import (
     AITransformConfig,
     CsvSourceConfig,
@@ -20,6 +22,8 @@ from loafer.config import (
     JsonTargetConfig,
 )
 from loafer.graph.etl import build_etl_graph
+
+pytestmark = pytest.mark.integration
 
 
 def _make_etl_state(
