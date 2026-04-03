@@ -62,4 +62,42 @@ def _register_gemini() -> None:
     register_provider("gemini", _factory)
 
 
+def _register_claude() -> None:
+    from loafer.llm.claude import ClaudeProvider
+
+    def _factory(**kwargs: object) -> ClaudeProvider:
+        api_key = kwargs.get("api_key", "")
+        model = kwargs.get("model", "claude-sonnet-4-20250514")
+        max_tokens = kwargs.get("max_tokens", 4096)
+        return ClaudeProvider(api_key=str(api_key), model=str(model), max_tokens=int(max_tokens))
+
+    register_provider("claude", _factory)
+
+
+def _register_openai() -> None:
+    from loafer.llm.openai import OpenAIProvider
+
+    def _factory(**kwargs: object) -> OpenAIProvider:
+        api_key = kwargs.get("api_key", "")
+        model = kwargs.get("model", "gpt-4o-mini")
+        max_tokens = kwargs.get("max_tokens", 4096)
+        return OpenAIProvider(api_key=str(api_key), model=str(model), max_tokens=int(max_tokens))
+
+    register_provider("openai", _factory)
+
+
+def _register_qwen() -> None:
+    from loafer.llm.qwen import QwenProvider
+
+    def _factory(**kwargs: object) -> QwenProvider:
+        api_key = kwargs.get("api_key", "")
+        model = kwargs.get("model", "qwen-plus")
+        return QwenProvider(api_key=str(api_key), model=str(model))
+
+    register_provider("qwen", _factory)
+
+
 _register_gemini()
+_register_claude()
+_register_openai()
+_register_qwen()
