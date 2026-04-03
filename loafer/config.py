@@ -35,14 +35,25 @@ def _resolve_env_vars(value: str) -> str:
     return _ENV_VAR_PATTERN.sub(_replacer, value)
 
 
-def _walk_and_resolve(obj: Any) -> Any:
-    """Recursively resolve env vars in strings within a nested structure."""
+def _walk_and_resolve(obj: Any, base_dir: Path | None = None) -> Any:
+    """Recursively resolve env vars in strings within a nested structure.
+
+    When *base_dir* is provided, relative file paths (starting with ``.`` or ``..``)
+    are resolved to absolute paths so they work regardless of the current working
+    directory.
+    """
     if isinstance(obj, str):
-        return _resolve_env_vars(obj)
+        value = _resolve_env_vars(obj)
+        if base_dir is not None:
+            raw = value.lstrip()
+            if raw.startswith("./") or raw.startswith("../") or raw == ".":
+                resolved = (base_dir / raw).resolve()
+                return str(resolved)
+        return value
     if isinstance(obj, dict):
-        return {k: _walk_and_resolve(v) for k, v in obj.items()}
+        return {k: _walk_and_resolve(v, base_dir) for k, v in obj.items()}
     if isinstance(obj, list):
-        return [_walk_and_resolve(item) for item in obj]
+        return [_walk_and_resolve(item, base_dir) for item in obj]
     return obj
 
 
@@ -293,7 +304,8 @@ def load_config(path: str | Path) -> PipelineConfig:
     if not isinstance(raw, dict):
         raise ConfigError(f"config file must contain a YAML mapping, got {type(raw).__name__}")
 
-    resolved = _walk_and_resolve(raw)
+    config_dir = config_path.resolve().parent
+    resolved = _walk_and_resolve(raw, base_dir=config_dir)
 
     try:
         return PipelineConfig(**resolved)
