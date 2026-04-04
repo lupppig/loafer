@@ -21,7 +21,7 @@ export function Connectors() {
   return (
     <section className="bg-bg-base py-24 px-6 border-t border-border-subtle">
       <div className="max-w-5xl mx-auto flex flex-col items-center">
-        <h2 className="text-[28px] md:text-[32px] font-semibold text-text-primary text-center mb-16 tracking-tight">
+        <h2 className="text-[24px] md:text-[32px] font-semibold text-text-primary text-center mb-12 md:mb-16 tracking-tight">
           Works with your existing data.
         </h2>
 

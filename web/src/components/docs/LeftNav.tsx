@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { Search, ArrowUpRight } from 'lucide-react';
+import { Search, ArrowUpRight, X } from 'lucide-react';
 import { cn } from '../../utils/cn';
 
 const NAV_GROUPS = [
@@ -41,20 +41,33 @@ const NAV_GROUPS = [
   }
 ];
 
-export function LeftNav({ onSearchClick }: { onSearchClick: () => void }) {
+export function LeftNav({ onSearchClick, isMobileOpen, onClose }: { onSearchClick: () => void, isMobileOpen?: boolean, onClose?: () => void }) {
   return (
-    <nav className="w-[240px] shrink-0 bg-bg-base border-r border-border-subtle h-[calc(100vh-52px)] sticky top-[52px] overflow-y-auto hidden lg:block select-none scrollbar-hide">
-      <div className="p-4 pt-6">
+    <nav className={cn(
+      "w-[240px] shrink-0 bg-bg-base border-r border-border-subtle h-[calc(100vh-52px)] sticky top-[52px] overflow-y-auto select-none scrollbar-hide z-50 transition-transform duration-300",
+      "lg:block lg:translate-x-0",
+      isMobileOpen ? "fixed left-0 translate-x-0" : "fixed -translate-x-full lg:static",
+    )}>
+      <div className="p-4 pt-6 flex items-center gap-2">
         <button
           onClick={onSearchClick}
-          className="w-full flex items-center justify-between h-8 px-3 bg-bg-surface border border-border-default rounded-md text-[13px] text-text-muted hover:text-text-secondary hover:border-border-strong transition-colors outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 shadow-sm group"
+          className="flex-1 flex items-center justify-between h-8 px-3 bg-bg-surface border border-border-default rounded-md text-[13px] text-text-muted hover:text-text-secondary hover:border-border-strong transition-colors outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 shadow-sm group"
         >
           <span className="flex items-center gap-2">
             <Search className="w-3.5 h-3.5 group-hover:text-text-primary transition-colors" />
             Search
           </span>
-          <kbd className="font-sans text-[10px] uppercase font-semibold bg-bg-elevated px-1.5 py-0.5 rounded-[3px] border border-border-subtle">⌘K</kbd>
+          <kbd className="hidden sm:inline-flex font-sans text-[10px] uppercase font-semibold bg-bg-elevated px-1.5 py-0.5 rounded-[3px] border border-border-subtle">⌘K</kbd>
         </button>
+
+        {onClose && (
+          <button 
+            onClick={onClose}
+            className="lg:hidden p-1.5 text-text-muted hover:text-text-primary transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       <div className="px-3 pb-8">
@@ -68,6 +81,7 @@ export function LeftNav({ onSearchClick }: { onSearchClick: () => void }) {
                 <NavLink
                   key={j}
                   to={item.path}
+                  onClick={() => onClose?.()}
                   className={({ isActive }) => cn(
                     "h-7 flex items-center px-2 text-[13px] rounded-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-indigo-500",
                     isActive 
@@ -98,6 +112,7 @@ export function LeftNav({ onSearchClick }: { onSearchClick: () => void }) {
             </a>
             <NavLink 
               to="/changelog" 
+              onClick={() => onClose?.()}
               className="h-7 flex items-center justify-between px-2 text-[13px] text-text-secondary rounded-sm hover:bg-bg-overlay hover:text-text-primary transition-colors group outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 border-l-2 border-transparent"
             >
               Changelog

@@ -18,7 +18,7 @@ export function Hero() {
   };
 
   return (
-    <section className="relative min-h-[calc(100vh-52px)] flex flex-col items-center pt-24 pb-32 px-6 overflow-hidden">
+    <section className="relative min-h-[calc(100vh-52px)] flex flex-col items-center pt-16 md:pt-24 pb-32 px-6 overflow-hidden">
       {/* Background gradients and patterns */}
       <div 
         className="absolute inset-0 pointer-events-none before:absolute before:inset-0" 
@@ -40,11 +40,11 @@ export function Hero() {
           OPEN SOURCE · AI-POWERED · CLI-FIRST
         </div>
 
-        <h1 className="text-[56px] font-bold font-sans text-text-primary leading-[1.1] tracking-tight mb-6">
-          Your data pipeline<br />in plain English.
+        <h1 className="text-[36px] md:text-[56px] font-bold font-sans text-text-primary leading-[1.15] md:leading-[1.1] tracking-tight mb-6">
+          Your data pipeline<br className="hidden md:block" /> in plain English.
         </h1>
 
-        <p className="text-[18px] text-text-secondary leading-[1.6] max-w-[520px] mb-10">
+        <p className="text-[16px] md:text-[18px] text-text-secondary leading-[1.6] max-w-[520px] mb-10 px-2 md:px-0">
           Connect a source, describe your transformation, load clean data anywhere.
           No boilerplate. No infrastructure. One command.
         </p>
