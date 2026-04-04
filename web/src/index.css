@@ -1,0 +1,82 @@
+@import "tailwindcss";
+@import "./tokens.css";
+@import "./typography.css";
+
+/* Base sensible resets */
+@layer base {
+  *, ::before, ::after {
+    border-color: var(--border-default);
+  }
+}
+
+/* Code Block Syntax Highlighting (rehype-pretty-code) */
+figure[data-rehype-pretty-code-figure] {
+  background-color: var(--bg-elevated) !important;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  margin: 1.5rem 0;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  position: relative;
+}
+
+figure[data-rehype-pretty-code-figure] figcaption {
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background-color: var(--bg-surface);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+figure[data-rehype-pretty-code-figure] pre {
+  padding: 1rem 1.25rem;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre;
+  background-color: transparent !important;
+}
+
+figure[data-rehype-pretty-code-figure] code {
+  display: grid;
+  counter-reset: line;
+}
+
+figure[data-rehype-pretty-code-figure] code > [data-line]::before {
+  counter-increment: line;
+  content: counter(line);
+  display: inline-block;
+  width: 1.5rem;
+  margin-right: 1rem;
+  text-align: right;
+  color: var(--text-muted);
+}
+
+/* Hide line numbers for small terminal output if needed */
+.no-line-numbers code > [data-line]::before {
+  display: none !important;
+}
+
+/* Custom Sleek Scrollbars */
+figure[data-rehype-pretty-code-figure] pre {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+figure[data-rehype-pretty-code-figure] pre::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+figure[data-rehype-pretty-code-figure] pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+figure[data-rehype-pretty-code-figure] pre::-webkit-scrollbar-thumb {
+  background-color: var(--border-strong);
+  border-radius: 4px;
+}
+figure[data-rehype-pretty-code-figure] pre::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-muted);
+}

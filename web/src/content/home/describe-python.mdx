@@ -1,0 +1,8 @@
+```python
+def transform(data: list[dict]) -> list[dict]:
+    return [
+        {**row, "amount": row["amount"] / 100}
+        for row in data
+        if row.get("email")
+    ]
+```
