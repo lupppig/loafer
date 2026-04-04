@@ -1,0 +1,55 @@
+:root {
+  --bg-base:      #080808;
+  --bg-surface:   #0f0f0f;
+  --bg-elevated:  #161616;
+  --bg-overlay:   #1c1c1c;
+
+  --border-subtle:  #1f1f1f;
+  --border-default: #2a2a2a;
+  --border-strong:  #3a3a3a;
+
+  --indigo-500: #6366f1;
+  --indigo-400: #818cf8;
+  --indigo-900: #1e1b4b;
+  --indigo-950: #17103a;
+
+  --green-500:  #22c55e;
+  --green-900:  #14532d;
+  
+  --amber-500:  #f59e0b;
+  --amber-900:  #78350f;
+  
+  --red-500:    #ef4444;
+  --red-900:    #7f1d1d;
+  
+  --blue-500:   #3b82f6;
+  --blue-900:   #1e3a8a;
+
+  --text-primary:   #f0f0f0;
+  --text-secondary: #a1a1aa;
+  --text-muted:     #52525b;
+  --text-code:      #e2e8f0;
+}
+
+@theme {
+  --color-bg-base: var(--bg-base);
+  --color-bg-surface: var(--bg-surface);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-bg-overlay: var(--bg-overlay);
+
+  --color-border-subtle: var(--border-subtle);
+  --color-border-default: var(--border-default);
+  --color-border-strong: var(--border-strong);
+
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-text-code: var(--text-code);
+
+  --font-sans: "Geist", "Inter", sans-serif;
+  --font-mono: "Geist Mono", monospace;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-full: 9999px;
+}

@@ -1,0 +1,21 @@
+@import "@fontsource/geist-sans/400.css";
+@import "@fontsource/geist-sans/600.css";
+@import "@fontsource/geist-sans/700.css";
+@import "@fontsource/geist-mono/400.css";
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code, kbd, pre, samp {
+  font-family: var(--font-mono);
+}
+
+::selection {
+  background-color: rgba(99, 102, 241, 0.3); /* indigo-500 with opacity */
+  color: var(--text-primary);
+}
