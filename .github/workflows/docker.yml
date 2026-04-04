@@ -43,10 +43,11 @@ jobs:
       - name: Set version
         id: version
         run: |
-          if [[ "${{ steps.meta.outputs.version }}" == "latest" ]]; then
-            echo "version=0.0.0.dev${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          VER="${{ steps.meta.outputs.version }}"
+          if [[ "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "version=$VER" >> "$GITHUB_OUTPUT"
           else
-            echo "version=${{ steps.meta.outputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "version=0.0.0.dev${{ github.sha }}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build and push
