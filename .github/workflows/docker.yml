@@ -47,7 +47,7 @@ jobs:
           if [[ "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
             echo "version=$VER" >> "$GITHUB_OUTPUT"
           else
-            echo "version=0.0.0.dev${{ github.sha }}" >> "$GITHUB_OUTPUT"
+            echo "version=0.0.0" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build and push
