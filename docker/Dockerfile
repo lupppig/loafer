@@ -13,7 +13,7 @@ COPY pyproject.toml uv.lock README.md ./
 COPY loafer/ ./loafer/
 
 # hatch-vcs needs either .git or SETUPTOOLS_SCM_PRETEND_VERSION
-ENV SETUPTOOLS_SCM_PRETEND_VERSION_FOR_LOAFER_ETL=${APP_VERSION}
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=${APP_VERSION}
 RUN uv build --wheel --out-dir dist/
 
 # ──────────────────────────────────────────────────────────────────────────────
