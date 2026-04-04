@@ -1,33 +1,18 @@
 # ──────────────────────────────────────────────────────────────────────────────
-# Stage 1: Build — create wheel
-# ──────────────────────────────────────────────────────────────────────────────
-FROM python:3.11-slim AS builder
-
-ARG APP_VERSION
-
-WORKDIR /build
-
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-
-COPY pyproject.toml uv.lock README.md ./
-COPY loafer/ ./loafer/
-
-# hatch-vcs needs either .git or SETUPTOOLS_SCM_PRETEND_VERSION
-ENV SETUPTOOLS_SCM_PRETEND_VERSION=${APP_VERSION}
-RUN uv build --wheel --out-dir dist/
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Stage 2: Install into clean venv, then prune
+# Stage 1: Install into clean venv, then prune
 # ──────────────────────────────────────────────────────────────────────────────
 FROM python:3.11-slim AS installer
 
 WORKDIR /install
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-COPY --from=builder /build/dist/*.whl ./
+
+COPY pyproject.toml uv.lock README.md ./
+COPY loafer/ ./loafer/
+COPY .git/ ./.git/
 
 RUN python -m venv /app/.venv \
-    && /app/.venv/bin/pip install --no-cache-dir *.whl \
+    && /app/.venv/bin/pip install --no-cache-dir . \
     # Remove .pyc files and __pycache__
     && find /app/.venv -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true \
     && find /app/.venv -type f -name '*.pyc' -delete 2>/dev/null || true \
@@ -42,7 +27,7 @@ RUN python -m venv /app/.venv \
     && find /app/.venv -name '*.so' -exec strip --strip-unneeded {} + 2>/dev/null || true
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Stage 3: Runtime — minimal image
+# Stage 2: Runtime — minimal image
 # ──────────────────────────────────────────────────────────────────────────────
 FROM python:3.11-slim AS runtime
 
