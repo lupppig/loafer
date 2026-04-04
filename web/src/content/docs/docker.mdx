@@ -1,0 +1,61 @@
+# Docker
+Last updated: March 2025  ·  3 min read  ·  [Edit on GitHub ↗](https://github.com/lupppig/loafer/edit/main/web/src/content/docs/docker.mdx)
+
+Deploying Loafer through Docker solves dependency friction and guarantees standard reproducible execution.
+
+## Quick start
+
+Pull and run a pipeline directly.
+
+### 1. Pull the image
+```bash
+docker pull ghcr.io/lupppig/loafer:latest
+```
+
+### 2. Execute pipeline
+Mount your current directory into the container to enable Loafer to read your config and write results:
+
+```bash
+docker run --rm -it \
+  --env-file .env \
+  -v $(pwd):/app \
+  -w /app \
+  ghcr.io/lupppig/loafer:latest \
+  run pipeline.yaml
+```
+
+## docker-compose
+
+Standardized deployment for running a continuous persistent scheduler locally.
+
+```yaml title="docker-compose.yml"
+version: '3.8'
+
+services:
+  loafer:
+    image: ghcr.io/lupppig/loafer:latest
+    container_name: loafer-daemon
+    env_file: .env
+    volumes:
+      - ./:/workspace
+      - loafer_data:/root/.loafer   # Crucial for persisting job SQLite definitions
+    command: ["loafer", "daemon", "start"]
+
+volumes:
+  loafer_data:
+```
+
+> [!DANGER]
+> **Volumes Warning:** Failing to persist the `/root/.loafer` directory to a named volume will lead to job schedule losses upon container recreation. 
+
+## Environment variables in Docker
+
+Never bake keys securely into the image. Always leverage Kubernetes secrets or Docker's standard `--env-file` flags to pass in credentials securely at runtime execution.
+
+<div className="flex w-full gap-4 mt-12">
+  <a href="/docs/scheduling" className="flex-1 p-4 border border-border-default rounded-md bg-bg-surface hover:bg-bg-overlay transition-colors no-underline text-right">
+    <div className="text-xs text-text-muted mb-1 font-medium select-none uppercase tracking-wide">Previous</div>
+    <div className="text-[13px] font-semibold text-text-primary">&larr; Scheduling</div>
+  </a>
+  <div className="flex-1 p-4 border border-transparent" />
+</div>

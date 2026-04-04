@@ -1,0 +1,44 @@
+# Scheduling
+Last updated: March 2025  ·  4 min read  ·  [Edit on GitHub ↗](https://github.com/lupppig/loafer/edit/main/web/src/content/docs/scheduling.mdx)
+
+Loafer utilizes [APScheduler](https://apscheduler.readthedocs.io/) integrated perfectly over an SQLite persistence layer to allow completely managed local deployments that survive restarts.
+
+## How scheduling works
+
+Any configuration submitted with `loafer schedule` gets parsed into a local job store located generally at `~/.loafer/loafer_jobs.sqlite`.
+
+The scheduler daemon runs efficiently on the background utilizing minimum memory footprint. It continuously handles backoffs manually.
+
+## Cron Syntax
+
+Include standard Cron Syntax using the `schedule` YAML directive within your `pipeline`:
+
+```yaml
+schedule:
+  cron: "0 2 * * *"
+  name: nightly-orders
+```
+
+| Expression | Meaning |
+|---|---|
+| `* * * * *` | Every minute |
+| `0 * * * *` | Every hour |
+| `0 2 * * *` | Every day at 2:00 AM |
+| `0 0 * * 0` | Every Sunday |
+
+## Missed Jobs and Autoconfirm
+
+If your container or local machine restarts or experiences downtime while a scheduled job should have run, Loafer evaluates the threshold parameter. By default `misfire_grace_time` runs it immediately.
+
+Destructive pipeline schemas (e.g. `mode: overwrite`) generally require UI or keyboard confirmation. In scheduling scenarios, you must append an `--auto-approve` flag to bypass this safely.
+
+<div className="flex w-full gap-4 mt-12">
+  <a href="/docs/cli" className="flex-1 p-4 border border-border-default rounded-md bg-bg-surface hover:bg-bg-overlay transition-colors no-underline text-right">
+    <div className="text-xs text-text-muted mb-1 font-medium select-none uppercase tracking-wide">Previous</div>
+    <div className="text-[13px] font-semibold text-text-primary">&larr; CLI Reference</div>
+  </a>
+  <a href="/docs/docker" className="flex-1 p-4 border border-border-default rounded-md bg-bg-surface hover:bg-bg-overlay transition-colors no-underline">
+    <div className="text-xs text-text-muted mb-1 font-medium select-none uppercase tracking-wide">Next</div>
+    <div className="text-[13px] font-semibold text-text-primary">Docker &rarr;</div>
+  </a>
+</div>
