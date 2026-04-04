@@ -3,6 +3,8 @@
 # ──────────────────────────────────────────────────────────────────────────────
 FROM python:3.11-slim AS builder
 
+ARG APP_VERSION
+
 WORKDIR /build
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
@@ -10,6 +12,8 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock README.md ./
 COPY loafer/ ./loafer/
 
+# hatch-vcs needs either .git or SETUPTOOLS_SCM_PRETEND_VERSION
+ENV SETUPTOOLS_SCM_PRETEND_VERSION_FOR_LOAFER_ETL=${APP_VERSION}
 RUN uv build --wheel --out-dir dist/
 
 # ──────────────────────────────────────────────────────────────────────────────
