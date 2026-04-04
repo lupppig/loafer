@@ -13,6 +13,7 @@ export function Connectors() {
 
   const targets = [
     { name: 'Postgres', icon: <Database className="w-6 h-6 text-indigo-400" /> },
+    { name: 'MongoDB', icon: <Server className="w-6 h-6 text-green-500" /> },
     { name: 'CSV', icon: <FileText className="w-6 h-6 text-text-secondary" /> },
     { name: 'JSON', icon: <FileJson className="w-6 h-6 text-amber-400" /> },
   ];

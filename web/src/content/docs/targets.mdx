@@ -28,6 +28,28 @@ target:
 > [!WARNING]
 > Write mode `overwrite` evaluates table schematics and runs a hard `TRUNCATE` operations. Scheduled pipelines typically run `append`. Be very careful.
 
+## MongoDB
+
+A scalable NoSQL document target. Loafer handles connection pooling and automatic collection creation if it doesn't already exist.
+
+### Configuration fields
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `url` | string | Yes | - | MongoDB Connection URI. |
+| `database` | string | Yes | - | Target database name. |
+| `collection`| string | Yes | - | Target collection name. |
+
+### Complete example
+
+```yaml
+target:
+  type: mongodb
+  url: mongodb://${MONGO_USER}:${MONGO_PASS}@localhost:27017/
+  database: loafer_db
+  collection: customers_processed
+```
+
 ## JSON
 
 A local target system to flush records into standard `ndjson` (Newline Delimited JSON) or pure JSON array formats.

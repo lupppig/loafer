@@ -390,6 +390,24 @@
     "excerpt": "type: postgres url: postgresql://analytics:${DB_PASS}@localhost:5432/wh table: fact_orders mode: ove..."
   },
   {
+    "title": "MongoDB",
+    "url": "/docs/targets#mongodb",
+    "section": "Target Connectors",
+    "excerpt": "A scalable NoSQL document target. Loafer handles connection pooling and automatic collection creatio..."
+  },
+  {
+    "title": "Configuration fields",
+    "url": "/docs/targets#configuration-fields",
+    "section": "Target Connectors",
+    "excerpt": "| Field | Type | Required | Default | Description | |---|---|---|---|---| | `url` | string | Yes | -..."
+  },
+  {
+    "title": "Complete example",
+    "url": "/docs/targets#complete-example",
+    "section": "Target Connectors",
+    "excerpt": "type: mongodb url: mongodb://${MONGO_USER}:${MONGO_PASS}@localhost:27017/ database: loafer_db collec..."
+  },
+  {
     "title": "JSON",
     "url": "/docs/targets#json",
     "section": "Target Connectors",
