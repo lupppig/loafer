@@ -40,6 +40,15 @@ jobs:
             type=sha
             type=ref,event=branch
 
+      - name: Set version
+        id: version
+        run: |
+          if [[ "${{ steps.meta.outputs.version }}" == "latest" ]]; then
+            echo "version=0.0.0.dev${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${{ steps.meta.outputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -52,4 +61,4 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            APP_VERSION=${{ steps.meta.outputs.version }}
+            APP_VERSION=${{ steps.version.outputs.version }}
