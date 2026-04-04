@@ -1,0 +1,11 @@
+```yaml
+transform:
+  type: sql
+  query: >
+    SELECT 
+      id, 
+      amount / 100.0 AS amount_naira,
+      UPPER(name) AS name
+    FROM {{source}}
+    WHERE email IS NOT NULL
+```

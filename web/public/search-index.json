@@ -1,0 +1,458 @@
+[
+  {
+    "title": "CLI Reference",
+    "url": "/docs/cli",
+    "section": "CLI Reference",
+    "excerpt": "Last updated: March 2025  ·  4 min read  ·  [Edit on GitHub ↗](https://github.com/lupppig/loafer/edi..."
+  },
+  {
+    "title": "`loafer run`",
+    "url": "/docs/cli#loafer-run",
+    "section": "CLI Reference",
+    "excerpt": "Executes a data pipeline. This is the primary command you will use to push data through your configu..."
+  },
+  {
+    "title": "Arguments",
+    "url": "/docs/cli#arguments",
+    "section": "CLI Reference",
+    "excerpt": "- `CONFIG_FILE` *(Optional)* The path to your pipeline schema file. Defaults to `./pipeline.yaml` in..."
+  },
+  {
+    "title": "Options",
+    "url": "/docs/cli#options",
+    "section": "CLI Reference",
+    "excerpt": "| Flag | Shorthand | Type | Default | Description | |---|---|---|---|---| | `--verbose` | `-v` | boo..."
+  },
+  {
+    "title": "`loafer schedule`",
+    "url": "/docs/cli#loafer-schedule",
+    "section": "CLI Reference",
+    "excerpt": "Persists the execution configuration to a local SQLite persistent layer directly managed by `APSched..."
+  },
+  {
+    "title": "Arguments",
+    "url": "/docs/cli#arguments",
+    "section": "CLI Reference",
+    "excerpt": "- `CONFIG_FILE` *(Optional)* The path to your pipeline schema file."
+  },
+  {
+    "title": "Options",
+    "url": "/docs/cli#options",
+    "section": "CLI Reference",
+    "excerpt": "| Flag | Shorthand | Type | Default | Description | |---|---|---|---|---| | `--name` | `-n` | string..."
+  },
+  {
+    "title": "`loafer jobs`",
+    "url": "/docs/cli#loafer-jobs",
+    "section": "CLI Reference",
+    "excerpt": "Lists all persistent jobs in the background daemon queue. This provides an immediate overview of you..."
+  },
+  {
+    "title": "Example Output",
+    "url": "/docs/cli#example-output",
+    "section": "CLI Reference",
+    "excerpt": "loafer jobs JOB               NEXT RUN        LAST RUN     STATUS nightly-sync      in 4h 23m..."
+  },
+  {
+    "title": "Options",
+    "url": "/docs/cli#options",
+    "section": "CLI Reference",
+    "excerpt": "| Flag | Shorthand | Type | Default | Description | |---|---|---|---|---| | `--json` | - | bool | fa..."
+  },
+  {
+    "title": "`loafer validate`",
+    "url": "/docs/cli#loafer-validate",
+    "section": "CLI Reference",
+    "excerpt": "Performs strict syntax validation mapping against the configuration definitions without actually con..."
+  },
+  {
+    "title": "Options",
+    "url": "/docs/cli#options",
+    "section": "CLI Reference",
+    "excerpt": "| Flag | Shorthand | Type | Default | Description | |---|---|---|---|---| | `--strict` | - | bool |..."
+  },
+  {
+    "title": "Docker",
+    "url": "/docs/docker",
+    "section": "Docker",
+    "excerpt": "Last updated: March 2025  ·  3 min read  ·  [Edit on GitHub ↗](https://github.com/lupppig/loafer/edi..."
+  },
+  {
+    "title": "Quick start",
+    "url": "/docs/docker#quick-start",
+    "section": "Docker",
+    "excerpt": "Pull and run a pipeline directly."
+  },
+  {
+    "title": "1. Pull the image",
+    "url": "/docs/docker#1-pull-the-image",
+    "section": "Docker",
+    "excerpt": "docker pull ghcr.io/lupppig/loafer:latest"
+  },
+  {
+    "title": "2. Execute pipeline",
+    "url": "/docs/docker#2-execute-pipeline",
+    "section": "Docker",
+    "excerpt": "Mount your current directory into the container to enable Loafer to read your config and write resul..."
+  },
+  {
+    "title": "docker-compose",
+    "url": "/docs/docker#docker-compose",
+    "section": "Docker",
+    "excerpt": "Standardized deployment for running a continuous persistent scheduler locally. version: '3.8' image:..."
+  },
+  {
+    "title": "Environment variables in Docker",
+    "url": "/docs/docker#environment-variables-in-docker",
+    "section": "Docker",
+    "excerpt": "Never bake keys securely into the image. Always leverage Kubernetes secrets or Docker's standard `--..."
+  },
+  {
+    "title": "Installation",
+    "url": "/docs/installation",
+    "section": "Installation",
+    "excerpt": "Last updated: March 2025  ·  3 min read  ·  [Edit on GitHub ↗](https://github.com/lupppig/loafer/edi..."
+  },
+  {
+    "title": "Requirements",
+    "url": "/docs/installation#requirements",
+    "section": "Installation",
+    "excerpt": "- Python 3.11 or higher - [uv](https://docs.astral.sh/uv/) (Recommended)"
+  },
+  {
+    "title": "1. Install via uv (Recommended)",
+    "url": "/docs/installation#1-install-via-uv-recommended",
+    "section": "Installation",
+    "excerpt": "The best way to install Loafer is using `uv tool`. This isolates the CLI application and its depende..."
+  },
+  {
+    "title": "2. Install via pip",
+    "url": "/docs/installation#2-install-via-pip",
+    "section": "Installation",
+    "excerpt": "If you prefer standard Python tools, you can install Loafer using `pip`. pip install loafer-etl > No..."
+  },
+  {
+    "title": "Verify installation",
+    "url": "/docs/installation#verify-installation",
+    "section": "Installation",
+    "excerpt": "Once installed, verify the CLI is accessible and working: loafer --version Loafer v0.1.0"
+  },
+  {
+    "title": "Environment setup",
+    "url": "/docs/installation#environment-setup",
+    "section": "Installation",
+    "excerpt": "Loafer uses environment variables to safely handle sensitive credentials like your database password..."
+  },
+  {
+    "title": "Database Connection",
+    "url": "/docs/installation",
+    "section": "Database Connection",
+    "excerpt": "DATABASE_URL=\"postgresql://user:password@localhost:5432/db\""
+  },
+  {
+    "title": "LLM Providers (Choose yours)",
+    "url": "/docs/installation",
+    "section": "LLM Providers (Choose yours)",
+    "excerpt": "GEMINI_API_KEY=\"AIzaSy...\" OPENAI_API_KEY=\"sk-...\" ANTHROPIC_API_KEY=\"sk-ant-...\" > **Supported Mode..."
+  },
+  {
+    "title": "Docker",
+    "url": "/docs/installation#docker",
+    "section": "LLM Providers (Choose yours)",
+    "excerpt": "If you prefer not to install Python, or want to deploy Loafer in a containerized environment, use ou..."
+  },
+  {
+    "title": "1. Pull the image",
+    "url": "/docs/installation#1-pull-the-image",
+    "section": "LLM Providers (Choose yours)",
+    "excerpt": "First, fetch the latest official build from the GitHub Container Registry: docker pull ghcr.io/luppp..."
+  },
+  {
+    "title": "2. Run a pipeline",
+    "url": "/docs/installation#2-run-a-pipeline",
+    "section": "LLM Providers (Choose yours)",
+    "excerpt": "Execute your pipeline by mounting your local directory into the container. This ensures Loafer can r..."
+  },
+  {
+    "title": "Introduction",
+    "url": "/docs/introduction",
+    "section": "Introduction",
+    "excerpt": "Last updated: March 2025  ·  2 min read  ·  [Edit on GitHub ↗](https://github.com/lupppig/loafer/edi..."
+  },
+  {
+    "title": "Who it's for",
+    "url": "/docs/introduction#who-it-s-for",
+    "section": "Introduction",
+    "excerpt": "- **Data Engineers:** Stop writing boilerplate connectors and loading code. Bring your SQL or Python..."
+  },
+  {
+    "title": "How it's different",
+    "url": "/docs/introduction#how-it-s-different",
+    "section": "Introduction",
+    "excerpt": "- **No infrastructure:** Runs entirely on your local machine, a CI runner, or a Docker container. Th..."
+  },
+  {
+    "title": "Core concepts",
+    "url": "/docs/introduction#core-concepts",
+    "section": "Introduction",
+    "excerpt": "- **Pipeline**: The configuration file (`pipeline.yaml`) that defines the entire lifecycle of your d..."
+  },
+  {
+    "title": "Next steps",
+    "url": "/docs/introduction#next-steps",
+    "section": "Introduction",
+    "excerpt": "<a href=\"/docs/installation\" className=\"flex-1 p-4 border border-border-default rounded-md bg-bg-sur..."
+  },
+  {
+    "title": "Pipeline Configuration",
+    "url": "/docs/pipelines",
+    "section": "Pipeline Configuration",
+    "excerpt": "Last updated: March 2025  ·  5 min read  ·  [Edit on GitHub ↗](https://github.com/lupppig/loafer/edi..."
+  },
+  {
+    "title": "Config file overview",
+    "url": "/docs/pipelines#config-file-overview",
+    "section": "Pipeline Configuration",
+    "excerpt": "A pipeline consists of at least a `source`, `target`, and `transform` node. | Key | Type | Required..."
+  },
+  {
+    "title": "Mode: ETL vs ELT",
+    "url": "/docs/pipelines#mode-etl-vs-elt",
+    "section": "Pipeline Configuration",
+    "excerpt": "Loafer supports both ETL and ELT modalities. Your choice will drastically impact how processing occu..."
+  },
+  {
+    "title": "Full config reference",
+    "url": "/docs/pipelines#full-config-reference",
+    "section": "Pipeline Configuration",
+    "excerpt": ""
+  },
+  {
+    "title": "`source`",
+    "url": "/docs/pipelines#source",
+    "section": "Pipeline Configuration",
+    "excerpt": "Defines where to extract data from. | Key | Type | Required | Default | Description | |---|---|---|-..."
+  },
+  {
+    "title": "`target`",
+    "url": "/docs/pipelines#target",
+    "section": "Pipeline Configuration",
+    "excerpt": "Defines where to load data to. | Key | Type | Required | Default | Description | |---|---|---|---|--..."
+  },
+  {
+    "title": "Environment variable interpolation",
+    "url": "/docs/pipelines#environment-variable-interpolation",
+    "section": "Pipeline Configuration",
+    "excerpt": "You can safely interpolate environment variables anywhere in the pipeline using the `${VAR_NAME}` sy..."
+  },
+  {
+    "title": "Quickstart",
+    "url": "/docs/quickstart",
+    "section": "Quickstart",
+    "excerpt": "Last updated: March 2025  ·  5 min read  ·  [Edit on GitHub ↗](https://github.com/lupppig/loafer/edi..."
+  },
+  {
+    "title": "What you'll build",
+    "url": "/docs/quickstart#what-you-ll-build",
+    "section": "Quickstart",
+    "excerpt": "We will construct a pipeline that: 1. Extracts raw customer data from a local CSV file. 2. Evaluates..."
+  },
+  {
+    "title": "Create a sample CSV",
+    "url": "/docs/quickstart#create-a-sample-csv",
+    "section": "Quickstart",
+    "excerpt": "First, let's create a dirty dataset. Create a file named `customers_raw.csv`: id,name,email,amount_k..."
+  },
+  {
+    "title": "Create your pipeline config",
+    "url": "/docs/quickstart#create-your-pipeline-config",
+    "section": "Quickstart",
+    "excerpt": "Now, define your pipeline. Create a file named `pipeline.yaml` in the same directory: version: 1.0 p..."
+  },
+  {
+    "title": "Inspect the output",
+    "url": "/docs/quickstart#inspect-the-output",
+    "section": "Quickstart",
+    "excerpt": "Open your newly generated `customers_clean.json` file. It will contain beautifully normalized data."
+  },
+  {
+    "title": "What just happened",
+    "url": "/docs/quickstart#what-just-happened",
+    "section": "Quickstart",
+    "excerpt": "1. **Extraction:** Loafer's CSV connector parsed the records using pure streaming primitives, emitti..."
+  },
+  {
+    "title": "Next steps",
+    "url": "/docs/quickstart#next-steps",
+    "section": "Quickstart",
+    "excerpt": "<a href=\"/docs/installation\" className=\"flex-1 p-4 border border-border-default rounded-md bg-bg-sur..."
+  },
+  {
+    "title": "Scheduling",
+    "url": "/docs/scheduling",
+    "section": "Scheduling",
+    "excerpt": "Last updated: March 2025  ·  4 min read  ·  [Edit on GitHub ↗](https://github.com/lupppig/loafer/edi..."
+  },
+  {
+    "title": "How scheduling works",
+    "url": "/docs/scheduling#how-scheduling-works",
+    "section": "Scheduling",
+    "excerpt": "Any configuration submitted with `loafer schedule` gets parsed into a local job store located genera..."
+  },
+  {
+    "title": "Cron Syntax",
+    "url": "/docs/scheduling#cron-syntax",
+    "section": "Scheduling",
+    "excerpt": "Include standard Cron Syntax using the `schedule` YAML directive within your `pipeline`: cron: \"0 2..."
+  },
+  {
+    "title": "Missed Jobs and Autoconfirm",
+    "url": "/docs/scheduling#missed-jobs-and-autoconfirm",
+    "section": "Scheduling",
+    "excerpt": "If your container or local machine restarts or experiences downtime while a scheduled job should hav..."
+  },
+  {
+    "title": "Source Connectors",
+    "url": "/docs/sources",
+    "section": "Source Connectors",
+    "excerpt": "Last updated: March 2025  ·  4 min read  ·  [Edit on GitHub ↗](https://github.com/lupppig/loafer/edi..."
+  },
+  {
+    "title": "PostgreSQL",
+    "url": "/docs/sources#postgresql",
+    "section": "Source Connectors",
+    "excerpt": "The `postgres` source uses `psycopg` native server-side cursors to seamlessly page hundreds of thous..."
+  },
+  {
+    "title": "Configuration fields",
+    "url": "/docs/sources#configuration-fields",
+    "section": "Source Connectors",
+    "excerpt": "| Field | Type | Required | Default | Description | |---|---|---|---|---| | `url` | string | Yes | -..."
+  },
+  {
+    "title": "Complete example",
+    "url": "/docs/sources#complete-example",
+    "section": "Source Connectors",
+    "excerpt": "type: postgres url: postgresql://admin:${DB_PASS}@localhost:5432/production query: \"SELECT id, amoun..."
+  },
+  {
+    "title": "Common errors",
+    "url": "/docs/sources#common-errors",
+    "section": "Source Connectors",
+    "excerpt": "**`psycopg2.errors.UndefinedTable`** The relation (table) doesn't exist, or you supplied a wrong sch..."
+  },
+  {
+    "title": "MongoDB",
+    "url": "/docs/sources#mongodb",
+    "section": "Source Connectors",
+    "excerpt": "The `mongodb` source connects natively to your cluster and maps BSON types seamlessly to pure JSON t..."
+  },
+  {
+    "title": "Configuration fields",
+    "url": "/docs/sources#configuration-fields",
+    "section": "Source Connectors",
+    "excerpt": "| Field | Type | Required | Default | Description | |---|---|---|---|---| | `url` | string | Yes | -..."
+  },
+  {
+    "title": "Complete example",
+    "url": "/docs/sources#complete-example",
+    "section": "Source Connectors",
+    "excerpt": "type: mongodb url: mongodb+srv://cluster.mongodb.net database: ecom collection: users > **Notes:** M..."
+  },
+  {
+    "title": "CSV & Excel",
+    "url": "/docs/sources#csv-excel",
+    "section": "Source Connectors",
+    "excerpt": "When extracting from standard system files, Loafer defaults to a line-by-line generator which is inf..."
+  },
+  {
+    "title": "Target Connectors",
+    "url": "/docs/targets",
+    "section": "Target Connectors",
+    "excerpt": "Last updated: March 2025  ·  2 min read  ·  [Edit on GitHub ↗](https://github.com/lupppig/loafer/edi..."
+  },
+  {
+    "title": "PostgreSQL",
+    "url": "/docs/targets#postgresql",
+    "section": "Target Connectors",
+    "excerpt": "A resilient PostgreSQL loader that uses high-throughput `COPY FROM` execution."
+  },
+  {
+    "title": "Configuration fields",
+    "url": "/docs/targets#configuration-fields",
+    "section": "Target Connectors",
+    "excerpt": "| Field | Type | Required | Default | Description | |---|---|---|---|---| | `url` | string | Yes | -..."
+  },
+  {
+    "title": "Complete example",
+    "url": "/docs/targets#complete-example",
+    "section": "Target Connectors",
+    "excerpt": "type: postgres url: postgresql://analytics:${DB_PASS}@localhost:5432/wh table: fact_orders mode: ove..."
+  },
+  {
+    "title": "JSON",
+    "url": "/docs/targets#json",
+    "section": "Target Connectors",
+    "excerpt": "A local target system to flush records into standard `ndjson` (Newline Delimited JSON) or pure JSON..."
+  },
+  {
+    "title": "Transform Modes",
+    "url": "/docs/transform",
+    "section": "Transform Modes",
+    "excerpt": "Last updated: March 2025  ·  6 min read  ·  [Edit on GitHub ↗](https://github.com/lupppig/loafer/edi..."
+  },
+  {
+    "title": "Overview",
+    "url": "/docs/transform#overview",
+    "section": "Transform Modes",
+    "excerpt": "| Mode | When to use | LLM required | Retry support | |---|---|---|---| | **AI** | Quick, messy clea..."
+  },
+  {
+    "title": "AI mode",
+    "url": "/docs/transform#ai-mode",
+    "section": "Transform Modes",
+    "excerpt": "Supply basic natural language instructions, and your configured LLM (Gemini, Claude, or OpenAI) gene..."
+  },
+  {
+    "title": "Supported Providers",
+    "url": "/docs/transform#supported-providers",
+    "section": "Transform Modes",
+    "excerpt": "Loafer is provider-agnostic. You can configure any of the following in your `pipeline.yaml`: - **Goo..."
+  },
+  {
+    "title": "How it works",
+    "url": "/docs/transform#how-it-works",
+    "section": "Transform Modes",
+    "excerpt": "1. **Schema Observation:** Loafer observes incoming records and extract column mappings. 2. **Privac..."
+  },
+  {
+    "title": "Writing good instructions",
+    "url": "/docs/transform#writing-good-instructions",
+    "section": "Transform Modes",
+    "excerpt": "Good instructions yield performant code. *   **Specify data types explicitly:** Instead of \"fix the..."
+  },
+  {
+    "title": "Understanding retries",
+    "url": "/docs/transform#understanding-retries",
+    "section": "Transform Modes",
+    "excerpt": "If the generated AI function throws a runtime exception, the LLM catches the traceback error from Py..."
+  },
+  {
+    "title": "SQL mode",
+    "url": "/docs/transform#sql-mode",
+    "section": "Transform Modes",
+    "excerpt": "Write transformations via standard ANSI SELECT queries."
+  },
+  {
+    "title": "The `{{source}}` placeholder",
+    "url": "/docs/transform#the-source-placeholder",
+    "section": "Transform Modes",
+    "excerpt": "Because Loafer runs queries locally using sqlglot, the incoming stream is represented transparently..."
+  },
+  {
+    "title": "Custom Python mode",
+    "url": "/docs/transform#custom-python-mode",
+    "section": "Transform Modes",
+    "excerpt": "If your transformation logic spans hundreds of lines or involves complex API integrations not fit fo..."
+  }
+]
