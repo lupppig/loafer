@@ -77,14 +77,14 @@ Execute your pipeline by mounting your local directory into the container. This 
 ```bash
 docker run --rm -it \
   --env-file .env \
-  -v $(pwd):/app \
-  -w /app \
+  -v $(pwd):/workspace \
+  -w /workspace \
   ghcr.io/lupppig/loafer:latest \
   run pipeline.yaml
 ```
 
 *   `--rm`: Automatically removes the container after the execution finishes.
-*   `-v $(pwd):/app`: Maps your current directory to `/app` inside the container.
+*   `-v $(pwd):/workspace`: Maps your current directory to `/workspace` inside the container.
 *   `--env-file .env`: Passes your credentials securely from your local file.
 
 For more advanced container usage and `docker-compose` orchestration, see the [Docker reference](/docs/docker).

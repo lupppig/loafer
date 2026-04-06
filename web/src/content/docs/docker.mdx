@@ -18,8 +18,8 @@ Mount your current directory into the container to enable Loafer to read your co
 ```bash
 docker run --rm -it \
   --env-file .env \
-  -v $(pwd):/app \
-  -w /app \
+  -v $(pwd):/workspace \
+  -w /workspace \
   ghcr.io/lupppig/loafer:latest \
   run pipeline.yaml
 ```
