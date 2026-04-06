@@ -1,0 +1,109 @@
+# LLM Setup
+
+Loafer uses Large Language Models (LLMs) to perform AI-powered transformations during your ETL/ELT pipelines, and to execute `elt` strategies dynamically. We officially support four major LLM providers out-of-the-box:
+
+- **Gemini** (Google)
+- **OpenAI**
+- **Claude** (Anthropic)
+- **Qwen** (Alibaba)
+
+To use AI transformations, you must provide your preferred LLM configuration in your pipeline's `llm` block.
+
+---
+
+## Configuration Overview
+
+Configure the provider, model, and authentication in your `pipeline.yaml`. It's highly recommended to use environment variable substitution (`${ENV_VAR}`) to avoid hardcoding secrets.
+
+```yaml
+llm:
+  provider: gemini          # gemini, openai, claude, qwen
+  model: gemini-2.5-flash   # Model specific to the provider
+  api_key: ${API_KEY}       # Resolved from your environment
+```
+
+---
+
+## Supported Providers
+
+### 1. Gemini
+Google's Gemini models are the default recommendation due to their large context windows and strong code-generation capabilities.
+
+**Configuration:**
+```yaml
+llm:
+  provider: gemini
+  model: gemini-2.5-flash   # Or gemini-2.0-pro
+  api_key: ${GEMINI_API_KEY}
+```
+
+**Environment Setup:**
+```bash
+export GEMINI_API_KEY="your-gemini-api-key"
+```
+
+### 2. OpenAI
+The standard, highly reliable models from OpenAI.
+
+**Configuration:**
+```yaml
+llm:
+  provider: openai
+  model: gpt-4o             # Or gpt-4o-mini
+  api_key: ${OPENAI_API_KEY}
+```
+
+**Environment Setup:**
+```bash
+export OPENAI_API_KEY="your-openai-api-key"
+```
+
+### 3. Claude
+Anthropic's Claude models excel at following complex instructional transformations and strict formatting criteria.
+
+**Configuration:**
+```yaml
+llm:
+  provider: claude
+  model: claude-3-5-sonnet-20241022  # Or claude-3-haiku
+  api_key: ${ANTHROPIC_API_KEY}
+```
+
+**Environment Setup:**
+```bash
+export ANTHROPIC_API_KEY="your-anthropic-api-key"
+```
+
+### 4. Qwen
+Alibaba's robust open-weights model provider, excellent for highly cost-efficient pipelines.
+
+**Configuration:**
+```yaml
+llm:
+  provider: qwen
+  model: qwen-max           # Or qwen-plus, qwen-turbo
+  api_key: ${QWEN_API_KEY}
+```
+
+**Environment Setup:**
+```bash
+export QWEN_API_KEY="your-qwen-api-key"
+```
+
+---
+
+## Advanced Options
+
+Beyond the core provider and model selection, you can optionally configure parameters such as the base URL (useful for custom endpoints or proxies) and max retries:
+
+```yaml
+llm:
+  provider: openai
+  model: gpt-4o
+  api_key: ${OPENAI_API_KEY}
+  base_url: "https://your-custom-proxy.com/v1"
+  temperature: 0.0          # Defaults to 0.0 to ensure deterministic transformations
+```
+
+## Security Best Practices
+Never commit `pipeline.yaml` files with hardcoded API keys. Always use Loafer's built-in `${VAR_NAME}` syntax to securely source secrets at runtime.

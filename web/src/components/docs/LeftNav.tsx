@@ -29,6 +29,7 @@ const NAV_GROUPS = [
     title: 'Transform',
     items: [
       { name: 'Transform Modes', path: '/docs/transform' },
+      { name: 'LLM Setup', path: '/docs/llms' },
     ]
   },
   {

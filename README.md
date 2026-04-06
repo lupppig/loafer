@@ -174,6 +174,45 @@ validation:
   max_null_rate: 0.1
 ```
 
+## LLM Setup
+
+To use the AI transformations (via `type: ai`) or dynamic SQL generation in ELT mode, you must specify an LLM provider in your configuration. We recommend setting API keys via environment variables for security.
+
+Loafer supports four providers out-of-the-box:
+
+**1. Gemini (Default)**
+```yaml
+llm:
+  provider: gemini
+  model: gemini-2.5-flash
+  api_key: ${GEMINI_API_KEY}
+```
+
+**2. OpenAI**
+```yaml
+llm:
+  provider: openai
+  model: gpt-4o
+  api_key: ${OPENAI_API_KEY}
+```
+
+**3. Claude (Anthropic)**
+```yaml
+llm:
+  provider: claude
+  model: claude-3-5-sonnet-20241022
+  api_key: ${ANTHROPIC_API_KEY}
+```
+
+**4. Qwen (Alibaba)**
+```yaml
+llm:
+  provider: qwen
+  model: qwen-max
+  api_key: ${QWEN_API_KEY}
+```
+
+
 ## Development
 
 Setting up Loafer for local development requires `uv` (or standard `pip` / `hatch`).

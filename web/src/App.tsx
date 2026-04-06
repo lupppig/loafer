@@ -17,6 +17,7 @@ import Transform from './content/docs/transform.mdx';
 import CliReference from './content/docs/cli.mdx';
 import SchedulingDocs from './content/docs/scheduling.mdx';
 import DockerDocs from './content/docs/docker.mdx';
+import LlmSetup from './content/docs/llms.mdx';
 
 function RootLayout() {
   return (
@@ -47,6 +48,7 @@ export default function App() {
           <Route path="cli" element={<CliReference />} />
           <Route path="scheduling" element={<SchedulingDocs />} />
           <Route path="docker" element={<DockerDocs />} />
+          <Route path="llms" element={<LlmSetup />} />
         </Route>
 
         <Route path="/changelog" element={<Changelog />} />
