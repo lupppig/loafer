@@ -39,6 +39,9 @@ To run Loafer using Docker, mount your current working directory so Loafer can a
 docker run --rm -v $(pwd):/workspace -w /workspace ghcr.io/lupppig/loafer:latest run pipeline.yaml
 ```
 
+> **Warning**  
+> Do **not** mount your working directory to `/app` (e.g., `-v $(pwd):/app`). The Loafer image uses `/app` internally for its application core and virtual environment. Overwriting this directory will break the container. Always use `/workspace` or another path.
+
 ### From Source
 To contribute or use the latest unreleased features:
 ```bash
