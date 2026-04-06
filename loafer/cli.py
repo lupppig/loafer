@@ -196,8 +196,10 @@ def _format_user_error(error: Exception, stage: str | None = None) -> str:
     # LLM transform failures (after retries)
     if "transform failed" in msg.lower() and "attempt" in msg.lower():
         # Extract the inner error
-        if "last error:" in msg.lower():
-            inner = msg.split("last error:", 1)[1].strip()
+        lower_msg = msg.lower()
+        if "last error:" in lower_msg:
+            idx = lower_msg.find("last error:")
+            inner = msg[idx + len("last error:"):].strip()
             return f"AI transformation failed after 3 retries.\n\n  {inner}"
         return (
             "AI transformation failed after 3 retries.\n"
