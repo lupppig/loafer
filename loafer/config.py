@@ -274,6 +274,105 @@ class LLMConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Auto-detection helpers
+# ---------------------------------------------------------------------------
+
+# Mapping from URL scheme prefixes to source type names
+_SOURCE_URL_SCHEMES: list[tuple[str, str]] = [
+    ("postgresql://", "postgres"),
+    ("postgres://", "postgres"),
+    ("mysql://", "mysql"),
+    ("mysql+pymysql://", "mysql"),
+    ("mongodb://", "mongo"),
+    ("mongodb+srv://", "mongo"),
+    ("http://", "rest_api"),
+    ("https://", "rest_api"),
+]
+
+# Mapping from file extension to source type name
+_SOURCE_EXT_MAP: dict[str, str] = {
+    ".csv": "csv",
+    ".xlsx": "excel",
+    ".xls": "excel",
+    ".pdf": "pdf",
+    ".db": "sqlite",
+    ".sqlite": "sqlite",
+    ".sqlite3": "sqlite",
+}
+
+# Mapping from URL scheme prefixes to target type names
+_TARGET_URL_SCHEMES: list[tuple[str, str]] = [
+    ("postgresql://", "postgres"),
+    ("postgres://", "postgres"),
+    ("mongodb://", "mongo"),
+    ("mongodb+srv://", "mongo"),
+]
+
+# Mapping from file extension to target type name
+_TARGET_EXT_MAP: dict[str, str] = {
+    ".csv": "csv",
+    ".json": "json",
+    ".jsonl": "json",
+}
+
+
+def _infer_source_type(data: dict[str, Any]) -> str | None:
+    """Infer the source connector type from url or path fields.
+
+    Returns the type string if detected, or *None* if detection fails.
+    """
+    url = data.get("url")
+    if isinstance(url, str):
+        lower = url.lower()
+        for prefix, stype in _SOURCE_URL_SCHEMES:
+            if lower.startswith(prefix):
+                return stype
+
+    path = data.get("path")
+    if isinstance(path, str):
+        ext = Path(path).suffix.lower()
+        if ext in _SOURCE_EXT_MAP:
+            return _SOURCE_EXT_MAP[ext]
+
+    return None
+
+
+def _infer_target_type(data: dict[str, Any]) -> str | None:
+    """Infer the target connector type from url or path fields.
+
+    Returns the type string if detected, or *None* if detection fails.
+    """
+    url = data.get("url")
+    if isinstance(url, str):
+        lower = url.lower()
+        for prefix, ttype in _TARGET_URL_SCHEMES:
+            if lower.startswith(prefix):
+                return ttype
+
+    path = data.get("path")
+    if isinstance(path, str):
+        ext = Path(path).suffix.lower()
+        if ext in _TARGET_EXT_MAP:
+            return _TARGET_EXT_MAP[ext]
+
+    return None
+
+
+def _infer_transform_type(data: dict[str, Any]) -> str | None:
+    """Infer the transform type from which fields are present.
+
+    Returns the type string if detected, or *None* if detection fails.
+    """
+    if "instruction" in data:
+        return "ai"
+    if "path" in data:
+        return "custom"
+    if "query" in data:
+        return "sql"
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Pipeline config (top-level)
 # ---------------------------------------------------------------------------
 
@@ -303,6 +402,48 @@ class PipelineConfig(BaseModel):
         """Allow `transform: "some instruction"` as shorthand for ai mode."""
         if isinstance(data, dict) and isinstance(data.get("transform"), str):
             data["transform"] = {"type": "ai", "instruction": data["transform"]}
+        return data
+
+    @model_validator(mode="before")
+    @classmethod
+    def infer_missing_types(cls, data: Any) -> Any:
+        """Auto-detect connector types when ``type`` is omitted."""
+        if not isinstance(data, dict):
+            return data
+
+        # --- source ---
+        src = data.get("source")
+        if isinstance(src, dict) and "type" not in src:
+            inferred = _infer_source_type(src)
+            if inferred is None:
+                raise ConfigError(
+                    "cannot auto-detect source type — add a 'type' field "
+                    "or use a recognisable URL scheme / file extension"
+                )
+            src["type"] = inferred
+
+        # --- target ---
+        tgt = data.get("target")
+        if isinstance(tgt, dict) and "type" not in tgt:
+            inferred = _infer_target_type(tgt)
+            if inferred is None:
+                raise ConfigError(
+                    "cannot auto-detect target type — add a 'type' field "
+                    "or use a recognisable URL scheme / file extension"
+                )
+            tgt["type"] = inferred
+
+        # --- transform ---
+        tfm = data.get("transform")
+        if isinstance(tfm, dict) and "type" not in tfm:
+            inferred = _infer_transform_type(tfm)
+            if inferred is None:
+                raise ConfigError(
+                    "cannot auto-detect transform type — add a 'type' field "
+                    "or include 'instruction', 'path', or 'query'"
+                )
+            tfm["type"] = inferred
+
         return data
 
 
