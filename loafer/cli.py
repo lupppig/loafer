@@ -199,7 +199,7 @@ def _format_user_error(error: Exception, stage: str | None = None) -> str:
         lower_msg = msg.lower()
         if "last error:" in lower_msg:
             idx = lower_msg.find("last error:")
-            inner = msg[idx + len("last error:"):].strip()
+            inner = msg[idx + len("last error:") :].strip()
             return f"AI transformation failed after 3 retries.\n\n  {inner}"
         return (
             "AI transformation failed after 3 retries.\n"
