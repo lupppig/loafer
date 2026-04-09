@@ -5,6 +5,8 @@ FROM python:3.11-slim AS installer
 
 WORKDIR /install
 
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 COPY pyproject.toml uv.lock README.md ./
@@ -38,13 +40,8 @@ COPY --from=installer /app/.venv /app/.venv
 # Copy examples
 COPY examples/ /app/examples/
 
-# Create directories for user mounts
-RUN mkdir -p /configs /data
-
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
-
-VOLUME ["/configs", "/data"]
 
 ENTRYPOINT ["loafer"]
 CMD ["--help"]
