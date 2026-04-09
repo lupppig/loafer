@@ -8,7 +8,8 @@
     "build": "node scripts/build-search.js && tsc -b && vite build",
     "predev": "node scripts/build-search.js",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "vite preview"
   },
   "dependencies": {
     "@fontsource/geist-mono": "^5.2.7",
