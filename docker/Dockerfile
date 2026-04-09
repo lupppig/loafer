@@ -5,24 +5,24 @@ FROM python:3.11-slim AS installer
 
 WORKDIR /install
 
-RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+# Version is injected at build time so hatch-vcs doesn't need .git
+ARG SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 COPY pyproject.toml uv.lock README.md ./
 COPY loafer/ ./loafer/
-COPY .git/ ./.git/
 
-RUN set -e; \
-    uv venv /app/.venv; \
-    VIRTUAL_ENV=/app/.venv uv pip install --no-cache .; \
-    find /app/.venv -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true; \
-    find /app/.venv -type f -name '*.pyc' -delete 2>/dev/null || true; \
-    find /app/.venv -type d -name tests -exec rm -rf {} + 2>/dev/null || true; \
-    find /app/.venv -type d -name test -exec rm -rf {} + 2>/dev/null || true; \
-    find /app/.venv -type d -name doc -exec rm -rf {} + 2>/dev/null || true; \
-    find /app/.venv -type d -name docs -exec rm -rf {} + 2>/dev/null || true; \
-    find /app/.venv -name '*.so' -exec strip --strip-unneeded {} + 2>/dev/null || true
+RUN uv venv /app/.venv \
+    && VIRTUAL_ENV=/app/.venv uv pip install --no-cache .
+
+# Best-effort cleanup (separate step so install failures are never masked)
+RUN find /app/.venv -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null; \
+    find /app/.venv -type f -name '*.pyc' -delete 2>/dev/null; \
+    find /app/.venv -type d \( -name tests -o -name test -o -name doc -o -name docs \) -exec rm -rf {} + 2>/dev/null; \
+    find /app/.venv -name '*.so' -exec strip --strip-unneeded {} + 2>/dev/null; \
+    exit 0
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Stage 2: Runtime — minimal image
