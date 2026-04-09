@@ -9,7 +9,7 @@
     "predev": "node scripts/build-search.js",
     "lint": "eslint .",
     "preview": "vite preview",
-    "start": "vite preview"
+    "start": "serve -s dist -l 3000"
   },
   "dependencies": {
     "@fontsource/geist-mono": "^5.2.7",
@@ -41,6 +41,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
+    "serve": "^14.2.6",
     "tailwindcss": "^4.2.2",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.57.0",
