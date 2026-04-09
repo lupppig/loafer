@@ -3,6 +3,8 @@ Last updated: March 2025  ·  4 min read  ·  [Edit on GitHub ↗](https://githu
 
 Loafer ships with deeply optimized, streaming-first connectors for the most common data systems. All extraction relies on cursor-based streaming to ensure memory stability on huge tables.
 
+> **Auto-detection:** The `type` field is optional. Loafer infers the connector from the `url` scheme or file `path` extension. You can always set `type` explicitly to override.
+
 ## PostgreSQL
 
 The `postgres` source uses `psycopg` native server-side cursors to seamlessly page hundreds of thousands of rows locally without triggering Out of Memory (OOM) exceptions.
@@ -19,7 +21,6 @@ The `postgres` source uses `psycopg` native server-side cursors to seamlessly pa
 
 ```yaml
 source:
-  type: postgres
   url: postgresql://admin:${DB_PASS}@localhost:5432/production
   query: "SELECT id, amount, created_at FROM purchases WHERE amount > 100"
   chunk_size: 10000
@@ -46,7 +47,6 @@ The `mongodb` source connects natively to your cluster and maps BSON types seaml
 
 ```yaml
 source:
-  type: mongodb
   url: mongodb+srv://cluster.mongodb.net
   database: ecom
   collection: users
@@ -61,7 +61,6 @@ When extracting from standard system files, Loafer defaults to a line-by-line ge
 
 ```yaml
 source:
-  type: csv
   path: /data/input.csv
   delimiter: ","
 ```

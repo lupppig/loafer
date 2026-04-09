@@ -42,13 +42,15 @@ Defines where to extract data from.
 
 | Key | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `type` | string | Yes | - | The connector identifier (`postgres`, `csv`, `mongodb`, etc.) |
+| `type` | string | No | auto-detected | The connector identifier (`postgres`, `csv`, `mongodb`, etc.). Auto-detected from `url` scheme or file extension. |
 | `url` | string | Yes* | - | The connection string. Usually required. |
 | `query` | string | No | null | The SQL/NoSQL query to execute for extraction. |
 
+> **Auto-detection:** When `type` is omitted, Loafer infers the connector from the `url` scheme (e.g. `postgresql://` → `postgres`, `mongodb://` → `mongo`) or the file `path` extension (e.g. `.csv` → `csv`, `.xlsx` → `excel`). You can always set `type` explicitly to override.
+
 ```yaml
+# Type auto-detected as postgres from URL scheme
 source:
-  type: postgres
   url: ${DATABASE_URL}
   query: "SELECT * FROM orders WHERE status = 'paid'"
 ```
@@ -59,13 +61,13 @@ Defines where to load data to.
 
 | Key | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `type` | string | Yes | - | The connector identifier (`postgres`, `json`, `csv`, etc.) |
+| `type` | string | No | auto-detected | The connector identifier (`postgres`, `json`, `csv`, etc.). Auto-detected from `url` scheme or file extension. |
 | `url` | string | Yes* | - | The connection string or filepath. |
 | `mode` | string | No | append | Target write mode (`append`, `overwrite`). |
 
 ```yaml
+# Type auto-detected as json from .json file extension
 target:
-  type: json
   path: ./output/data.json
 ```
 

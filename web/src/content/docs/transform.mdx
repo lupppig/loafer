@@ -3,6 +3,8 @@ Last updated: March 2025  ·  6 min read  ·  [Edit on GitHub ↗](https://githu
 
 Loafer gives you three ways to transform your data. You can choose the mode that best fits your technical proficiency and the complexity of the transformation.
 
+> **Auto-detection:** The `type` field is optional. Loafer infers the transform mode from the fields present: `instruction` → AI, `path` → Custom Python, `query` → SQL. You can also pass a plain string as `transform` for quick AI mode.
+
 ## Overview
 
 | Mode | When to use | LLM required | Retry support |
@@ -55,7 +57,6 @@ Because Loafer runs queries locally using sqlglot, the incoming stream is repres
 
 ```yaml
 transform:
-  type: sql
   query: >
     SELECT
       id,
@@ -71,8 +72,7 @@ If your transformation logic spans hundreds of lines or involves complex API int
 
 ```yaml
 transform:
-  type: python
-  file: ./scripts/complex_logic.py
+  path: ./scripts/complex_logic.py
 ```
 
 Inside your `.py` file you must export a `transform(data: list[dict]) -> list[dict]` handler.

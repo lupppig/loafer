@@ -60,27 +60,24 @@ name: Daily Orders Pipeline
 mode: etl
 
 source:
-  type: postgres
   url: ${DATABASE_URL}
   query: "SELECT * FROM orders WHERE created_at >= NOW() - INTERVAL '1 day'"
 
 target:
-  type: csv
   path: ./output/clean_orders.csv
   write_mode: overwrite
 
-transform:
-  type: ai
-  instruction: >
-    Drop cancelled orders, normalize currency to USD, and 
-    combine first_name and last_name into full_name.
+transform: >
+  Drop cancelled orders, normalize currency to USD, and 
+  combine first_name and last_name into full_name.
 
 llm:
-  # Supported providers: gemini, openai, claude, qwen
   provider: gemini
   model: gemini-2.5-flash
   api_key: ${GEMINI_API_KEY}
 ```
+
+> **Note:** Loafer auto-detects source and target types from URL schemes and file extensions — no need to write `type: postgres` or `type: csv`. See [Auto-Detection](#auto-detection) below.
 
 Run the pipeline from your terminal:
 ```bash
@@ -135,35 +132,64 @@ loafer/
 └── agents/            # Individual workflow nodes (extract, transform, load)
 ```
 
+## Auto-Detection
+
+Loafer automatically infers connector types so you can write minimal YAML.
+
+**Sources** — detected from `url` scheme or file `path` extension:
+| Signal | Detected Type |
+|---|---|
+| `postgresql://` / `postgres://` | `postgres` |
+| `mysql://` / `mysql+pymysql://` | `mysql` |
+| `mongodb://` / `mongodb+srv://` | `mongo` |
+| `http://` / `https://` | `rest_api` |
+| `.csv` | `csv` |
+| `.xlsx` / `.xls` | `excel` |
+| `.pdf` | `pdf` |
+| `.db` / `.sqlite` / `.sqlite3` | `sqlite` |
+
+**Targets** — detected from `url` scheme or file `path` extension:
+| Signal | Detected Type |
+|---|---|
+| `postgresql://` / `postgres://` | `postgres` |
+| `mongodb://` / `mongodb+srv://` | `mongo` |
+| `.csv` | `csv` |
+| `.json` / `.jsonl` | `json` |
+
+**Transforms** — detected from which fields are present:
+| Signal | Detected Type |
+|---|---|
+| `instruction` field present | `ai` |
+| `path` field present | `custom` |
+| `query` field present | `sql` |
+
+If Loafer can't detect the type (e.g., a file with no extension), it will ask you to add an explicit `type:` field. You can always specify `type:` manually to override auto-detection.
+
 ## Configuration (YAML)
 
-Loafer pipelines are driven by a single YAML configuration file. Here is the structure:
+Loafer pipelines are driven by a single YAML configuration file. The `type` field is **optional** — Loafer will auto-detect it when possible.
 
 ```yaml
 # Pipeline metadata
 name: User Sync Pipeline
 mode: etl  # Supports 'etl' or 'elt'
 
-# Extract configuration
+# Extract — type auto-detected as rest_api from https:// URL
 source:
-  type: rest_api
   url: "https://api.example.com/users"
   method: GET
 
-# Load configuration
+# Load — type auto-detected as postgres from postgresql:// URL
 target:
-  type: postgres
   url: ${TARGET_DB_URL}
   table: users_dim
 
-# Transform logic
+# Transform — type auto-detected as custom from path field
 transform:
-  type: custom
   path: ./transforms/clean_users.py
 
-# Optional: LLM Configuration (required if using type: ai or mode: elt)
+# Optional: LLM Configuration (required for AI transforms or ELT mode)
 llm:
-  # Supported providers: gemini, openai, claude, qwen
   provider: gemini
   model: gemini-2.5-flash
   api_key: ${GEMINI_API_KEY}

@@ -6,21 +6,18 @@
 #   uv run loafer run examples/pipeline.quickstart.yaml --dry-run
 #   uv run loafer validate examples/pipeline.quickstart.yaml
 #
-# Modify the transform instruction or switch to AI mode by changing the
-# `transform` block below.
+# Note: Loafer auto-detects connector types from file extensions and URL
+# schemes. The `type` field is optional — it's inferred from .csv, .json, etc.
 
 name: Quickstart ETL
 
 source:
-  type: csv
   path: examples/data/sample.csv
 
 target:
-  type: json
   path: examples/output/output.json
 
 transform:
-  type: custom
   path: examples/transforms/sample_transform.py
 
 mode: etl

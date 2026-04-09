@@ -31,21 +31,19 @@ version: 1.0
 mode: etl
 
 source:
-  type: csv
   path: ./customers_raw.csv
 
 transform:
-  type: ai
-  model: gemini-1.5-flash
   instruction: >
     Convert `amount_kobo` dividing by 100 and rename it to `amount_naira`.
     Normalize all phone numbers to the E.164 format (+234 format for Nigeria).
     Drop any rows where the email is null or empty.
 
 target:
-  type: json
   path: ./customers_clean.json
 ```
+
+> **How does this work?** Loafer auto-detects that `source` is a CSV from the `.csv` extension, `target` is JSON from the `.json` extension, and `transform` is AI mode from the `instruction` field. No `type:` needed.
 
 Make sure you've [installed Loafer](/docs/installation) and exported your `GEMINI_API_KEY`. Once that is ready, kick off the job:
 

@@ -3,6 +3,8 @@ Last updated: March 2025  ·  2 min read  ·  [Edit on GitHub ↗](https://githu
 
 Loafer targets act as the endpoint of the pipeline, cleanly and idempotently saving the sanitized streaming data.
 
+> **Auto-detection:** The `type` field is optional. Loafer infers the connector from the `url` scheme or file `path` extension. You can always set `type` explicitly to override.
+
 ## PostgreSQL
 
 A resilient PostgreSQL loader that uses high-throughput `COPY FROM` execution. 
@@ -19,7 +21,6 @@ A resilient PostgreSQL loader that uses high-throughput `COPY FROM` execution.
 
 ```yaml
 target:
-  type: postgres
   url: postgresql://analytics:${DB_PASS}@localhost:5432/wh
   table: fact_orders
   mode: overwrite
@@ -44,7 +45,6 @@ A scalable NoSQL document target. Loafer handles connection pooling and automati
 
 ```yaml
 target:
-  type: mongodb
   url: mongodb://${MONGO_USER}:${MONGO_PASS}@localhost:27017/
   database: loafer_db
   collection: customers_processed
@@ -56,7 +56,6 @@ A local target system to flush records into standard `ndjson` (Newline Delimited
 
 ```yaml
 target:
-  type: json
   path: /out/reports.json
 ```
 
