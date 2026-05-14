@@ -20,8 +20,8 @@ from loafer.adapters.targets.csv_target import CsvTargetConnector as _CsvTarget
 from loafer.adapters.targets.json_target import JsonTargetConnector as _JsonTarget
 from loafer.adapters.targets.mongo import MongoTargetConnector as _MongoTarget
 from loafer.adapters.targets.postgres import PostgresTargetConnector as _PgTarget
-from loafer.connectors.base import SourceConnector, TargetConnector
 from loafer.exceptions import ConnectorError
+from loafer.ports.connector import SourceConnector, TargetConnector
 
 if TYPE_CHECKING:
     from loafer.config import (

@@ -14,8 +14,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import io
 
-from loafer.connectors.base import SourceConnector
 from loafer.exceptions import ConfigError, ExtractionError
+from loafer.ports.connector import SourceConnector
 
 logger = logging.getLogger(__name__)
 

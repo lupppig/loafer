@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from loafer.connectors.sources.excel_source import ExcelSourceConnector
+from loafer.adapters.sources.excel_source import ExcelSourceConnector
 from loafer.exceptions import ExtractionError
 
 

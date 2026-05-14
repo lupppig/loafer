@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from loafer.connectors.sources.csv_source import CsvSourceConnector
+from loafer.adapters.sources.csv_source import CsvSourceConnector
 from loafer.exceptions import ExtractionError
 
 

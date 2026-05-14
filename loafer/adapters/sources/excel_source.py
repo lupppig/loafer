@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-from loafer.connectors.base import SourceConnector
 from loafer.exceptions import ExtractionError
+from loafer.ports.connector import SourceConnector
 
 logger = logging.getLogger(__name__)
 
