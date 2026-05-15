@@ -25,6 +25,7 @@
     "react-helmet-async": "^3.0.0",
     "react-router-dom": "^7.14.0",
     "rehype-pretty-code": "^0.14.3",
+    "remark-gfm": "^4.0.1",
     "shiki": "^4.0.2",
     "tailwind-merge": "^3.5.0"
   },
