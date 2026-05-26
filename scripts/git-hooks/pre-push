@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Pre-push hook — mirrors the lint job in .github/workflows/ci.yml on
+# the whole tree. Catches the case where someone commits with
+# --no-verify (or stages only part of a file), so the push doesn't
+# break CI for everyone.
+#
+# Install: bash scripts/git-hooks/install.sh
+# Skip:    git push --no-verify
+
+set -euo pipefail
+
+if [[ -t 1 ]]; then
+    red() { printf '\033[31m%s\033[0m\n' "$*"; }
+    green() { printf '\033[32m%s\033[0m\n' "$*"; }
+else
+    red() { printf '%s\n' "$*"; }
+    green() { printf '%s\n' "$*"; }
+fi
+
+if command -v uv >/dev/null 2>&1; then
+    ruff_cmd=(uv run --quiet ruff)
+elif command -v ruff >/dev/null 2>&1; then
+    ruff_cmd=(ruff)
+else
+    red "pre-push: neither 'uv' nor 'ruff' is on PATH — install one or skip with --no-verify"
+    exit 1
+fi
+
+echo "pre-push: ruff check ."
+if ! "${ruff_cmd[@]}" check .; then
+    red "pre-push: ruff check failed. Fix and try again (or push --no-verify to skip)."
+    exit 1
+fi
+
+echo "pre-push: ruff format --check ."
+if ! "${ruff_cmd[@]}" format --check .; then
+    red "pre-push: ruff format would reformat files. Run \`uv run ruff format .\` and commit."
+    exit 1
+fi
+
+green "pre-push: lint + format clean."
+exit 0

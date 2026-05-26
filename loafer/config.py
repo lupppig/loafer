@@ -270,10 +270,7 @@ class PipelineTransformConfig(BaseModel):
 
 
 TransformConfig = Annotated[
-    AITransformConfig
-    | CustomTransformConfig
-    | SQLTransformConfig
-    | PipelineTransformConfig,
+    AITransformConfig | CustomTransformConfig | SQLTransformConfig | PipelineTransformConfig,
     Field(discriminator="type"),
 ]
 

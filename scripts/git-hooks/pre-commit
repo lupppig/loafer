@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# Pre-commit hook — auto-fix ruff lint + format on staged Python files,
+# re-stage them, and block the commit only on errors ruff cannot fix.
+#
+# Install: bash scripts/git-hooks/install.sh
+#
+# Skipping: `git commit --no-verify` bypasses this (CI is the backstop).
+#
+# Partial-staging safety: we stash unstaged changes with --keep-index so
+# ruff only sees the indexed version of each file. If ruff's auto-fixes
+# don't cleanly merge back into the unstaged working tree, the stash pop
+# leaves conflict markers and we surface that loudly instead of silently
+# clobbering work in progress.
+
+set -euo pipefail
+
+# Color helpers — disabled when stdout isn't a tty (CI, editor commit UI).
+if [[ -t 1 ]]; then
+    red() { printf '\033[31m%s\033[0m\n' "$*"; }
+    yellow() { printf '\033[33m%s\033[0m\n' "$*"; }
+    green() { printf '\033[32m%s\033[0m\n' "$*"; }
+else
+    red() { printf '%s\n' "$*"; }
+    yellow() { printf '%s\n' "$*"; }
+    green() { printf '%s\n' "$*"; }
+fi
+
+# Collect staged Python files (added, copied, modified, renamed).
+mapfile -t staged_py < <(git diff --cached --name-only --diff-filter=ACMR -z \
+    | tr '\0' '\n' \
+    | grep -E '\.py$' || true)
+
+if [[ ${#staged_py[@]} -eq 0 ]]; then
+    exit 0
+fi
+
+# Pick the ruff invocation: prefer `uv run` if available (matches CI),
+# else a ruff on PATH. Bail clearly if neither is present.
+if command -v uv >/dev/null 2>&1; then
+    ruff_cmd=(uv run --quiet ruff)
+elif command -v ruff >/dev/null 2>&1; then
+    ruff_cmd=(ruff)
+else
+    red "pre-commit: neither 'uv' nor 'ruff' is on PATH — install one or skip with --no-verify"
+    exit 1
+fi
+
+# Set aside unstaged changes so ruff sees exactly what's being committed.
+# We only stash if there are unstaged changes worth stashing; otherwise
+# pop would be a no-op and we save a few hundred ms.
+stash_ref=""
+if ! git diff --quiet; then
+    if git stash push --keep-index --include-untracked --quiet \
+            --message "pre-commit-hook-$(date +%s)"; then
+        stash_ref=$(git stash list --format=%H -n 1)
+    else
+        red "pre-commit: failed to stash unstaged changes; aborting"
+        exit 1
+    fi
+fi
+
+# Always restore the stash, even on error or interrupt.
+restore_stash() {
+    local rc=$?
+    if [[ -n "$stash_ref" ]]; then
+        if ! git stash pop --quiet 2>/dev/null; then
+            red "pre-commit: stash pop produced conflicts."
+            yellow "Your unstaged changes are preserved in the most recent stash."
+            yellow "Resolve conflicts and run \`git stash drop\` when done."
+            # Don't override an existing non-zero rc with success.
+            [[ $rc -eq 0 ]] && rc=2
+        fi
+    fi
+    exit "$rc"
+}
+trap restore_stash EXIT INT TERM
+
+echo "pre-commit: ruff check --fix on ${#staged_py[@]} file(s)…"
+if ! "${ruff_cmd[@]}" check --fix --exit-non-zero-on-fix "${staged_py[@]}"; then
+    # exit-non-zero-on-fix returns non-zero whenever ruff made edits OR
+    # found unfixable errors. Distinguish: re-run without --fix to see
+    # whether any unfixable errors remain.
+    if ! "${ruff_cmd[@]}" check "${staged_py[@]}"; then
+        red "pre-commit: ruff found errors it could not auto-fix."
+        red "Fix them manually, then commit again."
+        exit 1
+    fi
+    # Otherwise: only auto-fixes happened. Fall through; we'll re-stage.
+fi
+
+echo "pre-commit: ruff format on ${#staged_py[@]} file(s)…"
+if ! "${ruff_cmd[@]}" format "${staged_py[@]}"; then
+    red "pre-commit: ruff format failed."
+    exit 1
+fi
+
+# Re-stage anything ruff modified. `git add` is idempotent and cheap;
+# we add each file unconditionally rather than diffing first.
+git add -- "${staged_py[@]}"
+
+green "pre-commit: ruff fixed + formatted; commit proceeding."
+exit 0

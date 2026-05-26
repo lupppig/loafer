@@ -1,0 +1,20 @@
+# Pre-commit framework config — install once with `pre-commit install`.
+# Mirrors the lint job in .github/workflows/ci.yml so the same checks
+# that gate CI also gate the commit.
+#
+# Prefer this over the plain-script fallback in scripts/git-hooks/ if
+# you have `pre-commit` installed; the two are functionally equivalent
+# but the framework handles caching, multi-language hooks, and CI
+# integration (pre-commit.ci) cleanly.
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.8  # keep in sync with the ruff version in uv.lock
+    hooks:
+      # Auto-fix lint issues where possible; commit fails only on
+      # errors ruff can't fix automatically.
+      - id: ruff
+        args: [--fix]
+      # Format Python files in-place; ruff re-exits non-zero so
+      # pre-commit re-stages the changes and asks you to commit again.
+      - id: ruff-format
