@@ -35,16 +35,32 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
+          # `latest` only moves on real releases; dispatch builds are
+          # traceable via the sha tag.
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
             type=sha
-            type=ref,event=branch
 
-      - name: Extract version from tag
+      - name: Resolve build version
         id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
+            ref="${{ github.event.release.tag_name }}"
+            version="${ref#v}"
+          else
+            # workflow_dispatch (or anything else): use the latest tag in
+            # history, or a clearly-non-release local version if none exist.
+            if tag=$(git describe --tags --abbrev=0 2>/dev/null); then
+              version="${tag#v}"
+            else
+              version="0.0.0+manual"
+            fi
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: ${version}"
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -54,6 +70,7 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           build-args: |
+            SETUPTOOLS_SCM_PRETEND_VERSION_FOR_LOAFER_ETL=${{ steps.version.outputs.version }}
             SETUPTOOLS_SCM_PRETEND_VERSION=${{ steps.version.outputs.version }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
