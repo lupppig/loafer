@@ -16,8 +16,8 @@ from loafer.llm.schema import build_schema_sample
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from loafer.connectors.base import SourceConnector
     from loafer.graph.state import PipelineState
+    from loafer.ports.connector import SourceConnector
 
 
 class _PeekableStream:

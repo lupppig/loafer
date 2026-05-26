@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from loafer.connectors.targets.csv_target import CsvTargetConnector
+from loafer.adapters.targets.csv_target import CsvTargetConnector
 from loafer.exceptions import LoadError
 
 

@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from loafer.connectors.targets.json_target import JsonTargetConnector
+from loafer.adapters.targets.json_target import JsonTargetConnector
 from loafer.exceptions import LoadError
 
 

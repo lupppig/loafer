@@ -13,8 +13,8 @@ from loafer.connectors.registry import get_target_connector
 from loafer.exceptions import LoadError
 
 if TYPE_CHECKING:
-    from loafer.connectors.base import TargetConnector
     from loafer.graph.state import PipelineState
+    from loafer.ports.connector import TargetConnector
 
 
 def load_agent(state: PipelineState) -> PipelineState:

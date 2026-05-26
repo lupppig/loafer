@@ -210,6 +210,7 @@ TargetConfig = Annotated[
 
 class AITransformConfig(BaseModel):
     type: Literal["ai"] = "ai"
+    name: str | None = None
     instruction: str
     # Optional custom Python transform to combine with AI
     custom_path: str | None = None
@@ -231,6 +232,7 @@ class AITransformConfig(BaseModel):
 
 class CustomTransformConfig(BaseModel):
     type: Literal["custom"]
+    name: str | None = None
     path: str
 
     @field_validator("path")
@@ -243,11 +245,32 @@ class CustomTransformConfig(BaseModel):
 
 class SQLTransformConfig(BaseModel):
     type: Literal["sql"]
+    name: str | None = None
     query: str
 
 
-TransformConfig = Annotated[
+_PipelineStepConfig = Annotated[
     AITransformConfig | CustomTransformConfig | SQLTransformConfig,
+    Field(discriminator="type"),
+]
+
+
+class PipelineTransformConfig(BaseModel):
+    type: Literal["pipeline"] = "pipeline"
+    name: str | None = None
+    steps: list[_PipelineStepConfig]
+    stop_on_empty: bool = True
+
+    @field_validator("steps")
+    @classmethod
+    def steps_must_be_non_empty(cls, v: list[Any]) -> list[Any]:
+        if not v:
+            raise ValueError("pipeline transform requires at least one step")
+        return v
+
+
+TransformConfig = Annotated[
+    AITransformConfig | CustomTransformConfig | SQLTransformConfig | PipelineTransformConfig,
     Field(discriminator="type"),
 ]
 
@@ -363,6 +386,8 @@ def _infer_transform_type(data: dict[str, Any]) -> str | None:
 
     Returns the type string if detected, or *None* if detection fails.
     """
+    if "steps" in data:
+        return "pipeline"
     if "instruction" in data:
         return "ai"
     if "path" in data:
@@ -370,6 +395,44 @@ def _infer_transform_type(data: dict[str, Any]) -> str | None:
     if "query" in data:
         return "sql"
     return None
+
+
+def _coerce_transform_string(s: str) -> dict[str, Any]:
+    """Classify a bare string transform value by content.
+
+    - Starts with ``SELECT`` or ``WITH`` (case-insensitive, stripped) → sql.
+    - Ends with ``.py`` (stripped) → custom.
+    - Otherwise → ai instruction.
+    """
+    stripped = s.strip()
+    lower = stripped.lower()
+    if lower.startswith("select") or lower.startswith("with"):
+        return {"type": "sql", "query": s}
+    if stripped.endswith(".py"):
+        return {"type": "custom", "path": stripped}
+    return {"type": "ai", "instruction": s}
+
+
+def _normalise_steps(steps: list[Any]) -> list[Any]:
+    """Coerce string entries and infer missing step types for a pipeline."""
+    out: list[Any] = []
+    for entry in steps:
+        if isinstance(entry, str):
+            out.append(_coerce_transform_string(entry))
+        elif isinstance(entry, dict):
+            step = dict(entry)
+            if "type" not in step:
+                inferred = _infer_transform_type(step)
+                if inferred is None:
+                    raise ConfigError(
+                        "cannot auto-detect transform step type — add a 'type' "
+                        "field or include 'instruction', 'path', or 'query'"
+                    )
+                step["type"] = inferred
+            out.append(step)
+        else:
+            out.append(entry)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -398,10 +461,25 @@ class PipelineConfig(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def coerce_plain_string_transform(cls, data: Any) -> Any:
-        """Allow `transform: "some instruction"` as shorthand for ai mode."""
-        if isinstance(data, dict) and isinstance(data.get("transform"), str):
-            data["transform"] = {"type": "ai", "instruction": data["transform"]}
+    def normalise_transform(cls, data: Any) -> Any:
+        """Coerce shorthand transform forms into dict configs.
+
+        - Bare string at the top level → classified by ``_coerce_transform_string``.
+        - List value → wrapped into a pipeline; bare-string entries inside the list
+          are classified the same way, and dict steps without ``type`` get inferred.
+        """
+        if not isinstance(data, dict):
+            return data
+
+        tfm = data.get("transform")
+        if isinstance(tfm, str):
+            data["transform"] = _coerce_transform_string(tfm)
+        elif isinstance(tfm, list):
+            data["transform"] = {"type": "pipeline", "steps": _normalise_steps(tfm)}
+        elif isinstance(tfm, dict) and tfm.get("type") == "pipeline":
+            steps = tfm.get("steps")
+            if isinstance(steps, list):
+                tfm["steps"] = _normalise_steps(steps)
         return data
 
     @model_validator(mode="before")
@@ -440,7 +518,7 @@ class PipelineConfig(BaseModel):
             if inferred is None:
                 raise ConfigError(
                     "cannot auto-detect transform type — add a 'type' field "
-                    "or include 'instruction', 'path', or 'query'"
+                    "or include 'instruction', 'path', 'query', or 'steps'"
                 )
             tfm["type"] = inferred
 

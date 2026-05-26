@@ -435,3 +435,114 @@ class TestPipelineConfigModel:
         )
         assert config.transform.type == "ai"
         assert config.transform.instruction == "do something cool"
+
+
+def _base_source_target() -> dict[str, dict[str, str]]:
+    return {
+        "source": {
+            "type": "mongo",
+            "url": "mongodb://localhost",
+            "database": "db",
+            "collection": "c",
+        },
+        "target": {"type": "json", "path": "/tmp/out.json"},
+    }
+
+
+class TestPipelineTransformConfig:
+    def test_explicit_pipeline_with_mixed_steps(self) -> None:
+        config = PipelineConfig(
+            **_base_source_target(),
+            transform={
+                "type": "pipeline",
+                "steps": [
+                    {"type": "ai", "instruction": "filter paid"},
+                    {"type": "sql", "query": "SELECT id FROM {{source}}"},
+                ],
+            },
+        )
+        assert config.transform.type == "pipeline"
+        assert len(config.transform.steps) == 2
+        assert config.transform.steps[0].type == "ai"
+        assert config.transform.steps[1].type == "sql"
+
+    def test_inferred_from_list_value(self) -> None:
+        config = PipelineConfig(
+            **_base_source_target(),
+            transform=[
+                {"instruction": "filter paid"},
+                {"query": "SELECT id FROM {{source}}"},
+            ],
+        )
+        assert config.transform.type == "pipeline"
+        assert config.transform.steps[0].type == "ai"
+        assert config.transform.steps[1].type == "sql"
+
+    def test_inferred_from_steps_key_without_type(self) -> None:
+        config = PipelineConfig(
+            **_base_source_target(),
+            transform={
+                "steps": [
+                    {"instruction": "do thing"},
+                ],
+            },
+        )
+        assert config.transform.type == "pipeline"
+        assert config.transform.steps[0].type == "ai"
+
+    def test_string_step_classified_by_content(self) -> None:
+        config = PipelineConfig(
+            **_base_source_target(),
+            transform=[
+                "SELECT id FROM {{source}}",
+                "WITH x AS (SELECT 1) SELECT * FROM x",
+                "lowercase all emails",
+            ],
+        )
+        assert config.transform.type == "pipeline"
+        types = [s.type for s in config.transform.steps]
+        assert types == ["sql", "sql", "ai"]
+        assert config.transform.steps[0].query.startswith("SELECT")
+        assert config.transform.steps[2].instruction == "lowercase all emails"
+
+    def test_plain_string_top_level_select_becomes_sql(self) -> None:
+        config = PipelineConfig(
+            **_base_source_target(),
+            transform="SELECT id FROM {{source}}",
+        )
+        assert config.transform.type == "sql"
+        assert config.transform.query.startswith("SELECT")
+
+    def test_empty_steps_raises(self, tmp_path: Path) -> None:
+        path = _write_yaml(
+            tmp_path,
+            """
+            source:
+              type: mongo
+              url: mongodb://localhost
+              database: db
+              collection: c
+            target:
+              type: json
+              path: /tmp/out.json
+            transform:
+              type: pipeline
+              steps: []
+            """,
+        )
+        with pytest.raises(ConfigError):
+            load_config(path)
+
+    def test_step_name_is_optional_and_preserved(self) -> None:
+        config = PipelineConfig(
+            **_base_source_target(),
+            transform={
+                "type": "pipeline",
+                "steps": [
+                    {"type": "ai", "name": "filter", "instruction": "filter paid"},
+                    {"type": "ai", "instruction": "normalise emails"},
+                ],
+            },
+        )
+        assert config.transform.steps[0].name == "filter"
+        assert config.transform.steps[1].name is None

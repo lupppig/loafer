@@ -13,8 +13,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from loafer.connectors.base import TargetConnector
 from loafer.exceptions import LoadError
+from loafer.ports.connector import TargetConnector
 
 
 class _SafeEncoder(json.JSONEncoder):

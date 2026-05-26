@@ -7,9 +7,25 @@ LangGraph nodes must return updated state, never mutate in place.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import Any, TypedDict
 
 from loafer.config import LLMConfig, SourceConfig, TargetConfig, TransformConfig
+
+
+@dataclass
+class StepResult:
+    """Outcome of a single step inside a multi-step transform pipeline."""
+
+    index: int
+    name: str
+    type: str
+    rows_in: int
+    rows_out: int
+    duration_ms: float
+    success: bool
+    error: str | None = None
+    token_usage: dict[str, int] | None = None
 
 
 class PipelineState(TypedDict, total=False):
@@ -62,6 +78,9 @@ class PipelineState(TypedDict, total=False):
     # Destructive operation detection
     destructive_warnings: list[Any]
     auto_confirmed: bool
+
+    # Multi-step transform pipeline
+    step_results: list[StepResult]
 
     # Internal (not exposed to agents)
     _source_connector: Any | None

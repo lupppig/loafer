@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import io
 
-from loafer.connectors.base import TargetConnector
 from loafer.exceptions import LoadError
+from loafer.ports.connector import TargetConnector
 
 
 class CsvTargetConnector(TargetConnector):
