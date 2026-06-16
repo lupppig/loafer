@@ -101,9 +101,7 @@ def raise_if_destructive(
         raise TransformError(msg)
 
 
-# ---------------------------------------------------------------------------
 # ETL detection functions
-# ---------------------------------------------------------------------------
 
 
 def _check_rows_dropped(
@@ -231,9 +229,7 @@ def _infer_type(values: list[Any]) -> str:
     return types.pop()
 
 
-# ---------------------------------------------------------------------------
 # ELT detection functions (SQL AST analysis)
-# ---------------------------------------------------------------------------
 
 
 def _analyze_sql_destructive(

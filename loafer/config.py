@@ -57,9 +57,7 @@ def _walk_and_resolve(obj: Any, base_dir: Path | None = None) -> Any:
     return obj
 
 
-# ---------------------------------------------------------------------------
 # Source configs
-# ---------------------------------------------------------------------------
 
 
 class PostgresSourceConfig(BaseModel):
@@ -165,9 +163,7 @@ SourceConfig = Annotated[
 ]
 
 
-# ---------------------------------------------------------------------------
 # Target configs
-# ---------------------------------------------------------------------------
 
 
 def _validate_upsert_key(cfg: Any) -> Any:
@@ -222,9 +218,7 @@ TargetConfig = Annotated[
 ]
 
 
-# ---------------------------------------------------------------------------
 # Transform configs
-# ---------------------------------------------------------------------------
 
 
 class AITransformConfig(BaseModel):
@@ -294,9 +288,7 @@ TransformConfig = Annotated[
 ]
 
 
-# ---------------------------------------------------------------------------
 # Validation config
-# ---------------------------------------------------------------------------
 
 
 class ValidationConfig(BaseModel):
@@ -304,9 +296,7 @@ class ValidationConfig(BaseModel):
     strict: bool = False
 
 
-# ---------------------------------------------------------------------------
 # Sandbox config
-# ---------------------------------------------------------------------------
 
 
 class SandboxConfig(BaseModel):
@@ -323,9 +313,7 @@ class SandboxConfig(BaseModel):
         return v
 
 
-# ---------------------------------------------------------------------------
 # Incremental loading config
-# ---------------------------------------------------------------------------
 
 
 class IncrementalConfig(BaseModel):
@@ -340,9 +328,7 @@ class IncrementalConfig(BaseModel):
     param: str | None = None
 
 
-# ---------------------------------------------------------------------------
 # LLM config
-# ---------------------------------------------------------------------------
 
 
 class LLMConfig(BaseModel):
@@ -351,9 +337,7 @@ class LLMConfig(BaseModel):
     api_key: str | None = None
 
 
-# ---------------------------------------------------------------------------
 # Auto-detection helpers
-# ---------------------------------------------------------------------------
 
 # Mapping from URL scheme prefixes to source type names
 _SOURCE_URL_SCHEMES: list[tuple[str, str]] = [
@@ -490,9 +474,7 @@ def _normalise_steps(steps: list[Any]) -> list[Any]:
     return out
 
 
-# ---------------------------------------------------------------------------
 # Pipeline config (top-level)
-# ---------------------------------------------------------------------------
 
 
 class PipelineConfig(BaseModel):

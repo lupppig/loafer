@@ -68,9 +68,7 @@ def _main(
     """AI-assisted ETL and ELT pipelines from the command line."""
 
 
-# ---------------------------------------------------------------------------
 # Animated stage loaders
-# ---------------------------------------------------------------------------
 
 _STAGE_SPINNERS = {
     "extract": ("dots", "cyan"),
@@ -172,9 +170,7 @@ class StageAnimator:
             console.print(f"  {icon}  [dim]{self.label}[/dim]")
 
 
-# ---------------------------------------------------------------------------
 # Human-readable error formatting
-# ---------------------------------------------------------------------------
 
 
 def _format_user_error(error: Exception, stage: str | None = None) -> str:
@@ -361,9 +357,7 @@ def _parse_model_not_found(raw: str) -> str:
     )
 
 
-# ---------------------------------------------------------------------------
 # Display helpers
-# ---------------------------------------------------------------------------
 
 _STAGE_LABELS: dict[str, str] = {
     "extract": "Extracting from source",
@@ -517,9 +511,7 @@ def _print_error_panel(
     )
 
 
-# ---------------------------------------------------------------------------
 # Commands
-# ---------------------------------------------------------------------------
 
 
 @app.command()
@@ -1038,7 +1030,6 @@ def init(
     elif transform_type == "sql":
         transform_config["query"] = "SELECT * FROM {{source}}"
 
-    # Write pipeline.yaml
     import yaml
 
     pipeline_config: dict[str, Any] = {
@@ -1054,11 +1045,9 @@ def init(
         },
     }
 
-    # Create directory structure
     target.mkdir(parents=True)
     (target / "data").mkdir(exist_ok=True)
 
-    # Write pipeline.yaml
     yaml_path = target / "pipeline.yaml"
     yaml_path.write_text(yaml.dump(pipeline_config, default_flow_style=False, sort_keys=False))
 
@@ -1080,7 +1069,6 @@ def init(
             "id,name,email,score\n1,Alice,alice@example.com,95.5\n2,Bob,bob@example.com,88.0\n"
         )
 
-    # Write README
     readme = target / "README.md"
     readme.write_text(
         f"# {name}\n\n"

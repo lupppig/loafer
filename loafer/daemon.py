@@ -37,7 +37,6 @@ def start_daemon() -> tuple[int, Path]:
     """
     _ensure_dir()
 
-    # Check if already running
     if _is_running():
         pid = _read_pid()
         raise RuntimeError(f"Scheduler already running (PID {pid})")
@@ -55,7 +54,6 @@ def start_daemon() -> tuple[int, Path]:
         cwd=str(Path.cwd()),
     )
 
-    # Write PID file
     _PID_FILE.write_text(str(process.pid))
 
     # Verify the child actually came up rather than exiting on import/usage
