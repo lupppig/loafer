@@ -239,6 +239,37 @@ target:
 
         assert result.exit_code == 1
 
+    def test_invalid_config_error_prefix_not_doubled(self, tmp_path: Path) -> None:
+        """DX: the 'Config validation failed:' prefix must appear exactly once."""
+        config_path = tmp_path / "bad.yaml"
+        config_path.write_text("""
+name: Bad
+source:
+  type: postgres
+
+target:
+  type: csv
+""")
+
+        result = runner.invoke(app, ["validate", str(config_path)])
+
+        assert result.exit_code == 1
+        assert result.output.count("Config validation failed:") == 1
+
+
+class TestCliVersion:
+    """--version flag."""
+
+    def test_version_flag_exits_zero(self) -> None:
+        result = runner.invoke(app, ["--version"])
+        assert result.exit_code == 0
+        assert "loafer" in result.output.lower()
+
+    def test_version_short_flag(self) -> None:
+        result = runner.invoke(app, ["-V"])
+        assert result.exit_code == 0
+        assert "loafer" in result.output.lower()
+
 
 class TestCliConnectors:
     """CLI connectors command tests."""

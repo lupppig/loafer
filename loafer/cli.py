@@ -38,6 +38,36 @@ err_console = Console(stderr=True)
 _config_arg = typer.Argument(..., help="Path to pipeline YAML config")
 
 
+def _resolve_version() -> str:
+    """Return the installed package version, or a dev fallback."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("loafer-etl")
+    except PackageNotFoundError:  # pragma: no cover - source checkout without install
+        return "unknown"
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        console.print(f"loafer {_resolve_version()}")
+        raise typer.Exit(0)
+
+
+@app.callback()
+def _main(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        "-V",
+        help="Show the loafer version and exit.",
+        callback=_version_callback,
+        is_eager=True,
+    ),
+) -> None:
+    """AI-assisted ETL and ELT pipelines from the command line."""
+
+
 # ---------------------------------------------------------------------------
 # Animated stage loaders
 # ---------------------------------------------------------------------------
@@ -640,7 +670,9 @@ def validate(
     try:
         config = validate_config(config_file)
     except PipelineError as exc:
-        err_console.print(f"[red]Config validation failed: {exc}[/red]")
+        # validate_config already prefixes "Config validation failed:" — don't
+        # wrap it a second time (BUG: doubled error prefix).
+        err_console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc
 
     console.print("[green]✓ Config is valid[/green]\n")
