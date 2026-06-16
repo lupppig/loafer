@@ -175,17 +175,13 @@ class TestPipelineScheduler:
         assert state["job_x"]["last_status"] == "success"
         assert "last_run" in state["job_x"]
 
-    def test_read_run_state_missing_returns_empty(
-        self, monkeypatch: Any, tmp_path: Path
-    ) -> None:
+    def test_read_run_state_missing_returns_empty(self, monkeypatch: Any, tmp_path: Path) -> None:
         from loafer import scheduler as sched_mod
 
         monkeypatch.setattr(sched_mod, "_RUN_STATE_PATH", tmp_path / "absent.json")
         assert sched_mod._read_run_state() == {}
 
-    def test_configure_file_logging_is_idempotent(
-        self, monkeypatch: Any, tmp_path: Path
-    ) -> None:
+    def test_configure_file_logging_is_idempotent(self, monkeypatch: Any, tmp_path: Path) -> None:
         """BUG-4: logging must point at the log file, without stacking handlers."""
         import logging
 
@@ -201,9 +197,7 @@ class TestPipelineScheduler:
         second = sched_mod.configure_file_logging()
         assert first == log_path
         assert second == log_path
-        file_handlers = [
-            h for h in sched_mod.logger.handlers if isinstance(h, logging.FileHandler)
-        ]
+        file_handlers = [h for h in sched_mod.logger.handlers if isinstance(h, logging.FileHandler)]
         assert len(file_handlers) == 1
 
         sched_mod.logger.info("hello from test")

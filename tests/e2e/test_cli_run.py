@@ -283,9 +283,7 @@ class TestCliInit:
         """
         proj = tmp_path / "proj"
         # name, source, target, transform, mode
-        result = runner.invoke(
-            app, ["init", str(proj)], input="myproj\npostgres\njson\nai\nelt\n"
-        )
+        result = runner.invoke(app, ["init", str(proj)], input="myproj\npostgres\njson\nai\nelt\n")
 
         assert result.exit_code == 0, result.output
         assert (proj / "pipeline.yaml").exists()
@@ -295,9 +293,7 @@ class TestCliInit:
 
     def test_init_custom_csv_writes_extra_files(self, tmp_path: Path) -> None:
         proj = tmp_path / "proj"
-        result = runner.invoke(
-            app, ["init", str(proj)], input="myproj\ncsv\njson\ncustom\netl\n"
-        )
+        result = runner.invoke(app, ["init", str(proj)], input="myproj\ncsv\njson\ncustom\netl\n")
 
         assert result.exit_code == 0, result.output
         assert (proj / "transform.py").exists()

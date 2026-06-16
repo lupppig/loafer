@@ -43,9 +43,7 @@ def _is_auth_error(code: int | None, message: str) -> bool:
     lowered = message.lower()
     if "api_key_invalid" in lowered or "api key not valid" in lowered:
         return True
-    return code == 400 and (
-        "permission_denied" in lowered or "unauthenticated" in lowered
-    )
+    return code == 400 and ("permission_denied" in lowered or "unauthenticated" in lowered)
 
 
 def _extract_token_usage(response: types.GenerateContentResponse) -> dict[str, int]:

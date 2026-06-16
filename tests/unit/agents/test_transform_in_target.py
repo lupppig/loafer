@@ -296,9 +296,7 @@ class TestExecuteEltSql:
         mock_conn.cursor.return_value = mock_cursor
 
         with patch("psycopg2.connect", return_value=mock_conn):
-            _execute_elt_sql(
-                "postgresql://localhost/db", "SELECT 1", "output", write_mode="append"
-            )
+            _execute_elt_sql("postgresql://localhost/db", "SELECT 1", "output", write_mode="append")
 
         executed = [c.args[0] for c in mock_cursor.execute.call_args_list]
         assert not any("DROP TABLE" in s for s in executed)

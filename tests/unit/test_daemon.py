@@ -143,9 +143,7 @@ class TestDaemonHelpers:
         # PID file is cleaned up after the failed start.
         assert not pid_file.exists()
 
-    def test_start_daemon_keeps_surviving_child(
-        self, tmp_path: Path, monkeypatch: Any
-    ) -> None:
+    def test_start_daemon_keeps_surviving_child(self, tmp_path: Path, monkeypatch: Any) -> None:
         """A child still alive after the probe yields (pid, log_path)."""
         from loafer import daemon
 
