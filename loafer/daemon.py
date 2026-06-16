@@ -27,6 +27,13 @@ def start_daemon() -> tuple[int, Path]:
 
     Returns:
         (pid, log_path) — the daemon's PID and log file path.
+
+    Raises:
+        RuntimeError: if already running, or if the spawned child exits
+            immediately (which is what happened before — the old command
+            ``python -m loafer.cli _daemon_entry`` had no __main__ guard and
+            no such subcommand, so the child imported a module and exited and
+            no daemon survived).
     """
     _ensure_dir()
 
@@ -35,8 +42,9 @@ def start_daemon() -> tuple[int, Path]:
         pid = _read_pid()
         raise RuntimeError(f"Scheduler already running (PID {pid})")
 
-    # Spawn ourselves with --daemon flag
-    cmd = [sys.executable, "-m", "loafer.cli", "_daemon_entry"]
+    # Spawn the package entrypoint (loafer/__main__.py runs the Typer app) with
+    # the hidden `_daemon_entry` command, which blocks running the scheduler.
+    cmd = [sys.executable, "-m", "loafer", "_daemon_entry"]
     log_file = open(_LOG_FILE, "a")
 
     process = subprocess.Popen(
@@ -49,6 +57,19 @@ def start_daemon() -> tuple[int, Path]:
 
     # Write PID file
     _PID_FILE.write_text(str(process.pid))
+
+    # Verify the child actually came up rather than exiting on import/usage
+    # error — surface a real failure instead of pretending to have started.
+    import time
+
+    time.sleep(0.5)
+    if process.poll() is not None:
+        _PID_FILE.unlink(missing_ok=True)
+        log_file.close()
+        raise RuntimeError(
+            f"Scheduler daemon exited immediately (code {process.returncode}). "
+            f"See {_LOG_FILE} for details."
+        )
 
     return process.pid, _LOG_FILE
 

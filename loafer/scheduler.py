@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +22,78 @@ from loafer.runner import run_pipeline
 
 logger = logging.getLogger("loafer.scheduler")
 
-_DEFAULT_DB = "sqlite:///loafer_jobs.sqlite"
+# Everything lives under ~/.loafer so the jobstore, logs, and run-state are
+# resolved by absolute path — independent of the working directory at
+# schedule-time vs start-time. A relative jobstore meant the daemon read a
+# different DB than `loafer schedule` wrote to (BUG-4).
+_LOAFER_DIR = Path.home() / ".loafer"
+_DB_PATH = _LOAFER_DIR / "jobs.db"
+_LOG_PATH = _LOAFER_DIR / "scheduler.log"
+_RUN_STATE_PATH = _LOAFER_DIR / "run_state.json"
+
+
+def _default_db_url() -> str:
+    """Absolute SQLite jobstore URL, creating ~/.loafer if needed."""
+    _LOAFER_DIR.mkdir(parents=True, exist_ok=True)
+    return f"sqlite:///{_DB_PATH}"
+
+
+def configure_file_logging(level: int = logging.INFO) -> Path:
+    """Route the scheduler logger to ~/.loafer/scheduler.log.
+
+    Without this the logger had no handler pointing at the log file, so all
+    job execution and errors were invisible — the worst failure mode for an
+    unattended scheduler (BUG-4). Idempotent: won't add a duplicate handler.
+    """
+    _LOAFER_DIR.mkdir(parents=True, exist_ok=True)
+    # FileHandler stores the absolute path in baseFilename; match against it
+    # so repeated calls (start, then status) don't stack duplicate handlers.
+    expected = str(_LOG_PATH.resolve())
+    for handler in logger.handlers:
+        if isinstance(handler, logging.FileHandler) and handler.baseFilename == expected:
+            return _LOG_PATH
+    file_handler = logging.FileHandler(_LOG_PATH)
+    file_handler.setFormatter(
+        logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    )
+    logger.addHandler(file_handler)
+    logger.setLevel(level)
+    logger.propagate = False
+    return _LOG_PATH
+
+
+def _record_run(job_id: str, status: str) -> None:
+    """Persist the last-run timestamp/status for a job to the run-state sidecar.
+
+    APScheduler doesn't track last-run natively, so list-schedules has nothing
+    to show. We keep a tiny JSON sidecar updated from the job-event listener.
+    """
+    try:
+        _LOAFER_DIR.mkdir(parents=True, exist_ok=True)
+        state: dict[str, Any] = {}
+        if _RUN_STATE_PATH.exists():
+            try:
+                state = json.loads(_RUN_STATE_PATH.read_text())
+            except (ValueError, OSError):
+                state = {}
+        state[job_id] = {
+            "last_run": datetime.now(UTC).isoformat(),
+            "last_status": status,
+        }
+        _RUN_STATE_PATH.write_text(json.dumps(state, indent=2))
+    except OSError as exc:  # pragma: no cover - best-effort bookkeeping
+        logger.warning("Could not record run state for %s: %s", job_id, exc)
+
+
+def _read_run_state() -> dict[str, Any]:
+    """Return the last-run sidecar, or an empty mapping if absent/corrupt."""
+    if not _RUN_STATE_PATH.exists():
+        return {}
+    try:
+        data = json.loads(_RUN_STATE_PATH.read_text())
+        return data if isinstance(data, dict) else {}
+    except (ValueError, OSError):
+        return {}
 
 
 def _run_pipeline_job(config_path: str, name: str = "") -> None:
@@ -43,7 +115,7 @@ class PipelineScheduler:
     def __init__(self, db_url: str | None = None, timezone: str = "UTC") -> None:
         self._scheduler = BackgroundScheduler(
             jobstores={
-                "default": SQLAlchemyJobStore(url=db_url or _DEFAULT_DB),
+                "default": SQLAlchemyJobStore(url=db_url or _default_db_url()),
             },
             timezone=timezone,
         )
@@ -66,6 +138,25 @@ class PipelineScheduler:
             return
         self._scheduler.shutdown(wait=wait)
         logger.info("Scheduler stopped")
+
+    def run_forever(self, poll_interval: float = 1.0) -> None:
+        """Start the scheduler and block until interrupted.
+
+        This is the entrypoint the daemon runs. The previous foreground/daemon
+        paths started a BackgroundScheduler and returned immediately, so the
+        process exited and no jobs ever fired (BUG-4). Blocking here keeps the
+        scheduler thread alive so triggers actually execute.
+        """
+        import time
+
+        self.start()
+        try:
+            while True:
+                time.sleep(poll_interval)
+        except (KeyboardInterrupt, SystemExit):
+            pass
+        finally:
+            self.stop()
 
     def add_schedule(
         self,
@@ -144,12 +235,14 @@ class PipelineScheduler:
             self._scheduler.start(paused=True)
         try:
             jobs = self._scheduler.get_jobs()
+            run_state = _read_run_state()
             result = []
             for job in jobs:
                 trigger_info = str(job.trigger) if job.trigger else "once"
                 args = job.args or []
                 config_path = args[0] if len(args) > 0 else ""
                 name = args[1] if len(args) > 1 else ""
+                job_runs = run_state.get(job.id, {})
                 result.append(
                     {
                         "id": job.id,
@@ -158,6 +251,8 @@ class PipelineScheduler:
                         "trigger": trigger_info,
                         "next_run": job.next_run_time.isoformat() if job.next_run_time else None,
                         "paused": job.next_run_time is None,
+                        "last_run": job_runs.get("last_run"),
+                        "last_status": job_runs.get("last_status"),
                     }
                 )
             return result
@@ -234,11 +329,13 @@ class PipelineScheduler:
         raise SchedulerError(f"Invalid interval: '{spec}'. Use format like '30m', '1h', '1d', '2w'")
 
     def _on_job_executed(self, event: Any) -> None:
-        """Log job execution events."""
+        """Log job execution events and record last-run state."""
         if event.exception:
             logger.error("Job %s failed: %s", event.job_id, event.exception)
+            _record_run(event.job_id, "failed")
         else:
             logger.info("Job %s completed successfully", event.job_id)
+            _record_run(event.job_id, "success")
 
     def export_jobs(self, path: str | Path) -> None:
         """Export scheduled jobs to a JSON file."""

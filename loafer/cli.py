@@ -8,6 +8,7 @@ All user-facing output uses rich.console.Console. Never use print().
 
 from __future__ import annotations
 
+import logging
 import signal
 import time
 from pathlib import Path
@@ -768,6 +769,8 @@ def list_schedules() -> None:
     table.add_column("Config", style="green")
     table.add_column("Trigger", style="yellow")
     table.add_column("Next Run", style="magenta")
+    table.add_column("Last Run", style="blue")
+    table.add_column("Last Status", style="blue")
     table.add_column("Paused", style="red")
 
     for job in jobs:
@@ -777,6 +780,8 @@ def list_schedules() -> None:
             job["config_path"],
             job["trigger"],
             job["next_run"] or "—",
+            job.get("last_run") or "—",
+            job.get("last_status") or "—",
             "yes" if job["paused"] else "no",
         )
 
@@ -794,10 +799,14 @@ def start(
         _start_background()
         return
 
+    from loafer.scheduler import configure_file_logging
+
+    log_path = configure_file_logging()
     scheduler = PipelineScheduler()
     scheduler.start()
 
     console.print("[green]✓ Scheduler started[/green]")
+    console.print(f"  Log: {log_path}")
     console.print("Press Ctrl+C to stop\n")
 
     jobs = scheduler.list_schedules()
@@ -819,13 +828,27 @@ def start(
     signal.signal(signal.SIGTERM, _shutdown)
 
     try:
-        import time
-
         while True:
             time.sleep(1)
     except (KeyboardInterrupt, SystemExit):
         scheduler.stop()
         console.print("[green]✓ Scheduler stopped[/green]")
+
+
+@app.command(name="_daemon_entry", hidden=True)
+def _daemon_entry() -> None:
+    """Internal: run the scheduler in the foreground, blocking.
+
+    This is the process the background daemon execs (`python -m loafer
+    _daemon_entry`). It wires file logging and blocks in run_forever so the
+    scheduler thread stays alive and jobs actually fire.
+    """
+    from loafer.scheduler import PipelineScheduler, configure_file_logging
+
+    configure_file_logging()
+    logging.getLogger("loafer.scheduler").info("Daemon entry: starting scheduler")
+    scheduler = PipelineScheduler()
+    scheduler.run_forever()
 
 
 def _start_background() -> None:
