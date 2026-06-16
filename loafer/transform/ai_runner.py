@@ -20,7 +20,7 @@ from typing import Any
 from loafer.config import AITransformConfig
 from loafer.core.destructive import detect_destructive_operations, raise_if_destructive
 from loafer.core.sandbox import run_sandboxed
-from loafer.exceptions import LLMError, LLMRateLimitError, TransformError
+from loafer.exceptions import LLMAuthError, LLMError, LLMRateLimitError, TransformError
 from loafer.graph.state import PipelineState
 from loafer.llm.base import LLMProvider, TransformPromptResult
 from loafer.llm.prompt_builder import build_etl_transform_prompt
@@ -34,6 +34,14 @@ _MAX_RETRIES = 3
 def _human_readable_llm_error(exc: Exception) -> str:
     """Convert raw LLM exceptions into user-friendly messages."""
     msg = str(exc)
+
+    if isinstance(exc, LLMAuthError):
+        return (
+            "Authentication failed — your API key is invalid or expired.\n"
+            "  • Check that your API key is correct\n"
+            "  • Make sure it hasn't expired or been revoked\n"
+            "  • Generate a new key at https://aistudio.google.com/apikey"
+        )
 
     if isinstance(exc, LLMRateLimitError):
         return (
@@ -249,6 +257,9 @@ class AiTransformRunner(TransformRunner):
                     previous_error=previous_error,
                     previous_code=previous_code,
                 )
+            except LLMAuthError as exc:
+                # Non-retryable: a bad key won't fix itself across retries.
+                raise TransformError(_human_readable_llm_error(exc)) from exc
             except Exception as exc:
                 retry_count += 1
                 user_msg = _human_readable_llm_error(exc)
@@ -383,6 +394,9 @@ class AiTransformRunner(TransformRunner):
                     previous_error=previous_error,
                     previous_code=previous_code,
                 )
+            except LLMAuthError as exc:
+                # Non-retryable: a bad key won't fix itself across retries.
+                raise TransformError(_human_readable_llm_error(exc)) from exc
             except Exception as exc:
                 retry_count += 1
                 user_msg = _human_readable_llm_error(exc)

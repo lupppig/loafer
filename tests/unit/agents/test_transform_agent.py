@@ -328,6 +328,66 @@ class TestCustomTransformRunner:
             runner.run(state)
 
 
+class TestAuthErrorNotRetried:
+    """BUG-6: a bad API key must fail fast with a friendly message, not retry."""
+
+    def test_simple_ai_path_does_not_retry_auth_error(self) -> None:
+        from loafer.exceptions import LLMAuthError
+        from loafer.transform.ai_runner import AiTransformRunner
+
+        mock_llm = MagicMock()
+        mock_llm.generate_transform_function.side_effect = LLMAuthError(
+            "400 INVALID_ARGUMENT API_KEY_INVALID"
+        )
+
+        runner = AiTransformRunner()
+        state: dict[str, Any] = {
+            "llm_provider": mock_llm,
+            "schema_sample": {},
+            "transform_instruction": "noop",
+            "raw_data": [{"id": 1}],
+            "is_streaming": False,
+            "retry_count": 0,
+            "last_error": None,
+            "generated_code": "",
+            "token_usage": {},
+            "duration_ms": {},
+            "warnings": [],
+        }
+        with pytest.raises(TransformError, match="Authentication failed"):
+            runner.run(state)
+
+        # Called exactly once — no exponential-backoff retries on a bad key.
+        assert mock_llm.generate_transform_function.call_count == 1
+
+    def test_config_ai_path_does_not_retry_auth_error(self) -> None:
+        from loafer.exceptions import LLMAuthError
+        from loafer.transform.ai_runner import AiTransformRunner
+
+        mock_llm = MagicMock()
+        mock_llm.generate_transform_function.side_effect = LLMAuthError("API key not valid")
+
+        runner = AiTransformRunner()
+        state: dict[str, Any] = {
+            "transform_config": AITransformConfig(type="ai", instruction="noop"),
+            "llm_provider": mock_llm,
+            "schema_sample": {},
+            "transform_instruction": "noop",
+            "raw_data": [{"id": 1}],
+            "is_streaming": False,
+            "retry_count": 0,
+            "last_error": None,
+            "generated_code": "",
+            "token_usage": {},
+            "duration_ms": {},
+            "warnings": [],
+        }
+        with pytest.raises(TransformError, match="Authentication failed"):
+            runner.run(state)
+
+        assert mock_llm.generate_transform_function.call_count == 1
+
+
 class TestStreamingInput:
     """BUG-2: transforms must consume stream_iterator in streaming mode.
 
