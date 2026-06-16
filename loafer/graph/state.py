@@ -82,6 +82,9 @@ class PipelineState(TypedDict, total=False):
     # Multi-step transform pipeline
     step_results: list[StepResult]
 
+    # Sandbox limits for custom/AI transform execution
+    sandbox_config: Any
+
     # Incremental loading (cursor watermark)
     incremental_config: Any | None
     cursor_value: Any

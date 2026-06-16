@@ -9,11 +9,11 @@ from __future__ import annotations
 import copy
 import time
 from pathlib import Path
-from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 from loafer.config import CustomTransformConfig
 from loafer.core.destructive import detect_destructive_operations, raise_if_destructive
+from loafer.core.sandbox import run_sandboxed
 from loafer.exceptions import TransformError
 from loafer.graph.state import PipelineState
 from loafer.transform import TransformRunner
@@ -22,49 +22,13 @@ from loafer.transform.code_validator import validate_transform_function
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-_MAX_EXECUTION_TIME = 60
 
-_SAFE_BUILTINS: dict[str, Any] = {
-    "__import__": __import__,
-    "len": len,
-    "str": str,
-    "int": int,
-    "float": float,
-    "bool": bool,
-    "list": list,
-    "dict": dict,
-    "set": set,
-    "tuple": tuple,
-    "range": range,
-    "enumerate": enumerate,
-    "zip": zip,
-    "map": map,
-    "filter": filter,
-    "sorted": sorted,
-    "reversed": reversed,
-    "sum": sum,
-    "min": min,
-    "max": max,
-    "abs": abs,
-    "round": round,
-    "isinstance": isinstance,
-    "type": type,
-    "None": None,
-    "True": True,
-    "False": False,
-    "print": print,
-}
-
-
-def _build_safe_globals() -> dict[str, Any]:
-    safe_globals: dict[str, Any] = {"__builtins__": _SAFE_BUILTINS}
-    for mod_name in ("re", "json", "datetime", "math", "decimal", "uuid", "itertools"):
-        try:
-            mod: ModuleType = __import__(mod_name)
-            safe_globals[mod_name] = mod
-        except ImportError:
-            pass
-    return safe_globals
+def _sandbox_limits(state: PipelineState) -> tuple[int, int]:
+    """Read (timeout, max_memory_mb) from state, falling back to defaults."""
+    cfg = state.get("sandbox_config")
+    timeout = getattr(cfg, "timeout", 60)
+    max_memory_mb = getattr(cfg, "max_memory_mb", 512)
+    return timeout, max_memory_mb
 
 
 class CustomTransformRunner(TransformRunner):
@@ -123,46 +87,22 @@ class CustomTransformRunner(TransformRunner):
 
 
 def _execute_transform(code: str, state: PipelineState) -> list[dict[str, Any]]:
-    safe_globals = _build_safe_globals()
-    exec(code, safe_globals)
-
-    if "transform" not in safe_globals:
-        raise TransformError("Custom file does not define a `transform` function")
-
-    transform_fn = safe_globals["transform"]
-
-    is_streaming: bool = state.get("is_streaming", False)
-
-    if is_streaming:
-        return _apply_streaming(transform_fn, state)
-
-    raw_data: list[dict[str, Any]] = state.get("raw_data", [])
-    result = transform_fn(raw_data)
-
-    if not isinstance(result, list):
-        raise TransformError(f"Transform must return list[dict], got {type(result).__name__}")
-
-    return result
+    data = _materialize_data(state)
+    timeout, max_memory_mb = _sandbox_limits(state)
+    return run_sandboxed(code, data, timeout=timeout, max_memory_mb=max_memory_mb)
 
 
-def _apply_streaming(transform_fn: Any, state: PipelineState) -> list[dict[str, Any]]:
+def _materialize_data(state: PipelineState) -> list[dict[str, Any]]:
+    """Return the rows to transform, collecting the stream when in streaming mode."""
+    if not state.get("is_streaming", False):
+        return list(state.get("raw_data", []))
+
     stream_iter: Iterator[list[dict[str, Any]]] | None = state.get("stream_iterator")
     if stream_iter is None:
         raise TransformError("stream_iterator is None in streaming mode")
 
-    all_transformed: list[dict[str, Any]] = []
-    start = time.monotonic()
-    total_rows = 0
-
+    rows: list[dict[str, Any]] = []
     for chunk in stream_iter:
-        if (time.monotonic() - start) > _MAX_EXECUTION_TIME:
-            raise TransformError(f"Transform exceeded {_MAX_EXECUTION_TIME}s timeout")
-
-        total_rows += len(chunk)
-        result = transform_fn(chunk)
-        if not isinstance(result, list):
-            raise TransformError(f"Transform must return list[dict], got {type(result).__name__}")
-        all_transformed.extend(result)
-
-    state["rows_extracted"] = total_rows
-    return all_transformed
+        rows.extend(chunk)
+    state["rows_extracted"] = len(rows)
+    return rows

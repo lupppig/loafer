@@ -15,11 +15,11 @@ import copy
 import time
 import traceback
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 from loafer.config import AITransformConfig
 from loafer.core.destructive import detect_destructive_operations, raise_if_destructive
+from loafer.core.sandbox import run_sandboxed
 from loafer.exceptions import LLMError, LLMRateLimitError, TransformError
 from loafer.graph.state import PipelineState
 from loafer.llm.base import LLMProvider, TransformPromptResult
@@ -29,52 +29,6 @@ from loafer.transform.code_validator import validate_transform_function
 
 # Maximum number of retry attempts for AI-generated code.
 _MAX_RETRIES = 3
-
-# Maximum total execution time for transform (seconds).
-_MAX_EXECUTION_TIME = 60
-
-# Safe builtins allowed in generated transform code.
-_SAFE_BUILTINS: dict[str, Any] = {
-    "len": len,
-    "str": str,
-    "int": int,
-    "float": float,
-    "bool": bool,
-    "list": list,
-    "dict": dict,
-    "set": set,
-    "tuple": tuple,
-    "range": range,
-    "enumerate": enumerate,
-    "zip": zip,
-    "map": map,
-    "filter": filter,
-    "sorted": sorted,
-    "reversed": reversed,
-    "sum": sum,
-    "min": min,
-    "max": max,
-    "abs": abs,
-    "round": round,
-    "isinstance": isinstance,
-    "type": type,
-    "None": None,
-    "True": True,
-    "False": False,
-    "print": print,
-}
-
-
-def _build_safe_globals() -> dict[str, Any]:
-    """Build a restricted globals dict for safe exec of transform code."""
-    safe_globals: dict[str, Any] = {"__builtins__": _SAFE_BUILTINS}
-    for mod_name in ("re", "json", "datetime", "math", "decimal", "uuid", "itertools"):
-        try:
-            mod: ModuleType = __import__(mod_name)
-            safe_globals[mod_name] = mod
-        except ImportError:
-            pass
-    return safe_globals
 
 
 def _human_readable_llm_error(exc: Exception) -> str:
@@ -137,21 +91,14 @@ def _load_custom_code(path: str) -> str:
     return p.read_text(encoding="utf-8")
 
 
-def _execute_code(code: str, data: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Execute transform code against data and return the result."""
-    safe_globals = _build_safe_globals()
-    exec(code, safe_globals)
-
-    if "transform" not in safe_globals:
-        raise TransformError("Code does not define a `transform` function")
-
-    transform_fn = safe_globals["transform"]
-    result = transform_fn(data)
-
-    if not isinstance(result, list):
-        raise TransformError(f"Transform must return list[dict], got {type(result).__name__}")
-
-    return result
+def _execute_code(
+    code: str, data: list[dict[str, Any]], state: PipelineState
+) -> list[dict[str, Any]]:
+    """Execute transform code against data in a resource-limited sandbox."""
+    cfg = state.get("sandbox_config")
+    timeout = getattr(cfg, "timeout", 60)
+    max_memory_mb = getattr(cfg, "max_memory_mb", 512)
+    return run_sandboxed(code, data, timeout=timeout, max_memory_mb=max_memory_mb)
 
 
 def _ask_user_confirmation(generated_code: str) -> bool:
@@ -330,7 +277,7 @@ class AiTransformRunner(TransformRunner):
                 continue
 
             try:
-                transformed = _execute_code(code, list(state.get("raw_data", [])))
+                transformed = _execute_code(code, list(state.get("raw_data", [])), state)
             except Exception:
                 retry_count += 1
                 previous_error = f"Execution error: {traceback.format_exc()}"
@@ -393,7 +340,7 @@ class AiTransformRunner(TransformRunner):
     ) -> list[dict[str, Any]]:
         """Execute custom transform code against data."""
         try:
-            return _execute_code(code, data)
+            return _execute_code(code, data, state)
         except TransformError:
             raise
         except Exception as exc:
@@ -477,6 +424,6 @@ class AiTransformRunner(TransformRunner):
     ) -> list[dict[str, Any]]:
         """Execute AI-generated transform code against data."""
         try:
-            return _execute_code(code, data)
+            return _execute_code(code, data, state)
         except Exception:
             raise TransformError(f"AI transform execution failed: {traceback.format_exc()}")

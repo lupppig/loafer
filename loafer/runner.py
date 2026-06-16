@@ -132,6 +132,7 @@ def _build_initial_state(
         new_cursor=cursor_value,
         state_key=state_key,
         state_store_path=state_store_path,
+        sandbox_config=config.sandbox,
     )
 
 

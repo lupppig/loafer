@@ -226,6 +226,18 @@ def _format_user_error(error: Exception, stage: str | None = None) -> str:
             "  • Verify your network / firewall settings"
         )
 
+    # Transform sandbox limits (timeout / memory kill)
+    lower = msg.lower()
+    if "transform" in lower and ("timeout" in lower or "memory" in lower or "killed" in lower):
+        return (
+            "The transform exceeded its sandbox limits and was terminated.\n"
+            "  • The code may have an infinite loop or use too much memory\n"
+            "  • Raise the limits in your config:\n"
+            "      sandbox:\n"
+            "        timeout: 120\n"
+            "        max_memory_mb: 1024"
+        )
+
     # Timeout
     if "timeout" in msg.lower() or "timed out" in msg.lower():
         return (
