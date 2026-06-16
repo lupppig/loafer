@@ -59,7 +59,20 @@ def extract_agent(state: PipelineState) -> PipelineState:
     start = time.monotonic()
 
     source_config = state["source_config"]
-    connector: SourceConnector = get_source_connector(source_config)
+    incremental = state.get("incremental_config")
+    cursor_column: str | None = getattr(incremental, "column", None)
+
+    connector: SourceConnector
+    if incremental is not None:
+        param = getattr(incremental, "param", None) or cursor_column
+        connector = get_source_connector(
+            source_config,
+            incremental_column=cursor_column,
+            incremental_param=param,
+            cursor_value=state.get("cursor_value"),
+        )
+    else:
+        connector = get_source_connector(source_config)
 
     try:
         connector.connect()
@@ -74,12 +87,14 @@ def extract_agent(state: PipelineState) -> PipelineState:
         is_streaming = count is None or count > threshold
         state["is_streaming"] = is_streaming
 
+        state["new_cursor"] = state.get("cursor_value")
+
         if is_streaming:
             raw_iter: Iterator[list[dict[str, Any]]] = connector.stream(
                 state.get("chunk_size", 500)
             )
             peekable = _PeekableStream(raw_iter)
-            peekable_stream = _counting_stream(peekable, state)
+            peekable_stream = _counting_stream(peekable, state, cursor_column)
             state["stream_iterator"] = peekable_stream
             state["rows_extracted"] = count if count is not None else 0
 
@@ -92,6 +107,11 @@ def extract_agent(state: PipelineState) -> PipelineState:
             raw_data: list[dict[str, Any]] = connector.read_all()
             state["raw_data"] = raw_data
             state["rows_extracted"] = len(raw_data)
+
+            if cursor_column is not None:
+                from loafer.core.incremental import max_cursor
+
+                state["new_cursor"] = max_cursor(raw_data, cursor_column, state.get("cursor_value"))
 
             state["schema_sample"] = build_schema_sample(
                 raw_data[:5],
@@ -117,10 +137,15 @@ def extract_agent(state: PipelineState) -> PipelineState:
 def _counting_stream(
     stream_iter: Iterator[list[dict[str, Any]]],
     state: PipelineState,
+    cursor_column: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
-    """Wrap a stream iterator to count total rows as they're consumed."""
+    """Wrap a stream iterator to count rows and track the max cursor as consumed."""
     total = 0
     for chunk in stream_iter:
         total += len(chunk)
+        if cursor_column is not None:
+            from loafer.core.incremental import max_cursor
+
+            state["new_cursor"] = max_cursor(chunk, cursor_column, state.get("new_cursor"))
         yield chunk
     state["rows_extracted"] = total

@@ -69,8 +69,31 @@ def _build_llm_provider(config: PipelineConfig) -> LLMProvider:
             raise LLMError(f"Unknown LLM provider: {provider!r}.\nSupported providers: {available}")
 
 
-def _build_initial_state(config: PipelineConfig) -> PipelineState:
-    """Build the initial PipelineState from a validated config."""
+def _build_initial_state(
+    config: PipelineConfig,
+    config_path: str | Path | None = None,
+    full_refresh: bool = False,
+) -> PipelineState:
+    """Build the initial PipelineState from a validated config.
+
+    When ``config.incremental`` is set, the saved watermark is loaded from the
+    state file next to *config_path* (unless *full_refresh*), falling back to
+    ``incremental.initial``.
+    """
+    state_key = config.name or (Path(config_path).stem if config_path else "pipeline")
+    state_store_path: str | None = None
+    cursor_value: Any = None
+
+    if config.incremental is not None and config_path is not None:
+        from loafer.core.incremental import StateStore, state_path_for
+
+        store_path = state_path_for(config_path)
+        state_store_path = str(store_path)
+        if not full_refresh:
+            cursor_value = StateStore(store_path).get_cursor(state_key)
+        if cursor_value is None:
+            cursor_value = config.incremental.initial
+
     return PipelineState(
         source_config=config.source,
         target_config=config.target,
@@ -104,6 +127,11 @@ def _build_initial_state(config: PipelineConfig) -> PipelineState:
         stream_iterator=None,
         destructive_warnings=[],
         auto_confirmed=False,
+        incremental_config=config.incremental,
+        cursor_value=cursor_value,
+        new_cursor=cursor_value,
+        state_key=state_key,
+        state_store_path=state_store_path,
     )
 
 
@@ -124,6 +152,7 @@ def run_pipeline(
     dry_run: bool = False,
     verbose: bool = False,
     yes: bool = False,
+    full_refresh: bool = False,
 ) -> PipelineState:
     """Run a full ETL or ELT pipeline from a YAML config file.
 
@@ -142,7 +171,7 @@ def run_pipeline(
     start = time.monotonic()
 
     config = load_config(config_path)
-    state = _build_initial_state(config)
+    state = _build_initial_state(config, config_path, full_refresh)
     state["auto_confirmed"] = yes
 
     if config.transform.type == "ai":
@@ -175,6 +204,9 @@ def run_pipeline(
     state["duration_ms"]["total"] = total_ms
     _cleanup_source_connector(state)
 
+    if not dry_run:
+        _persist_cursor(state)
+
     if verbose:
         _print_summary(state)
 
@@ -185,6 +217,7 @@ def run_pipeline_streaming(
     config_path: str | Path,
     dry_run: bool = False,
     yes: bool = False,
+    full_refresh: bool = False,
 ) -> Iterator[tuple[str, str, PipelineState]]:
     """Run pipeline and yield (stage_name, status, state) per completed node.
 
@@ -200,7 +233,7 @@ def run_pipeline_streaming(
     start = time.monotonic()
 
     config = load_config(config_path)
-    state = _build_initial_state(config)
+    state = _build_initial_state(config, config_path, full_refresh)
     state["auto_confirmed"] = yes
 
     if config.transform.type == "ai":
@@ -233,6 +266,8 @@ def run_pipeline_streaming(
         raise PipelineError(f"Pipeline failed (run_id={state['run_id']}): {exc}") from exc
     else:
         _cleanup_source_connector(state)
+        if not dry_run:
+            _persist_cursor(state)
 
 
 def _stream_graph(
@@ -468,6 +503,20 @@ def list_connectors() -> dict[str, list[str]]:
         "sources": sorted(_SOURCE_REGISTRY.keys()),
         "targets": sorted(_TARGET_REGISTRY.keys()),
     }
+
+
+def _persist_cursor(state: PipelineState) -> None:
+    """Advance the saved watermark after a successful incremental run."""
+    if state.get("incremental_config") is None:
+        return
+    store_path = state.get("state_store_path")
+    new_cursor = state.get("new_cursor")
+    if not store_path or new_cursor is None:
+        return
+
+    from loafer.core.incremental import StateStore
+
+    StateStore(store_path).set_cursor(state["state_key"], new_cursor)
 
 
 def _cleanup_source_connector(state: PipelineState) -> None:

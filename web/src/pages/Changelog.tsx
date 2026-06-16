@@ -3,6 +3,30 @@ import { Helmet } from 'react-helmet-async';
 
 const releases = [
   {
+    version: 'v0.3.0',
+    date: 'June 2026',
+    new: [
+      'Incremental loading — cursor/watermark extraction for Postgres, MySQL, SQLite, and REST sources',
+      '`--full-refresh` flag to bypass the saved cursor and re-extract everything',
+      'Multi-step pipeline transforms with per-step result tracking',
+      'New source connectors: SQLite, Excel, PDF, and REST API (with pagination)',
+      'JSON target connector with incremental array writing',
+      'Cron and interval scheduling with a background daemon (start/stop/status/logs)',
+      'Claude, OpenAI, and Qwen LLM providers alongside Gemini',
+      'Auto-detection of source, target, and transform types from URLs and file extensions',
+      '`loafer init` scaffolder for new pipeline projects',
+      'Official Docker images on GitHub Container Registry'
+    ],
+    improved: [
+      'Pipeline state persists between runs next to the config file',
+      'Friendlier error messages for LLM, connection, and config failures'
+    ],
+    fixed: [
+      'IndexError during LLM error parsing',
+      'Markdown tables now render via remark in the docs site'
+    ]
+  },
+  {
     version: 'v0.2.0',
     date: 'March 2025',
     new: [

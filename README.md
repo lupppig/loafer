@@ -165,6 +165,22 @@ Loafer automatically infers connector types so you can write minimal YAML.
 
 If Loafer can't detect the type (e.g., a file with no extension), it will ask you to add an explicit `type:` field. You can always specify `type:` manually to override auto-detection.
 
+## Incremental Loading
+
+For SQL sources (`postgres`, `mysql`, `sqlite`) and `rest_api`, Loafer can extract only rows newer than the previous run instead of re-pulling the full dataset — ideal for scheduled pipelines.
+
+```yaml
+source:
+  url: ${DATABASE_URL}
+  query: SELECT * FROM orders
+
+incremental:
+  column: updated_at      # cursor column (or REST response field)
+  initial: "1970-01-01"   # watermark used on the first run
+```
+
+Loafer remembers the highest `updated_at` it has seen in `<config>.loafer-state.json` (next to your config) and only advances the watermark after a fully successful load. Use `loafer run pipeline.yaml --full-refresh` to ignore the saved cursor and re-pull everything.
+
 ## Configuration (YAML)
 
 Loafer pipelines are driven by a single YAML configuration file. The `type` field is **optional** — Loafer will auto-detect it when possible.

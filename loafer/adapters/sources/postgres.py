@@ -8,10 +8,19 @@ from loafer.ports.connector import SourceConnector
 
 
 class PostgresSourceConnector(SourceConnector):
-    def __init__(self, url: str, query: str, timeout: int = 30) -> None:
+    def __init__(
+        self,
+        url: str,
+        query: str,
+        timeout: int = 30,
+        incremental_column: str | None = None,
+        incremental_value: Any = None,
+    ) -> None:
         self._url = url
         self._query = query
         self._timeout = timeout
+        self._incremental_column = incremental_column
+        self._incremental_value = incremental_value
         self._conn: Any = None
         self._cursor: Any = None
         self._row_count: int | None = None
@@ -47,7 +56,8 @@ class PostgresSourceConnector(SourceConnector):
         try:
             cursor = self._conn.cursor(name="loafer_stream")
             cursor.itersize = 500
-            cursor.execute(self._query)
+            query, params = self._resolve_query()
+            cursor.execute(query, params)
             self._cursor = cursor
             self._row_count = cursor.rowcount if cursor.rowcount >= 0 else None
         except psycopg2.Error as exc:
@@ -85,6 +95,15 @@ class PostgresSourceConnector(SourceConnector):
             yield chunk
 
         self._row_count = total_rows
+
+    def _resolve_query(self) -> tuple[str, tuple[Any, ...]]:
+        """Return the query and bound params, wrapped for incremental extraction."""
+        if self._incremental_column is None:
+            return self._query, ()
+        from loafer.core.incremental import wrap_incremental_query
+
+        wrapped = wrap_incremental_query(self._query, self._incremental_column, "%s")
+        return wrapped, (self._incremental_value,)
 
     def _row_to_dict(self, row: tuple[Any, ...]) -> dict[str, Any]:
         if self._cursor is None:
