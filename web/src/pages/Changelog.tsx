@@ -3,6 +3,28 @@ import { Helmet } from 'react-helmet-async';
 
 const releases = [
   {
+    version: 'v0.3.1',
+    date: 'June 2026',
+    new: [
+      '`loafer --version` (`-V`) prints the installed version'
+    ],
+    improved: [
+      'AI transforms that coerce a column’s type no longer trip the destructive-operation guard — the change you asked for runs without `--yes`, while row drops and column removals still require confirmation',
+      'An invalid LLM API key now surfaces a clear authentication message and stops immediately instead of dumping raw provider JSON and burning through the retry/backoff loop',
+      '`list-schedules` now reports each job’s last run time and last status'
+    ],
+    fixed: [
+      'Clean `pip`/`pipx` installs and the Docker image crashed on every command with `ModuleNotFoundError: No module named ‘click’` — `click` is now a declared dependency instead of relying on an older `typer` to pull it in',
+      'AI transforms silently wrote zero rows on any streaming source (Postgres always, plus any source above `streaming_threshold`) — the AI runner now consumes the stream instead of an empty in-memory list',
+      'ELT mode looped forever on `Generating and executing SQL` — the graph retry counter is now tracked correctly and bounded, with a recursion limit as a backstop',
+      'ELT `write_mode: replace` is now honored — the target table is dropped before recreation, so re-runs no longer fail on an existing table',
+      'Scheduled jobs never executed and `start -d` exited without leaving a daemon — the jobstore now uses an absolute path, the daemon stays running, and execution and errors are written to `~/.loafer/scheduler.log`',
+      'A false `Source returned 0 rows` warning appeared on every successful streaming extract — the warning now fires only after the stream is drained and the real count is known',
+      '`loafer init` crashed with an `UnboundLocalError` when scaffolding any non-custom transform or non-CSV source',
+      '`loafer validate` printed the `Config validation failed:` prefix twice'
+    ]
+  },
+  {
     version: 'v0.3.0',
     date: 'June 2026',
     new: [
