@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from loafer.exceptions import LLMInvalidOutputError, LLMRateLimitError
-from loafer.llm.gemini import GeminiProvider, _strip_markdown_fences
+from loafer.exceptions import LLMAuthError, LLMInvalidOutputError, LLMRateLimitError
+from loafer.llm.gemini import GeminiProvider, _is_auth_error, _strip_markdown_fences
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -117,6 +117,48 @@ class TestGeminiProviderTransform:
 
         # SDK handles retries internally; we just verify the error propagates
         assert mock_client.models.generate_content.call_count >= 1
+
+    def test_invalid_api_key_raises_auth_error(self) -> None:
+        """BUG-6: Gemini returns 400 INVALID_ARGUMENT/API_KEY_INVALID for a bad key."""
+        from google.genai import errors as genai_errors
+
+        mock_client = MagicMock()
+        mock_client.models.generate_content.side_effect = genai_errors.ClientError(
+            code=400,
+            response_json={
+                "error": {
+                    "message": "API key not valid. Please pass a valid API key.",
+                    "status": "INVALID_ARGUMENT",
+                    "details": [{"reason": "API_KEY_INVALID"}],
+                }
+            },
+        )
+
+        with patch("loafer.llm.gemini.genai.Client", return_value=mock_client):
+            provider = GeminiProvider(api_key="bad-key")
+            with pytest.raises(LLMAuthError):
+                provider.generate_transform_function({}, "noop")
+
+
+class TestIsAuthError:
+    def test_400_api_key_invalid(self) -> None:
+        assert _is_auth_error(400, "400 INVALID_ARGUMENT API_KEY_INVALID")
+
+    def test_400_api_key_not_valid_message(self) -> None:
+        assert _is_auth_error(400, "API key not valid. Please pass a valid API key.")
+
+    def test_401_is_auth(self) -> None:
+        assert _is_auth_error(401, "Unauthorized")
+
+    def test_403_is_auth(self) -> None:
+        assert _is_auth_error(403, "PERMISSION_DENIED")
+
+    def test_400_generic_invalid_argument_is_not_auth(self) -> None:
+        # A 400 that isn't about the key (e.g. a bad request shape) is not auth.
+        assert not _is_auth_error(400, "400 INVALID_ARGUMENT: bad field 'contents'")
+
+    def test_429_is_not_auth(self) -> None:
+        assert not _is_auth_error(429, "rate limit")
 
 
 class TestGeminiProviderEltSql:

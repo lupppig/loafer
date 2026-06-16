@@ -328,6 +328,193 @@ class TestCustomTransformRunner:
             runner.run(state)
 
 
+class TestAuthErrorNotRetried:
+    """BUG-6: a bad API key must fail fast with a friendly message, not retry."""
+
+    def test_simple_ai_path_does_not_retry_auth_error(self) -> None:
+        from loafer.exceptions import LLMAuthError
+        from loafer.transform.ai_runner import AiTransformRunner
+
+        mock_llm = MagicMock()
+        mock_llm.generate_transform_function.side_effect = LLMAuthError(
+            "400 INVALID_ARGUMENT API_KEY_INVALID"
+        )
+
+        runner = AiTransformRunner()
+        state: dict[str, Any] = {
+            "llm_provider": mock_llm,
+            "schema_sample": {},
+            "transform_instruction": "noop",
+            "raw_data": [{"id": 1}],
+            "is_streaming": False,
+            "retry_count": 0,
+            "last_error": None,
+            "generated_code": "",
+            "token_usage": {},
+            "duration_ms": {},
+            "warnings": [],
+        }
+        with pytest.raises(TransformError, match="Authentication failed"):
+            runner.run(state)
+
+        # Called exactly once — no exponential-backoff retries on a bad key.
+        assert mock_llm.generate_transform_function.call_count == 1
+
+    def test_config_ai_path_does_not_retry_auth_error(self) -> None:
+        from loafer.exceptions import LLMAuthError
+        from loafer.transform.ai_runner import AiTransformRunner
+
+        mock_llm = MagicMock()
+        mock_llm.generate_transform_function.side_effect = LLMAuthError("API key not valid")
+
+        runner = AiTransformRunner()
+        state: dict[str, Any] = {
+            "transform_config": AITransformConfig(type="ai", instruction="noop"),
+            "llm_provider": mock_llm,
+            "schema_sample": {},
+            "transform_instruction": "noop",
+            "raw_data": [{"id": 1}],
+            "is_streaming": False,
+            "retry_count": 0,
+            "last_error": None,
+            "generated_code": "",
+            "token_usage": {},
+            "duration_ms": {},
+            "warnings": [],
+        }
+        with pytest.raises(TransformError, match="Authentication failed"):
+            runner.run(state)
+
+        assert mock_llm.generate_transform_function.call_count == 1
+
+
+class TestStreamingInput:
+    """BUG-2: transforms must consume stream_iterator in streaming mode.
+
+    In streaming mode the extract agent leaves raw_data empty and exposes a
+    chunked iterator via stream_iterator. Runners that transform [] instead
+    of the streamed rows silently emit empty output with exit 0 — the
+    flagship Postgres → AI → file path always streams (count() is None).
+    """
+
+    @staticmethod
+    def _chunks(rows: list[dict[str, Any]], size: int = 2) -> Any:
+        for i in range(0, len(rows), size):
+            yield rows[i : i + size]
+
+    def test_ai_runner_consumes_stream_iterator(self) -> None:
+        from loafer.transform.ai_runner import AiTransformRunner
+
+        rows = [{"id": i} for i in range(5)]
+        mock_llm = MagicMock()
+        mock_llm.generate_transform_function.return_value = MagicMock(
+            code="def transform(data): return [{**r, 'seen': True} for r in data]",
+            raw_response="def transform...",
+            token_usage={"total_tokens": 10},
+        )
+
+        runner = AiTransformRunner()
+        state: dict[str, Any] = {
+            "transform_config": AITransformConfig(type="ai", instruction="mark"),
+            "llm_provider": mock_llm,
+            "schema_sample": {},
+            "transform_instruction": "mark",
+            "raw_data": [],
+            "is_streaming": True,
+            "stream_iterator": self._chunks(rows),
+            "retry_count": 0,
+            "last_error": None,
+            "generated_code": "",
+            "token_usage": {},
+            "duration_ms": {},
+            "warnings": [],
+            "auto_confirmed": True,
+        }
+        result = runner.run(state)
+
+        assert len(result["transformed_data"]) == 5
+        assert all(r["seen"] for r in result["transformed_data"])
+        # The stream's true count is recorded back into rows_extracted.
+        assert result["rows_extracted"] == 5
+        assert not any("0 rows" in w for w in result["warnings"])
+
+    def test_simple_ai_path_consumes_stream_iterator(self) -> None:
+        """The legacy AI-only path (no AITransformConfig) also streams."""
+        from loafer.transform.ai_runner import AiTransformRunner
+
+        rows = [{"id": i} for i in range(4)]
+        mock_llm = MagicMock()
+        mock_llm.generate_transform_function.return_value = MagicMock(
+            code="def transform(data): return data",
+            raw_response="def transform...",
+            token_usage={"total_tokens": 10},
+        )
+
+        runner = AiTransformRunner()
+        state: dict[str, Any] = {
+            "llm_provider": mock_llm,
+            "schema_sample": {},
+            "transform_instruction": "noop",
+            "raw_data": [],
+            "is_streaming": True,
+            "stream_iterator": self._chunks(rows),
+            "retry_count": 0,
+            "last_error": None,
+            "generated_code": "",
+            "token_usage": {},
+            "duration_ms": {},
+            "warnings": [],
+            "auto_confirmed": True,
+        }
+        result = runner.run(state)
+
+        assert len(result["transformed_data"]) == 4
+
+    def test_custom_runner_consumes_stream_iterator(self, tmp_path: Any) -> None:
+        from loafer.transform.custom_runner import CustomTransformRunner
+
+        transform_file = tmp_path / "t.py"
+        transform_file.write_text("def transform(data): return data\n")
+
+        rows = [{"id": i} for i in range(3)]
+        runner = CustomTransformRunner()
+        state: dict[str, Any] = {
+            "transform_config": CustomTransformConfig(type="custom", path=str(transform_file)),
+            "raw_data": [],
+            "is_streaming": True,
+            "stream_iterator": self._chunks(rows),
+            "duration_ms": {},
+            "warnings": [],
+        }
+        result = runner.run(state)
+
+        assert len(result["transformed_data"]) == 3
+        assert result["rows_extracted"] == 3
+
+    def test_streaming_with_none_iterator_raises(self) -> None:
+        from loafer.transform.ai_runner import AiTransformRunner
+
+        mock_llm = MagicMock()
+        runner = AiTransformRunner()
+        state: dict[str, Any] = {
+            "transform_config": AITransformConfig(type="ai", instruction="x"),
+            "llm_provider": mock_llm,
+            "schema_sample": {},
+            "transform_instruction": "x",
+            "raw_data": [],
+            "is_streaming": True,
+            "stream_iterator": None,
+            "retry_count": 0,
+            "last_error": None,
+            "generated_code": "",
+            "token_usage": {},
+            "duration_ms": {},
+            "warnings": [],
+        }
+        with pytest.raises(TransformError, match="stream_iterator is None"):
+            runner.run(state)
+
+
 class TestSqlTransformRunner:
     def test_valid_select(self) -> None:
         from loafer.transform.sql_runner import SqlTransformRunner

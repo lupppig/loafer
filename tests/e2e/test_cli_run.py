@@ -239,6 +239,66 @@ target:
 
         assert result.exit_code == 1
 
+    def test_invalid_config_error_prefix_not_doubled(self, tmp_path: Path) -> None:
+        """DX: the 'Config validation failed:' prefix must appear exactly once."""
+        config_path = tmp_path / "bad.yaml"
+        config_path.write_text("""
+name: Bad
+source:
+  type: postgres
+
+target:
+  type: csv
+""")
+
+        result = runner.invoke(app, ["validate", str(config_path)])
+
+        assert result.exit_code == 1
+        assert result.output.count("Config validation failed:") == 1
+
+
+class TestCliVersion:
+    """--version flag."""
+
+    def test_version_flag_exits_zero(self) -> None:
+        result = runner.invoke(app, ["--version"])
+        assert result.exit_code == 0
+        assert "loafer" in result.output.lower()
+
+    def test_version_short_flag(self) -> None:
+        result = runner.invoke(app, ["-V"])
+        assert result.exit_code == 0
+        assert "loafer" in result.output.lower()
+
+
+class TestCliInit:
+    """loafer init scaffolding."""
+
+    def test_init_non_custom_transform_non_csv_source(self, tmp_path: Path) -> None:
+        """Regression: init must not crash when transform!=custom and source!=csv.
+
+        transform_path and sample_csv were only bound inside their respective
+        branches but referenced unconditionally in the summary, so any
+        non-custom/non-csv combo raised UnboundLocalError.
+        """
+        proj = tmp_path / "proj"
+        # name, source, target, transform, mode
+        result = runner.invoke(app, ["init", str(proj)], input="myproj\npostgres\njson\nai\nelt\n")
+
+        assert result.exit_code == 0, result.output
+        assert (proj / "pipeline.yaml").exists()
+        # No transform.py / input.csv for this combo, and no traceback.
+        assert not (proj / "transform.py").exists()
+        assert "UnboundLocalError" not in result.output
+
+    def test_init_custom_csv_writes_extra_files(self, tmp_path: Path) -> None:
+        proj = tmp_path / "proj"
+        result = runner.invoke(app, ["init", str(proj)], input="myproj\ncsv\njson\ncustom\netl\n")
+
+        assert result.exit_code == 0, result.output
+        assert (proj / "transform.py").exists()
+        assert (proj / "data" / "input.csv").exists()
+
 
 class TestCliConnectors:
     """CLI connectors command tests."""

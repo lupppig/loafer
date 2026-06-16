@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 
 class TestDaemonHelpers:
     """Tests for daemon utility functions."""
@@ -109,3 +111,58 @@ class TestDaemonHelpers:
         assert running is False
         assert pid is None
         assert log == log_file
+
+    def test_start_daemon_detects_immediate_child_exit(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """BUG-4: a child that exits immediately must raise, not fake success.
+
+        The old spawn target had no __main__ guard / subcommand, so the child
+        imported a module and exited and no daemon survived — yet start
+        reported success. start_daemon now polls the child and raises.
+        """
+        from loafer import daemon
+
+        pid_file = tmp_path / "scheduler.pid"
+        log_file = tmp_path / "scheduler.log"
+        monkeypatch.setattr(daemon, "_LOAFER_DIR", tmp_path)
+        monkeypatch.setattr(daemon, "_PID_FILE", pid_file)
+        monkeypatch.setattr(daemon, "_LOG_FILE", log_file)
+
+        class _DeadProcess:
+            pid = 4242
+            returncode = 1
+
+            def poll(self) -> int:
+                return 1  # already exited
+
+        monkeypatch.setattr(daemon.subprocess, "Popen", lambda *a, **k: _DeadProcess())
+
+        with pytest.raises(RuntimeError, match="exited immediately"):
+            daemon.start_daemon()
+        # PID file is cleaned up after the failed start.
+        assert not pid_file.exists()
+
+    def test_start_daemon_keeps_surviving_child(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """A child still alive after the probe yields (pid, log_path)."""
+        from loafer import daemon
+
+        pid_file = tmp_path / "scheduler.pid"
+        log_file = tmp_path / "scheduler.log"
+        monkeypatch.setattr(daemon, "_LOAFER_DIR", tmp_path)
+        monkeypatch.setattr(daemon, "_PID_FILE", pid_file)
+        monkeypatch.setattr(daemon, "_LOG_FILE", log_file)
+
+        class _LiveProcess:
+            pid = 5151
+            returncode = None
+
+            def poll(self) -> None:
+                return None  # still running
+
+        monkeypatch.setattr(daemon.subprocess, "Popen", lambda *a, **k: _LiveProcess())
+
+        pid, log = daemon.start_daemon()
+        assert pid == 5151
+        assert log == log_file
+        assert pid_file.read_text().strip() == "5151"

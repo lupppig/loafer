@@ -29,6 +29,12 @@ _PROVIDER_ENV_VARS = {
     "qwen": "DASHSCOPE_API_KEY",
 }
 
+# Hard backstop on graph hops. The ELT graph caps its own retries via the
+# transform_in_target counter, but a stuck conditional edge could still loop;
+# this ensures LangGraph raises GraphRecursionError instead of spinning
+# forever (the original BUG-3 symptom under graph.stream).
+_GRAPH_CONFIG = {"recursion_limit": 25}
+
 
 def _build_llm_provider(config: PipelineConfig) -> LLMProvider:
     """Instantiate the LLM provider from config."""
@@ -194,7 +200,7 @@ def run_pipeline(
         if dry_run:
             state = _run_dry_run(graph, state, mode)
         else:
-            state = graph.invoke(state)
+            state = graph.invoke(state, config=_GRAPH_CONFIG)
     except Exception as exc:
         total_ms = (time.monotonic() - start) * 1000
         state["duration_ms"]["total"] = total_ms
@@ -291,7 +297,7 @@ def _stream_graph(
         yield (stage_order[0], "running", state)
 
     try:
-        for event in graph.stream(state, stream_mode="updates"):
+        for event in graph.stream(state, stream_mode="updates", config=_GRAPH_CONFIG):
             for node_name, delta in event.items():
                 nodes_executed.add(node_name)
 

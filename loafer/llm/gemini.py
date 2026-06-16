@@ -14,7 +14,7 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 
-from loafer.exceptions import LLMInvalidOutputError, LLMRateLimitError
+from loafer.exceptions import LLMAuthError, LLMInvalidOutputError, LLMRateLimitError
 from loafer.llm.base import ELTSQLResult, LLMProvider, TransformPromptResult
 from loafer.llm.prompt_builder import build_elt_sql_prompt, build_etl_transform_prompt
 
@@ -28,6 +28,22 @@ def _strip_markdown_fences(text: str) -> str:
     """Remove accidental markdown code fences from model output."""
     m = _FENCE_RE.match(text.strip())
     return m.group(1) if m else text.strip()
+
+
+def _is_auth_error(code: int | None, message: str) -> bool:
+    """Classify a Gemini API failure as an authentication/API-key error.
+
+    Gemini returns ``400 INVALID_ARGUMENT`` with an ``API_KEY_INVALID`` reason
+    for a bad key (not 401), and ``401``/``403`` for unauthorized/permission
+    issues. Detecting these lets us surface a friendly message and skip the
+    pointless retries that a bad key would otherwise trigger (BUG-6).
+    """
+    if code in (401, 403):
+        return True
+    lowered = message.lower()
+    if "api_key_invalid" in lowered or "api key not valid" in lowered:
+        return True
+    return code == 400 and ("permission_denied" in lowered or "unauthenticated" in lowered)
 
 
 def _extract_token_usage(response: types.GenerateContentResponse) -> dict[str, int]:
@@ -104,10 +120,14 @@ class GeminiProvider(LLMProvider):
         except genai_errors.APIError as exc:
             if exc.code == 429:
                 raise LLMRateLimitError(str(exc)) from exc
+            if _is_auth_error(exc.code, str(exc)):
+                raise LLMAuthError(str(exc)) from exc
             raise
         except Exception as exc:
             if "429" in str(exc):
                 raise LLMRateLimitError(str(exc)) from exc
+            if _is_auth_error(None, str(exc)):
+                raise LLMAuthError(str(exc)) from exc
             raise
 
     @staticmethod

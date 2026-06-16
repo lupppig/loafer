@@ -178,6 +178,51 @@ class TestTransformInTargetAgent:
         assert "already exists" in result["last_error"]
         mock_llm.generate_elt_sql.assert_not_called()
 
+    def test_failure_increments_retry_counter(self) -> None:
+        """BUG-3: the node owns the retry counter so the pure router can see it.
+
+        Each failed pass must bump transform_in_target_retry_count in the
+        persisted state; otherwise the router reads 0 forever and loops.
+        """
+        mock_llm = MagicMock()
+        mock_llm.generate_elt_sql.side_effect = Exception("LLM error")
+
+        def _state(count: int) -> dict[str, Any]:
+            return {
+                "llm_provider": mock_llm,
+                "raw_table_name": "raw_data",
+                "target_config": PostgresTargetConfig(
+                    type="postgres", url="postgresql://localhost/db", table="output"
+                ),
+                "transform_instruction": "noop",
+                "schema_sample": {},
+                "duration_ms": {},
+                "warnings": [],
+                "last_error": None,
+                "transform_in_target_retry_count": count,
+            }
+
+        first = transform_in_target_agent(_state(0))
+        assert first["transform_in_target_retry_count"] == 1
+
+        second = transform_in_target_agent(_state(1))
+        assert second["transform_in_target_retry_count"] == 2
+
+    def test_early_validation_failure_increments_counter(self) -> None:
+        """Even guard-clause failures (missing raw table) bump the counter."""
+        state: dict[str, Any] = {
+            "llm_provider": MagicMock(),
+            "target_config": PostgresTargetConfig(
+                type="postgres", url="postgresql://localhost/db", table="output"
+            ),
+            "transform_instruction": "noop",
+            "schema_sample": {},
+            "duration_ms": {},
+            "warnings": [],
+        }
+        result = transform_in_target_agent(state)
+        assert result["transform_in_target_retry_count"] == 1
+
 
 class TestTableExists:
     def test_table_exists_true(self) -> None:
@@ -223,6 +268,38 @@ class TestExecuteEltSql:
 
         assert count == 100
         mock_cursor.execute.assert_any_call("CREATE TABLE output AS (SELECT 1)")
+
+    def test_replace_mode_drops_table_first(self) -> None:
+        """BUG-7: write_mode 'replace' must DROP before CREATE so a re-run works."""
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (5,)
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("psycopg2.connect", return_value=mock_conn):
+            count = _execute_elt_sql(
+                "postgresql://localhost/db", "SELECT 1", "output", write_mode="replace"
+            )
+
+        assert count == 5
+        executed = [c.args[0] for c in mock_cursor.execute.call_args_list]
+        assert "DROP TABLE IF EXISTS output" in executed
+        # Drop must come before the create.
+        assert executed.index("DROP TABLE IF EXISTS output") < executed.index(
+            "CREATE TABLE output AS (SELECT 1)"
+        )
+
+    def test_append_mode_does_not_drop(self) -> None:
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (5,)
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("psycopg2.connect", return_value=mock_conn):
+            _execute_elt_sql("postgresql://localhost/db", "SELECT 1", "output", write_mode="append")
+
+        executed = [c.args[0] for c in mock_cursor.execute.call_args_list]
+        assert not any("DROP TABLE" in s for s in executed)
 
     def test_psycopg2_error_raises(self) -> None:
         import psycopg2

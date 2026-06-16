@@ -370,3 +370,38 @@ class TestRaiseIfDestructive:
             )
         ]
         raise_if_destructive(warnings, auto_confirmed=True)
+
+    def test_type_change_alone_does_not_block(self):
+        """BUG-8: requested type coercions must not block the pipeline."""
+        warnings = [
+            DestructiveWarning(
+                reason=DestructiveReason.COLUMN_TYPES_CHANGED,
+                message="id: string → integer; score: string → float",
+                severity="warning",
+                details={},
+            )
+        ]
+        # Should NOT raise even without --yes.
+        raise_if_destructive(warnings, auto_confirmed=False)
+
+    def test_type_change_mixed_with_blocking_still_raises(self):
+        """A real destructive op alongside a type change still blocks."""
+        warnings = [
+            DestructiveWarning(
+                reason=DestructiveReason.COLUMN_TYPES_CHANGED,
+                message="score: string → float",
+                severity="warning",
+                details={},
+            ),
+            DestructiveWarning(
+                reason=DestructiveReason.ROWS_DROPPED,
+                message="Dropped 80% of rows",
+                severity="warning",
+                details={},
+            ),
+        ]
+        with pytest.raises(TransformError) as exc:
+            raise_if_destructive(warnings)
+        # Only the blocking warning is surfaced in the message.
+        assert "Dropped 80%" in str(exc.value)
+        assert "string → float" not in str(exc.value)

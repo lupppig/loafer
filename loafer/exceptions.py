@@ -41,6 +41,13 @@ class LLMRateLimitError(LLMError):
     """LLM provider rate-limited the request."""
 
 
+class LLMAuthError(LLMError):
+    """LLM provider rejected the API key (invalid, expired, or unauthorized).
+
+    Non-retryable: retrying with the same bad key only wastes time and quota.
+    """
+
+
 class LLMInvalidOutputError(LLMError):
     """LLM returned unparseable or empty output."""
 

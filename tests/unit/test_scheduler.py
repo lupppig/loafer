@@ -146,6 +146,81 @@ class TestPipelineScheduler:
         assert jobs[0]["config_path"] == "persist.yaml"
         scheduler2.stop()
 
+    def test_default_jobstore_url_is_absolute(self, monkeypatch: Any, tmp_path: Path) -> None:
+        """BUG-4: the default jobstore must be an absolute ~/.loafer path.
+
+        A relative sqlite URL made schedule-time and start-time read different
+        DBs depending on the working directory.
+        """
+        from loafer import scheduler as sched_mod
+
+        monkeypatch.setattr(sched_mod, "_LOAFER_DIR", tmp_path / ".loafer")
+        monkeypatch.setattr(sched_mod, "_DB_PATH", tmp_path / ".loafer" / "jobs.db")
+
+        url = sched_mod._default_db_url()
+        assert url.startswith("sqlite:////") or url.startswith(f"sqlite:///{tmp_path}")
+        assert "jobs.db" in url
+        # The directory is created as a side effect.
+        assert (tmp_path / ".loafer").exists()
+
+    def test_run_state_records_and_reads_back(self, monkeypatch: Any, tmp_path: Path) -> None:
+        """BUG-4: last-run/last-status must be persisted and surfaced."""
+        from loafer import scheduler as sched_mod
+
+        monkeypatch.setattr(sched_mod, "_LOAFER_DIR", tmp_path)
+        monkeypatch.setattr(sched_mod, "_RUN_STATE_PATH", tmp_path / "run_state.json")
+
+        sched_mod._record_run("job_x", "success")
+        state = sched_mod._read_run_state()
+        assert state["job_x"]["last_status"] == "success"
+        assert "last_run" in state["job_x"]
+
+    def test_read_run_state_missing_returns_empty(self, monkeypatch: Any, tmp_path: Path) -> None:
+        from loafer import scheduler as sched_mod
+
+        monkeypatch.setattr(sched_mod, "_RUN_STATE_PATH", tmp_path / "absent.json")
+        assert sched_mod._read_run_state() == {}
+
+    def test_configure_file_logging_is_idempotent(self, monkeypatch: Any, tmp_path: Path) -> None:
+        """BUG-4: logging must point at the log file, without stacking handlers."""
+        import logging
+
+        from loafer import scheduler as sched_mod
+
+        log_path = tmp_path / "scheduler.log"
+        monkeypatch.setattr(sched_mod, "_LOAFER_DIR", tmp_path)
+        monkeypatch.setattr(sched_mod, "_LOG_PATH", log_path)
+        # Start from a clean handler set.
+        sched_mod.logger.handlers = []
+
+        first = sched_mod.configure_file_logging()
+        second = sched_mod.configure_file_logging()
+        assert first == log_path
+        assert second == log_path
+        file_handlers = [h for h in sched_mod.logger.handlers if isinstance(h, logging.FileHandler)]
+        assert len(file_handlers) == 1
+
+        sched_mod.logger.info("hello from test")
+        for h in file_handlers:
+            h.flush()
+        assert "hello from test" in log_path.read_text()
+
+    def test_list_schedules_includes_last_run(self, monkeypatch: Any, tmp_path: Path) -> None:
+        from loafer import scheduler as sched_mod
+        from loafer.scheduler import PipelineScheduler
+
+        monkeypatch.setattr(sched_mod, "_LOAFER_DIR", tmp_path)
+        monkeypatch.setattr(sched_mod, "_RUN_STATE_PATH", tmp_path / "run_state.json")
+
+        scheduler = PipelineScheduler(db_url=f"sqlite:///{tmp_path / 'jobs.sqlite'}")
+        scheduler.add_schedule(config_path="x.yaml", cron="0 9 * * *", schedule_id="j1")
+        sched_mod._record_run("j1", "success")
+
+        jobs = scheduler.list_schedules()
+        assert jobs[0]["last_status"] == "success"
+        assert jobs[0]["last_run"] is not None
+        scheduler.stop()
+
     def test_export_and_import_jobs(self, tmp_path: Path) -> None:
         """Jobs should be exportable and importable via JSON."""
         from loafer.scheduler import PipelineScheduler

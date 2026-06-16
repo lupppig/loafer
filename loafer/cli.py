@@ -8,6 +8,7 @@ All user-facing output uses rich.console.Console. Never use print().
 
 from __future__ import annotations
 
+import logging
 import signal
 import time
 from pathlib import Path
@@ -37,9 +38,37 @@ err_console = Console(stderr=True)
 _config_arg = typer.Argument(..., help="Path to pipeline YAML config")
 
 
-# ---------------------------------------------------------------------------
+def _resolve_version() -> str:
+    """Return the installed package version, or a dev fallback."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("loafer-etl")
+    except PackageNotFoundError:  # pragma: no cover - source checkout without install
+        return "unknown"
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        console.print(f"loafer {_resolve_version()}")
+        raise typer.Exit(0)
+
+
+@app.callback()
+def _main(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        "-V",
+        help="Show the loafer version and exit.",
+        callback=_version_callback,
+        is_eager=True,
+    ),
+) -> None:
+    """AI-assisted ETL and ELT pipelines from the command line."""
+
+
 # Animated stage loaders
-# ---------------------------------------------------------------------------
 
 _STAGE_SPINNERS = {
     "extract": ("dots", "cyan"),
@@ -141,9 +170,7 @@ class StageAnimator:
             console.print(f"  {icon}  [dim]{self.label}[/dim]")
 
 
-# ---------------------------------------------------------------------------
 # Human-readable error formatting
-# ---------------------------------------------------------------------------
 
 
 def _format_user_error(error: Exception, stage: str | None = None) -> str:
@@ -330,9 +357,7 @@ def _parse_model_not_found(raw: str) -> str:
     )
 
 
-# ---------------------------------------------------------------------------
 # Display helpers
-# ---------------------------------------------------------------------------
 
 _STAGE_LABELS: dict[str, str] = {
     "extract": "Extracting from source",
@@ -486,9 +511,7 @@ def _print_error_panel(
     )
 
 
-# ---------------------------------------------------------------------------
 # Commands
-# ---------------------------------------------------------------------------
 
 
 @app.command()
@@ -639,7 +662,9 @@ def validate(
     try:
         config = validate_config(config_file)
     except PipelineError as exc:
-        err_console.print(f"[red]Config validation failed: {exc}[/red]")
+        # validate_config already prefixes "Config validation failed:" — don't
+        # wrap it a second time (BUG: doubled error prefix).
+        err_console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc
 
     console.print("[green]✓ Config is valid[/green]\n")
@@ -768,6 +793,8 @@ def list_schedules() -> None:
     table.add_column("Config", style="green")
     table.add_column("Trigger", style="yellow")
     table.add_column("Next Run", style="magenta")
+    table.add_column("Last Run", style="blue")
+    table.add_column("Last Status", style="blue")
     table.add_column("Paused", style="red")
 
     for job in jobs:
@@ -777,6 +804,8 @@ def list_schedules() -> None:
             job["config_path"],
             job["trigger"],
             job["next_run"] or "—",
+            job.get("last_run") or "—",
+            job.get("last_status") or "—",
             "yes" if job["paused"] else "no",
         )
 
@@ -794,10 +823,14 @@ def start(
         _start_background()
         return
 
+    from loafer.scheduler import configure_file_logging
+
+    log_path = configure_file_logging()
     scheduler = PipelineScheduler()
     scheduler.start()
 
     console.print("[green]✓ Scheduler started[/green]")
+    console.print(f"  Log: {log_path}")
     console.print("Press Ctrl+C to stop\n")
 
     jobs = scheduler.list_schedules()
@@ -819,13 +852,27 @@ def start(
     signal.signal(signal.SIGTERM, _shutdown)
 
     try:
-        import time
-
         while True:
             time.sleep(1)
     except (KeyboardInterrupt, SystemExit):
         scheduler.stop()
         console.print("[green]✓ Scheduler stopped[/green]")
+
+
+@app.command(name="_daemon_entry", hidden=True)
+def _daemon_entry() -> None:
+    """Internal: run the scheduler in the foreground, blocking.
+
+    This is the process the background daemon execs (`python -m loafer
+    _daemon_entry`). It wires file logging and blocks in run_forever so the
+    scheduler thread stays alive and jobs actually fire.
+    """
+    from loafer.scheduler import PipelineScheduler, configure_file_logging
+
+    configure_file_logging()
+    logging.getLogger("loafer.scheduler").info("Daemon entry: starting scheduler")
+    scheduler = PipelineScheduler()
+    scheduler.run_forever()
 
 
 def _start_background() -> None:
@@ -983,7 +1030,6 @@ def init(
     elif transform_type == "sql":
         transform_config["query"] = "SELECT * FROM {{source}}"
 
-    # Write pipeline.yaml
     import yaml
 
     pipeline_config: dict[str, Any] = {
@@ -999,29 +1045,30 @@ def init(
         },
     }
 
-    # Create directory structure
     target.mkdir(parents=True)
     (target / "data").mkdir(exist_ok=True)
 
-    # Write pipeline.yaml
     yaml_path = target / "pipeline.yaml"
     yaml_path.write_text(yaml.dump(pipeline_config, default_flow_style=False, sort_keys=False))
 
-    # Write transform.py if custom
+    # Write transform.py if custom. Initialize to None so the summary below
+    # can reference it unconditionally without an UnboundLocalError when the
+    # user picks a non-custom transform.
+    transform_path: Path | None = None
     if transform_type == "custom":
         transform_path = target / "transform.py"
         transform_path.write_text(
             'def transform(data):\n    """Transform the extracted data.\n\n    Args:\n        data: list[dict] — rows from the source.\n\n    Returns:\n        list[dict] — transformed rows.\n    """\n    return data\n'
         )
 
-    # Write sample data if CSV
+    # Write sample data if CSV (same None-init guard as transform_path).
+    sample_csv: Path | None = None
     if source_type == "csv":
         sample_csv = target / "data" / "input.csv"
         sample_csv.write_text(
             "id,name,email,score\n1,Alice,alice@example.com,95.5\n2,Bob,bob@example.com,88.0\n"
         )
 
-    # Write README
     readme = target / "README.md"
     readme.write_text(
         f"# {name}\n\n"

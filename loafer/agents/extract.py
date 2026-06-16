@@ -118,7 +118,13 @@ def extract_agent(state: PipelineState) -> PipelineState:
                 max_sample_rows=5,
             )
 
-        if state.get("rows_extracted", 0) == 0:
+        # Only warn here when the true count is known. In streaming mode the
+        # count is often None until the stream is drained (Postgres always),
+        # so rows_extracted is a placeholder 0 at this point — warning now
+        # would fire a false "Source returned 0 rows" on every successful
+        # streaming extract (BUG-5). The deferred warning is emitted from
+        # _counting_stream once the real total is known.
+        if not is_streaming and state.get("rows_extracted", 0) == 0:
             state.setdefault("warnings", []).append("Source returned 0 rows")
 
     except Exception:
@@ -149,3 +155,8 @@ def _counting_stream(
             state["new_cursor"] = max_cursor(chunk, cursor_column, state.get("new_cursor"))
         yield chunk
     state["rows_extracted"] = total
+    # The true count is only known now that the stream is drained; emit the
+    # deferred 0-row warning here so it reflects reality instead of the
+    # placeholder count set at extract time (BUG-5).
+    if total == 0:
+        state.setdefault("warnings", []).append("Source returned 0 rows")

@@ -20,11 +20,11 @@ from typing import Any
 from loafer.config import AITransformConfig
 from loafer.core.destructive import detect_destructive_operations, raise_if_destructive
 from loafer.core.sandbox import run_sandboxed
-from loafer.exceptions import LLMError, LLMRateLimitError, TransformError
+from loafer.exceptions import LLMAuthError, LLMError, LLMRateLimitError, TransformError
 from loafer.graph.state import PipelineState
 from loafer.llm.base import LLMProvider, TransformPromptResult
 from loafer.llm.prompt_builder import build_etl_transform_prompt
-from loafer.transform import TransformRunner
+from loafer.transform import TransformRunner, materialize_input_rows
 from loafer.transform.code_validator import validate_transform_function
 
 # Maximum number of retry attempts for AI-generated code.
@@ -34,6 +34,14 @@ _MAX_RETRIES = 3
 def _human_readable_llm_error(exc: Exception) -> str:
     """Convert raw LLM exceptions into user-friendly messages."""
     msg = str(exc)
+
+    if isinstance(exc, LLMAuthError):
+        return (
+            "Authentication failed — your API key is invalid or expired.\n"
+            "  • Check that your API key is correct\n"
+            "  • Make sure it hasn't expired or been revoked\n"
+            "  • Generate a new key at https://aistudio.google.com/apikey"
+        )
 
     if isinstance(exc, LLMRateLimitError):
         return (
@@ -166,11 +174,13 @@ class AiTransformRunner(TransformRunner):
             custom_code = _load_custom_code(transform_config.custom_path)
 
         start = time.monotonic()
-        raw_data_snapshot = copy.deepcopy(state.get("raw_data", []))
+        # Drain the stream (streaming mode) or read raw_data — exactly once.
+        input_rows = materialize_input_rows(state)
+        raw_data_snapshot = copy.deepcopy(input_rows)
 
         # Determine data flow: custom_first or ai_first
         order = transform_config.custom_order
-        data = list(state.get("raw_data", []))
+        data = list(input_rows)
 
         # Step 1: Run custom transform first if order is custom_first
         if custom_code and order == "custom_first":
@@ -229,7 +239,10 @@ class AiTransformRunner(TransformRunner):
         total_tokens: dict[str, int] = state.get("token_usage", {})
 
         start = time.monotonic()
-        raw_data_snapshot = copy.deepcopy(state.get("raw_data", []))
+        # Drain the stream (streaming mode) or read raw_data — exactly once,
+        # before the retry loop so the single-use iterator isn't re-consumed.
+        input_rows = materialize_input_rows(state)
+        raw_data_snapshot = copy.deepcopy(input_rows)
 
         while retry_count < _MAX_RETRIES:
             if retry_count > 0:
@@ -244,6 +257,9 @@ class AiTransformRunner(TransformRunner):
                     previous_error=previous_error,
                     previous_code=previous_code,
                 )
+            except LLMAuthError as exc:
+                # Non-retryable: a bad key won't fix itself across retries.
+                raise TransformError(_human_readable_llm_error(exc)) from exc
             except Exception as exc:
                 retry_count += 1
                 user_msg = _human_readable_llm_error(exc)
@@ -277,7 +293,7 @@ class AiTransformRunner(TransformRunner):
                 continue
 
             try:
-                transformed = _execute_code(code, list(state.get("raw_data", [])), state)
+                transformed = _execute_code(code, list(input_rows), state)
             except Exception:
                 retry_count += 1
                 previous_error = f"Execution error: {traceback.format_exc()}"
@@ -315,8 +331,9 @@ class AiTransformRunner(TransformRunner):
         """Run only the custom transform, no AI."""
         start = time.monotonic()
         custom_code = _load_custom_code(custom_path)
-        raw_data_snapshot = copy.deepcopy(state.get("raw_data", []))
-        data = list(state.get("raw_data", []))
+        input_rows = materialize_input_rows(state)
+        raw_data_snapshot = copy.deepcopy(input_rows)
+        data = list(input_rows)
         data = self._run_custom_code(custom_code, data, state)
 
         state["transformed_data"] = data
@@ -377,6 +394,9 @@ class AiTransformRunner(TransformRunner):
                     previous_error=previous_error,
                     previous_code=previous_code,
                 )
+            except LLMAuthError as exc:
+                # Non-retryable: a bad key won't fix itself across retries.
+                raise TransformError(_human_readable_llm_error(exc)) from exc
             except Exception as exc:
                 retry_count += 1
                 user_msg = _human_readable_llm_error(exc)

@@ -9,18 +9,15 @@ from __future__ import annotations
 import copy
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from loafer.config import CustomTransformConfig
 from loafer.core.destructive import detect_destructive_operations, raise_if_destructive
 from loafer.core.sandbox import run_sandboxed
 from loafer.exceptions import TransformError
 from loafer.graph.state import PipelineState
-from loafer.transform import TransformRunner
+from loafer.transform import TransformRunner, materialize_input_rows
 from loafer.transform.code_validator import validate_transform_function
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
 
 
 def _sandbox_limits(state: PipelineState) -> tuple[int, int]:
@@ -87,22 +84,6 @@ class CustomTransformRunner(TransformRunner):
 
 
 def _execute_transform(code: str, state: PipelineState) -> list[dict[str, Any]]:
-    data = _materialize_data(state)
+    data = materialize_input_rows(state)
     timeout, max_memory_mb = _sandbox_limits(state)
     return run_sandboxed(code, data, timeout=timeout, max_memory_mb=max_memory_mb)
-
-
-def _materialize_data(state: PipelineState) -> list[dict[str, Any]]:
-    """Return the rows to transform, collecting the stream when in streaming mode."""
-    if not state.get("is_streaming", False):
-        return list(state.get("raw_data", []))
-
-    stream_iter: Iterator[list[dict[str, Any]]] | None = state.get("stream_iterator")
-    if stream_iter is None:
-        raise TransformError("stream_iterator is None in streaming mode")
-
-    rows: list[dict[str, Any]] = []
-    for chunk in stream_iter:
-        rows.extend(chunk)
-    state["rows_extracted"] = len(rows)
-    return rows
