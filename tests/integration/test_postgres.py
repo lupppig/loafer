@@ -338,3 +338,79 @@ class TestPostgresTargetConnector:
         cur.execute(f"SELECT COUNT(*) FROM {pg_test_table}")
         assert cur.fetchone()[0] == 1000
         conn.close()
+
+
+class TestPostgresUpsert:
+    """Upsert write mode against a real database."""
+
+    _TABLE = "test_loafer_upsert"
+
+    def _cleanup(self, postgres_url: str) -> None:
+        import psycopg2
+
+        conn = psycopg2.connect(postgres_url)
+        conn.cursor().execute(f"DROP TABLE IF EXISTS {self._TABLE}")
+        conn.commit()
+        conn.close()
+
+    def _write(self, postgres_url: str, rows: list[dict]) -> None:
+        target = PostgresTargetConnector(
+            url=postgres_url,
+            table=self._TABLE,
+            write_mode="upsert",
+            key=["id"],
+        )
+        target.connect()
+        try:
+            target.write_chunk(rows)
+            target.finalize()
+        finally:
+            target.disconnect()
+
+    def test_upsert_is_idempotent_and_updates(self, postgres_url: str) -> None:
+        import psycopg2
+
+        self._cleanup(postgres_url)
+        try:
+            # Loafer creates the table (+ unique index on the key).
+            self._write(
+                postgres_url,
+                [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}],
+            )
+            # Overlapping key updates, new key inserts — run twice for idempotency.
+            for _ in range(2):
+                self._write(
+                    postgres_url,
+                    [{"id": 2, "name": "Bobby"}, {"id": 3, "name": "Carol"}],
+                )
+
+            conn = psycopg2.connect(postgres_url)
+            cur = conn.cursor()
+            cur.execute(f"SELECT id, name FROM {self._TABLE} ORDER BY id")
+            assert cur.fetchall() == [(1, "Alice"), (2, "Bobby"), (3, "Carol")]
+            conn.close()
+        finally:
+            self._cleanup(postgres_url)
+
+    def test_upsert_auto_creates_index_on_existing_table(self, postgres_url: str) -> None:
+        import psycopg2
+
+        self._cleanup(postgres_url)
+        conn = psycopg2.connect(postgres_url)
+        cur = conn.cursor()
+        # Pre-existing table with NO unique index on the key.
+        cur.execute(f"CREATE TABLE {self._TABLE} (id BIGINT, name TEXT)")
+        cur.execute(f"INSERT INTO {self._TABLE} (id, name) VALUES (1, 'old')")
+        conn.commit()
+        conn.close()
+
+        try:
+            self._write(postgres_url, [{"id": 1, "name": "new"}, {"id": 2, "name": "fresh"}])
+
+            conn = psycopg2.connect(postgres_url)
+            cur = conn.cursor()
+            cur.execute(f"SELECT id, name FROM {self._TABLE} ORDER BY id")
+            assert cur.fetchall() == [(1, "new"), (2, "fresh")]
+            conn.close()
+        finally:
+            self._cleanup(postgres_url)

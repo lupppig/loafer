@@ -181,6 +181,20 @@ incremental:
 
 Loafer remembers the highest `updated_at` it has seen in `<config>.loafer-state.json` (next to your config) and only advances the watermark after a fully successful load. Use `loafer run pipeline.yaml --full-refresh` to ignore the saved cursor and re-pull everything.
 
+## Upsert (Idempotent Loads)
+
+PostgreSQL and MongoDB targets support `write_mode: upsert` so re-running a pipeline updates existing rows instead of duplicating them — the natural companion to incremental loading.
+
+```yaml
+target:
+  url: ${TARGET_DB_URL}
+  table: orders_synced
+  write_mode: upsert
+  key: order_id          # single column, or [tenant_id, order_id] for a composite key
+```
+
+Postgres uses `INSERT ... ON CONFLICT (key) DO UPDATE` (auto-creating a unique index on the key if needed); MongoDB uses a bulk `ReplaceOne(..., upsert=True)`. `key` is required when `write_mode` is `upsert`.
+
 ## Configuration (YAML)
 
 Loafer pipelines are driven by a single YAML configuration file. The `type` field is **optional** — Loafer will auto-detect it when possible.

@@ -15,7 +15,8 @@ A resilient PostgreSQL loader that uses high-throughput `COPY FROM` execution.
 |---|---|---|---|---|
 | `url` | string | Yes | - | PostgreSQL URI. |
 | `table` | string | Yes | - | Target table to load data. |
-| `mode`| enum | No | append | Write operation mode `append`, `overwrite` or `merge`. |
+| `write_mode`| enum | No | append | One of `append`, `replace`, `error`, `upsert`. |
+| `key` | string \| string[] | upsert only | - | Conflict column(s) used to match rows when `write_mode` is `upsert`. |
 
 ### Complete example
 
@@ -23,11 +24,11 @@ A resilient PostgreSQL loader that uses high-throughput `COPY FROM` execution.
 target:
   url: postgresql://analytics:${DB_PASS}@localhost:5432/wh
   table: fact_orders
-  mode: overwrite
+  write_mode: replace
 ```
 
 > [!WARNING]
-> Write mode `overwrite` evaluates table schematics and runs a hard `TRUNCATE` operations. Scheduled pipelines typically run `append`. Be very careful.
+> Write mode `replace` drops the existing table before loading, and `error` aborts if the table already exists. Scheduled pipelines typically run `append` or `upsert`. Be very careful.
 
 ## MongoDB
 
@@ -40,6 +41,8 @@ A scalable NoSQL document target. Loafer handles connection pooling and automati
 | `url` | string | Yes | - | MongoDB Connection URI. |
 | `database` | string | Yes | - | Target database name. |
 | `collection`| string | Yes | - | Target collection name. |
+| `write_mode`| enum | No | append | One of `append`, `replace`, `error`, `upsert`. |
+| `key` | string \| string[] | upsert only | - | Field(s) used to match documents when `write_mode` is `upsert`. |
 
 ### Complete example
 
@@ -58,6 +61,23 @@ A local target system to flush records into standard `ndjson` (Newline Delimited
 target:
   path: /out/reports.json
 ```
+
+## Upsert (idempotent loads)
+
+PostgreSQL and MongoDB targets support `write_mode: upsert` — rows are matched on a `key` and updated in place, so re-running a pipeline never duplicates data. This is the natural companion to [incremental loading](/docs/sources#incremental-loading): incremental limits *what* is re-extracted, upsert makes *re-loading the same key* idempotent.
+
+```yaml
+target:
+  type: postgres
+  url: ${TARGET_DB_URL}
+  table: orders_synced
+  write_mode: upsert
+  key: order_id          # single column, or a list: [tenant_id, order_id]
+```
+
+- **Postgres:** runs `INSERT ... ON CONFLICT (key) DO UPDATE`. If the target table has no unique index on the key, Loafer creates one (`CREATE UNIQUE INDEX IF NOT EXISTS`); this fails loudly if existing data already contains duplicate keys.
+- **MongoDB:** runs a bulk `ReplaceOne(filter=key, upsert=True)` per document.
+- `key` is **required** when `write_mode` is `upsert`. Other write modes (`append`, `replace`, `error`) don't need it.
 
 <div className="flex w-full gap-4 mt-12">
   <a href="/docs/sources" className="flex-1 p-4 border border-border-default rounded-md bg-bg-surface hover:bg-bg-overlay transition-colors no-underline text-right">

@@ -170,11 +170,25 @@ SourceConfig = Annotated[
 # ---------------------------------------------------------------------------
 
 
+def _validate_upsert_key(cfg: Any) -> Any:
+    """Normalise ``key`` to a list and require it when ``write_mode`` is ``upsert``."""
+    if isinstance(cfg.key, str):
+        cfg.key = [cfg.key]
+    if cfg.write_mode == "upsert" and not cfg.key:
+        raise ValueError("write_mode 'upsert' requires a non-empty 'key' (column or columns)")
+    return cfg
+
+
 class PostgresTargetConfig(BaseModel):
     type: Literal["postgres"]
     url: str
     table: str
-    write_mode: Literal["append", "replace", "error"] = "append"
+    write_mode: Literal["append", "replace", "error", "upsert"] = "append"
+    key: str | list[str] | None = None
+
+    @model_validator(mode="after")
+    def key_required_for_upsert(self) -> PostgresTargetConfig:
+        return _validate_upsert_key(self)
 
 
 class CsvTargetConfig(BaseModel):
@@ -194,7 +208,12 @@ class MongoTargetConfig(BaseModel):
     url: str
     database: str
     collection: str
-    write_mode: Literal["append", "replace", "error"] = "append"
+    write_mode: Literal["append", "replace", "error", "upsert"] = "append"
+    key: str | list[str] | None = None
+
+    @model_validator(mode="after")
+    def key_required_for_upsert(self) -> MongoTargetConfig:
+        return _validate_upsert_key(self)
 
 
 TargetConfig = Annotated[
