@@ -8,6 +8,7 @@ const releases = [
     new: [
       'Incremental loading — cursor/watermark extraction for Postgres, MySQL, SQLite, and REST sources',
       '`--full-refresh` flag to bypass the saved cursor and re-extract everything',
+      'Upsert write mode for Postgres and MongoDB targets — idempotent loads keyed on one or more columns',
       'Multi-step pipeline transforms with per-step result tracking',
       'New source connectors: SQLite, Excel, PDF, and REST API (with pagination)',
       'JSON target connector with incremental array writing',
@@ -22,6 +23,7 @@ const releases = [
       'Friendlier error messages for LLM, connection, and config failures'
     ],
     fixed: [
+      'Postgres target now honors `replace` and `error` write modes (previously ignored)',
       'IndexError during LLM error parsing',
       'Markdown tables now render via remark in the docs site'
     ]

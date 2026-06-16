@@ -7,15 +7,40 @@ from typing import Any
 from loafer.ports.connector import TargetConnector
 
 
+def _build_upsert_sql(table: str, cols: list[str], keys: list[str]) -> str:
+    """Build an ``INSERT ... ON CONFLICT DO UPDATE`` statement for execute_values.
+
+    Non-key columns are updated from ``EXCLUDED``; when every column is a key the
+    conflict is a no-op (``DO NOTHING``).
+    """
+    col_names = ", ".join(f'"{c}"' for c in cols)
+    conflict = ", ".join(f'"{k}"' for k in keys)
+    updates = [c for c in cols if c not in keys]
+    if updates:
+        set_clause = ", ".join(f'"{c}" = EXCLUDED."{c}"' for c in updates)
+        action = f"DO UPDATE SET {set_clause}"
+    else:
+        action = "DO NOTHING"
+    return f"INSERT INTO {table} ({col_names}) VALUES %s ON CONFLICT ({conflict}) {action}"
+
+
 class PostgresTargetConnector(TargetConnector):
-    def __init__(self, url: str, table: str, write_mode: str = "append") -> None:
+    def __init__(
+        self,
+        url: str,
+        table: str,
+        write_mode: str = "append",
+        key: list[str] | None = None,
+    ) -> None:
         self._url = url
         self._table = table
         self._write_mode = write_mode
+        self._key = key or []
         self._conn: Any = None
         self._cursor: Any = None
         self._rows_written = 0
         self._columns: list[str] = []
+        self._index_ready = False
 
     def connect(self) -> None:
         try:
@@ -34,6 +59,25 @@ class PostgresTargetConnector(TargetConnector):
             raise LoadError(f"failed to connect to PostgreSQL: {exc}") from exc
 
         self._cursor = self._conn.cursor()
+        self._apply_write_mode()
+
+    def _apply_write_mode(self) -> None:
+        """Honor replace/error write modes before any rows are written."""
+        import psycopg2
+
+        if self._write_mode == "replace":
+            try:
+                self._cursor.execute(f"DROP TABLE IF EXISTS {self._table}")
+                self._conn.commit()
+            except psycopg2.Error as exc:
+                self._conn.rollback()
+                from loafer.exceptions import LoadError
+
+                raise LoadError(f"failed to drop table {self._table}: {exc}") from exc
+        elif self._write_mode == "error" and self._table_exists():
+            from loafer.exceptions import LoadError
+
+            raise LoadError(f"table '{self._table}' already exists and write_mode is 'error'")
 
     def disconnect(self) -> None:
         if self._cursor:
@@ -62,15 +106,23 @@ class PostgresTargetConnector(TargetConnector):
         elif not self._columns:
             self._columns = list(chunk[0].keys())
 
+        is_upsert = self._write_mode == "upsert"
+        if is_upsert and not self._index_ready:
+            self._ensure_unique_index()
+            self._index_ready = True
+
         batch_size = min(len(chunk), 100)
         rows_in_batch = 0
 
         for i in range(0, len(chunk), batch_size):
             batch = chunk[i : i + batch_size]
             cols = list(batch[0].keys()) if not self._columns else self._columns
-            col_names = ", ".join(cols)
 
-            query = f"INSERT INTO {self._table} ({col_names}) VALUES %s"
+            if is_upsert:
+                query = _build_upsert_sql(self._table, cols, self._key)
+            else:
+                col_names = ", ".join(cols)
+                query = f"INSERT INTO {self._table} ({col_names}) VALUES %s"
             values = [self._serialize_value(row, cols) for row in batch]
 
             try:
@@ -121,6 +173,29 @@ class PostgresTargetConnector(TargetConnector):
             from loafer.exceptions import LoadError
 
             raise LoadError(f"failed to create table {self._table}: {exc}") from exc
+
+        if self._write_mode == "upsert" and self._key:
+            self._ensure_unique_index()
+            self._index_ready = True
+
+    def _ensure_unique_index(self) -> None:
+        """Create a unique index on the key columns so ON CONFLICT has a target."""
+        import psycopg2
+
+        cols = ", ".join(f'"{k}"' for k in self._key)
+        index_name = f"loafer_uq_{self._table.replace('.', '_')}_{'_'.join(self._key)}"
+        query = f'CREATE UNIQUE INDEX IF NOT EXISTS "{index_name}" ON {self._table} ({cols})'
+        try:
+            self._cursor.execute(query)
+            self._conn.commit()
+        except psycopg2.Error as exc:
+            self._conn.rollback()
+            from loafer.exceptions import LoadError
+
+            raise LoadError(
+                f"failed to create unique index on {self._table} ({cols}) — "
+                f"existing data may contain duplicate keys: {exc}"
+            ) from exc
 
     def _infer_pg_type(self, value: Any) -> str:
         if value is None:

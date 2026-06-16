@@ -159,9 +159,15 @@ def _build_target(cls: type[TargetConnector], config: TargetConfig) -> TargetCon
         case "json":
             return cls(config.path, config.write_mode)  # type: ignore[call-arg]
         case "postgres":
-            return cls(config.url, config.table, config.write_mode)  # type: ignore[call-arg]
+            return cls(config.url, config.table, config.write_mode, config.key)  # type: ignore[call-arg]
         case "mongo":
-            return cls(config.url, config.database, config.collection, config.write_mode)  # type: ignore[call-arg]
+            return cls(  # type: ignore[call-arg]
+                config.url,
+                config.database,
+                config.collection,
+                config.write_mode,
+                config.key,
+            )
     msg = f"target connector '{config.type}' not implemented"
     raise RegistryError(msg)
 

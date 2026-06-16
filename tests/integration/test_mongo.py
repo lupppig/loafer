@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from loafer.connectors.registry import MongoSourceConnector
+from loafer.connectors.registry import MongoSourceConnector, MongoTargetConnector
 
 pytestmark = pytest.mark.integration
 
@@ -169,3 +169,29 @@ class TestMongoSourceConnector:
         with conn:
             rows = conn.read_all()
         assert len(rows) == 50
+
+
+class TestMongoUpsert:
+    """Upsert write mode against a real MongoDB."""
+
+    def _write(self, mongo_url: str, docs: list[dict]) -> None:
+        target = MongoTargetConnector(
+            url=mongo_url,
+            database="test_loafer",
+            collection="upsert_docs",
+            write_mode="upsert",
+            key=["id"],
+        )
+        with target:
+            target.write_chunk(docs)
+
+    def test_upsert_is_idempotent_and_updates(self, mongo_url: str, mongo_client: Any) -> None:
+        self._write(mongo_url, [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}])
+        # Update an existing key, insert a new one — twice for idempotency.
+        for _ in range(2):
+            self._write(mongo_url, [{"id": 2, "name": "Bobby"}, {"id": 3, "name": "Carol"}])
+
+        coll = mongo_client["upsert_docs"]
+        assert coll.count_documents({}) == 3
+        assert coll.find_one({"id": 2})["name"] == "Bobby"
+        assert coll.find_one({"id": 3})["name"] == "Carol"

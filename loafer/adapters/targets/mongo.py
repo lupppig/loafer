@@ -16,11 +16,13 @@ class MongoTargetConnector(TargetConnector):
         database: str,
         collection: str,
         write_mode: str = "append",
+        key: list[str] | None = None,
     ) -> None:
         self._url = url
         self._database = database
         self._collection_name = collection
         self._write_mode = write_mode
+        self._key = key or []
         self._client: Any = None
         self._collection: Any = None
 
@@ -74,8 +76,19 @@ class MongoTargetConnector(TargetConnector):
                 clean_doc[key] = val
             clean_chunk.append(clean_doc)
 
+        if self._write_mode == "upsert":
+            return self._upsert_chunk(clean_chunk)
+
         result = self._collection.insert_many(clean_chunk)
         return len(result.inserted_ids)
+
+    def _upsert_chunk(self, chunk: list[dict[str, Any]]) -> int:
+        """Replace-or-insert each document, matching on the key columns."""
+        from pymongo import ReplaceOne
+
+        ops = [ReplaceOne({k: doc.get(k) for k in self._key}, doc, upsert=True) for doc in chunk]
+        self._collection.bulk_write(ops, ordered=False)
+        return len(ops)
 
     def finalize(self) -> None:
         pass
