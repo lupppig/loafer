@@ -1062,14 +1062,18 @@ def init(
     yaml_path = target / "pipeline.yaml"
     yaml_path.write_text(yaml.dump(pipeline_config, default_flow_style=False, sort_keys=False))
 
-    # Write transform.py if custom
+    # Write transform.py if custom. Initialize to None so the summary below
+    # can reference it unconditionally without an UnboundLocalError when the
+    # user picks a non-custom transform.
+    transform_path: Path | None = None
     if transform_type == "custom":
         transform_path = target / "transform.py"
         transform_path.write_text(
             'def transform(data):\n    """Transform the extracted data.\n\n    Args:\n        data: list[dict] — rows from the source.\n\n    Returns:\n        list[dict] — transformed rows.\n    """\n    return data\n'
         )
 
-    # Write sample data if CSV
+    # Write sample data if CSV (same None-init guard as transform_path).
+    sample_csv: Path | None = None
     if source_type == "csv":
         sample_csv = target / "data" / "input.csv"
         sample_csv.write_text(

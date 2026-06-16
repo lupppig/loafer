@@ -271,6 +271,39 @@ class TestCliVersion:
         assert "loafer" in result.output.lower()
 
 
+class TestCliInit:
+    """loafer init scaffolding."""
+
+    def test_init_non_custom_transform_non_csv_source(self, tmp_path: Path) -> None:
+        """Regression: init must not crash when transform!=custom and source!=csv.
+
+        transform_path and sample_csv were only bound inside their respective
+        branches but referenced unconditionally in the summary, so any
+        non-custom/non-csv combo raised UnboundLocalError.
+        """
+        proj = tmp_path / "proj"
+        # name, source, target, transform, mode
+        result = runner.invoke(
+            app, ["init", str(proj)], input="myproj\npostgres\njson\nai\nelt\n"
+        )
+
+        assert result.exit_code == 0, result.output
+        assert (proj / "pipeline.yaml").exists()
+        # No transform.py / input.csv for this combo, and no traceback.
+        assert not (proj / "transform.py").exists()
+        assert "UnboundLocalError" not in result.output
+
+    def test_init_custom_csv_writes_extra_files(self, tmp_path: Path) -> None:
+        proj = tmp_path / "proj"
+        result = runner.invoke(
+            app, ["init", str(proj)], input="myproj\ncsv\njson\ncustom\netl\n"
+        )
+
+        assert result.exit_code == 0, result.output
+        assert (proj / "transform.py").exists()
+        assert (proj / "data" / "input.csv").exists()
+
+
 class TestCliConnectors:
     """CLI connectors command tests."""
 
