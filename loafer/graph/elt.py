@@ -30,13 +30,19 @@ def _check_validation(state: PipelineState) -> str:
 
 
 def _check_transform_in_target_retry(state: PipelineState) -> str:
-    """Route based on transform-in-target success or retry availability."""
+    """Route based on transform-in-target success or retry availability.
+
+    This router is **pure**: it only reads state. The retry counter is
+    incremented inside ``transform_in_target_agent`` (a node), because
+    LangGraph discards state writes made in routing functions — mutating it
+    here meant the counter was read back as 0 every pass and the graph
+    retried unboundedly (the original infinite loop).
+    """
     if state.get("last_error") is None:
         return "end"
 
     retry_count = state.get("transform_in_target_retry_count", 0)
-    if retry_count < _MAX_GRAPH_RETRIES:
-        state["transform_in_target_retry_count"] = retry_count + 1
+    if retry_count <= _MAX_GRAPH_RETRIES:
         return "transform_in_target"
 
     return "end"

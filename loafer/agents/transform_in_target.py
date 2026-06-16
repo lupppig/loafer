@@ -24,32 +24,34 @@ def transform_in_target_agent(state: PipelineState) -> PipelineState:
     """Generate and execute ELT SQL on the target database.
 
     Returns the updated PipelineState with rows_loaded and generated_sql set.
-    On failure sets ``state["last_error"]`` so the graph can retry.
+    On failure sets ``state["last_error"]`` and bumps the graph retry counter
+    so the (pure) conditional router can decide whether to retry. The counter
+    must be incremented here — in a node — because LangGraph discards state
+    writes made inside routing functions, which is what caused the original
+    infinite retry loop.
     """
     start = time.monotonic()
 
     llm_provider: LLMProvider = state["llm_provider"]
     raw_table_name: str | None = state.get("raw_table_name")
     if not raw_table_name:
-        state["last_error"] = "ELT mode requires raw_table_name in state"
-        return state
+        return _fail(state, "ELT mode requires raw_table_name in state", start)
 
     target_config = state.get("target_config")
     if not isinstance(target_config, PostgresTargetConfig):
-        state["last_error"] = "ELT mode requires a Postgres target"
-        return state
+        return _fail(state, "ELT mode requires a Postgres target", start)
 
     output_table: str = target_config.table
     if not output_table:
-        state["last_error"] = "ELT mode requires a target table name"
-        return state
+        return _fail(state, "ELT mode requires a target table name", start)
 
     write_mode: str = target_config.write_mode
     if write_mode == "error" and _table_exists(target_config.url, output_table):
-        state["last_error"] = (
-            f"Target table '{output_table}' already exists and write_mode is 'error'"
+        return _fail(
+            state,
+            f"Target table '{output_table}' already exists and write_mode is 'error'",
+            start,
         )
-        return state
 
     instruction: str = state.get("transform_instruction", "")
     target_schema: dict[str, Any] = state.get("schema_sample", {})
@@ -63,8 +65,7 @@ def transform_in_target_agent(state: PipelineState) -> PipelineState:
             previous_error=previous_error,
         )
     except Exception as exc:
-        state["last_error"] = f"Failed to build ELT SQL prompt: {exc}"
-        return state
+        return _fail(state, f"Failed to build ELT SQL prompt: {exc}", start)
 
     try:
         result: ELTSQLResult = llm_provider.generate_elt_sql(
@@ -74,26 +75,36 @@ def transform_in_target_agent(state: PipelineState) -> PipelineState:
             previous_error=previous_error,
         )
     except Exception as exc:
-        state["last_error"] = f"LLM call failed: {exc}"
-        return state
+        return _fail(state, f"LLM call failed: {exc}", start)
 
     sql = result.sql
 
     is_valid, reason = validate_transform_sql(sql)
     if not is_valid:
-        state["last_error"] = f"SQL validation failed: {reason}"
-        return state
+        return _fail(state, f"SQL validation failed: {reason}", start)
 
     try:
-        count = _execute_elt_sql(target_config.url, sql, output_table)
+        count = _execute_elt_sql(target_config.url, sql, output_table, write_mode)
     except Exception as exc:
-        state["last_error"] = f"SQL execution failed: {exc}"
-        return state
+        return _fail(state, f"SQL execution failed: {exc}", start)
 
     state["rows_loaded"] = count
     state["generated_sql"] = sql
     state["last_error"] = None
     state["duration_ms"]["transform_in_target"] = (time.monotonic() - start) * 1000
+    return state
+
+
+def _fail(state: PipelineState, message: str, start: float) -> PipelineState:
+    """Record a failure and bump the persisted graph retry counter.
+
+    The counter lives on the node (not the router) so LangGraph actually
+    persists it between retries; otherwise the router reads 0 every pass and
+    retries forever.
+    """
+    state["last_error"] = message
+    state["transform_in_target_retry_count"] = state.get("transform_in_target_retry_count", 0) + 1
+    state.setdefault("duration_ms", {})["transform_in_target"] = (time.monotonic() - start) * 1000
     return state
 
 
@@ -125,8 +136,14 @@ def _table_exists(url: str, table: str) -> bool:
         return False
 
 
-def _execute_elt_sql(url: str, sql: str, output_table: str) -> int:
-    """Execute CREATE TABLE AS SELECT on the target database."""
+def _execute_elt_sql(url: str, sql: str, output_table: str, write_mode: str = "append") -> int:
+    """Execute CREATE TABLE AS SELECT on the target database.
+
+    Honors ``write_mode``: ``replace`` drops any existing output table first
+    so a second run doesn't error on the already-existing table (BUG-7); the
+    default creates the table, which is why a plain CTAS without the drop
+    fails on a re-run.
+    """
     try:
         import psycopg2
     except ImportError as exc:
@@ -138,6 +155,8 @@ def _execute_elt_sql(url: str, sql: str, output_table: str) -> int:
         conn = psycopg2.connect(url)
         conn.autocommit = True
         cursor = conn.cursor()
+        if write_mode == "replace":
+            cursor.execute(f"DROP TABLE IF EXISTS {output_table}")
         cursor.execute(create_sql)
         cursor.execute(f"SELECT COUNT(*) FROM {output_table}")
         row = cursor.fetchone()
