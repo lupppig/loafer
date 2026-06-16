@@ -24,7 +24,7 @@ from loafer.exceptions import LLMError, LLMRateLimitError, TransformError
 from loafer.graph.state import PipelineState
 from loafer.llm.base import LLMProvider, TransformPromptResult
 from loafer.llm.prompt_builder import build_etl_transform_prompt
-from loafer.transform import TransformRunner
+from loafer.transform import TransformRunner, materialize_input_rows
 from loafer.transform.code_validator import validate_transform_function
 
 # Maximum number of retry attempts for AI-generated code.
@@ -166,11 +166,13 @@ class AiTransformRunner(TransformRunner):
             custom_code = _load_custom_code(transform_config.custom_path)
 
         start = time.monotonic()
-        raw_data_snapshot = copy.deepcopy(state.get("raw_data", []))
+        # Drain the stream (streaming mode) or read raw_data — exactly once.
+        input_rows = materialize_input_rows(state)
+        raw_data_snapshot = copy.deepcopy(input_rows)
 
         # Determine data flow: custom_first or ai_first
         order = transform_config.custom_order
-        data = list(state.get("raw_data", []))
+        data = list(input_rows)
 
         # Step 1: Run custom transform first if order is custom_first
         if custom_code and order == "custom_first":
@@ -229,7 +231,10 @@ class AiTransformRunner(TransformRunner):
         total_tokens: dict[str, int] = state.get("token_usage", {})
 
         start = time.monotonic()
-        raw_data_snapshot = copy.deepcopy(state.get("raw_data", []))
+        # Drain the stream (streaming mode) or read raw_data — exactly once,
+        # before the retry loop so the single-use iterator isn't re-consumed.
+        input_rows = materialize_input_rows(state)
+        raw_data_snapshot = copy.deepcopy(input_rows)
 
         while retry_count < _MAX_RETRIES:
             if retry_count > 0:
@@ -277,7 +282,7 @@ class AiTransformRunner(TransformRunner):
                 continue
 
             try:
-                transformed = _execute_code(code, list(state.get("raw_data", [])), state)
+                transformed = _execute_code(code, list(input_rows), state)
             except Exception:
                 retry_count += 1
                 previous_error = f"Execution error: {traceback.format_exc()}"
@@ -315,8 +320,9 @@ class AiTransformRunner(TransformRunner):
         """Run only the custom transform, no AI."""
         start = time.monotonic()
         custom_code = _load_custom_code(custom_path)
-        raw_data_snapshot = copy.deepcopy(state.get("raw_data", []))
-        data = list(state.get("raw_data", []))
+        input_rows = materialize_input_rows(state)
+        raw_data_snapshot = copy.deepcopy(input_rows)
+        data = list(input_rows)
         data = self._run_custom_code(custom_code, data, state)
 
         state["transformed_data"] = data
