@@ -76,13 +76,28 @@ def format_destructive_warnings(warnings: list[DestructiveWarning]) -> str:
     return "\n".join(lines)
 
 
+# Type coercion is the explicit point of most transforms — an instruction like
+# "convert score to a float and id to an integer" should not be treated as a
+# destructive surprise. Type-change warnings are still recorded (and surfaced)
+# for visibility, but on their own they never block the pipeline (BUG-8).
+_NON_BLOCKING_REASONS = frozenset({DestructiveReason.COLUMN_TYPES_CHANGED})
+
+
 def raise_if_destructive(
     warnings: list[DestructiveWarning],
     auto_confirmed: bool = False,
 ) -> None:
-    """Raise TransformError if destructive warnings found and not auto-confirmed."""
-    if warnings and not auto_confirmed:
-        msg = format_destructive_warnings(warnings)
+    """Raise TransformError on genuinely destructive warnings unless confirmed.
+
+    Type-change warnings are non-blocking on their own (they reflect requested
+    coercions); row drops, column removals, and SQL filtering still block until
+    the user confirms with --yes.
+    """
+    if auto_confirmed:
+        return
+    blocking = [w for w in warnings if w.reason not in _NON_BLOCKING_REASONS]
+    if blocking:
+        msg = format_destructive_warnings(blocking)
         raise TransformError(msg)
 
 
