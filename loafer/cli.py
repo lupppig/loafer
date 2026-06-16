@@ -489,6 +489,9 @@ def run(
     verbose: bool = typer.Option(False, "--verbose", help="Print full traceback on errors"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip destructive confirmation prompts"),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress progress output"),
+    full_refresh: bool = typer.Option(
+        False, "--full-refresh", help="Ignore the saved cursor and re-extract everything"
+    ),
 ) -> None:
     """Run an ETL or ELT pipeline with live progress."""
     actual_config = config or config_file
@@ -524,6 +527,19 @@ def run(
             raise typer.Exit(1) from exc
 
     console.print(f"\n[bold]Running: {pipeline_name}[/bold] [{mode.upper()}]")
+    if cfg.incremental is not None:
+        from loafer.core.incremental import StateStore, state_path_for
+
+        if full_refresh:
+            console.print(f"[dim]Incremental on '{cfg.incremental.column}' — full refresh[/dim]")
+        else:
+            saved = StateStore(state_path_for(actual_config)).get_cursor(
+                cfg.name or actual_config.stem
+            )
+            shown = saved if saved is not None else cfg.incremental.initial
+            console.print(
+                f"[dim]Incremental on '{cfg.incremental.column}' — cursor: {shown!r}[/dim]"
+            )
     console.print(Rule(style="dim"))
 
     failed_stage: str | None = None
@@ -535,6 +551,7 @@ def run(
             config_path=actual_config,
             dry_run=dry_run,
             yes=yes,
+            full_refresh=full_refresh,
         ):
             final_state = state
             label = _get_stage_label(node_name, state)

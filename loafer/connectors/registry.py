@@ -69,12 +69,28 @@ _register_target("postgres", _PgTarget)
 _register_target("mongo", _MongoTarget)
 
 
-def get_source_connector(config: SourceConfig) -> SourceConnector:
-    """Instantiate the source connector for the given config."""
+def get_source_connector(
+    config: SourceConfig,
+    *,
+    incremental_column: str | None = None,
+    incremental_param: str | None = None,
+    cursor_value: Any = None,
+) -> SourceConnector:
+    """Instantiate the source connector for the given config.
+
+    When ``incremental_column`` (SQL sources) or ``incremental_param`` (rest_api)
+    is given, the connector extracts only rows past ``cursor_value``.
+    """
     connector_cls = _SOURCE_REGISTRY.get(config.type)
     if connector_cls is None:
         raise RegistryError(f"no source connector registered for type '{config.type}'")
-    return _build_source(connector_cls, config)
+    return _build_source(
+        connector_cls,
+        config,
+        incremental_column=incremental_column,
+        incremental_param=incremental_param,
+        cursor_value=cursor_value,
+    )
 
 
 def get_target_connector(config: TargetConfig) -> TargetConnector:
@@ -85,14 +101,27 @@ def get_target_connector(config: TargetConfig) -> TargetConnector:
     return _build_target(connector_cls, config)
 
 
-def _build_source(cls: type[SourceConnector], config: SourceConfig) -> SourceConnector:
+def _build_source(
+    cls: type[SourceConnector],
+    config: SourceConfig,
+    *,
+    incremental_column: str | None = None,
+    incremental_param: str | None = None,
+    cursor_value: Any = None,
+) -> SourceConnector:
     match config.type:
         case "csv":
             return cls(config.path, config.has_header, config.encoding, config.column_names)  # type: ignore[call-arg]
         case "excel":
             return cls(config.path, config.sheet)  # type: ignore[call-arg]
         case "postgres" | "mysql":
-            return cls(config.url, config.query, config.timeout)  # type: ignore[call-arg]
+            return cls(  # type: ignore[call-arg]
+                config.url,
+                config.query,
+                config.timeout,
+                incremental_column=incremental_column,
+                incremental_value=cursor_value,
+            )
         case "mongo":
             return cls(config.url, config.database, config.collection, config.filter)  # type: ignore[call-arg]
         case "rest_api":
@@ -107,9 +136,16 @@ def _build_source(cls: type[SourceConnector], config: SourceConfig) -> SourceCon
                 config.auth_token,
                 config.verify_ssl,
                 config.timeout,
+                incremental_param=incremental_param,
+                incremental_value=cursor_value,
             )  # type: ignore[call-arg]
         case "sqlite":
-            return cls(config.path, config.query)  # type: ignore[call-arg]
+            return cls(  # type: ignore[call-arg]
+                config.path,
+                config.query,
+                incremental_column=incremental_column,
+                incremental_value=cursor_value,
+            )
         case "pdf":
             return cls(config.path, config.extract_tables)  # type: ignore[call-arg]
     msg = f"source connector '{config.type}' not implemented"

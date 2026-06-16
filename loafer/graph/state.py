@@ -82,5 +82,12 @@ class PipelineState(TypedDict, total=False):
     # Multi-step transform pipeline
     step_results: list[StepResult]
 
+    # Incremental loading (cursor watermark)
+    incremental_config: Any | None
+    cursor_value: Any
+    new_cursor: Any
+    state_key: str
+    state_store_path: str | None
+
     # Internal (not exposed to agents)
     _source_connector: Any | None

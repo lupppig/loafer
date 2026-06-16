@@ -286,6 +286,23 @@ class ValidationConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Incremental loading config
+# ---------------------------------------------------------------------------
+
+
+class IncrementalConfig(BaseModel):
+    """Cursor-based incremental extraction.
+
+    Only rows whose ``column`` exceeds the last-seen watermark are extracted.
+    """
+
+    column: str
+    initial: Any = None
+    # REST only: query-param name carrying the cursor (defaults to ``column``).
+    param: str | None = None
+
+
+# ---------------------------------------------------------------------------
 # LLM config
 # ---------------------------------------------------------------------------
 
@@ -451,6 +468,7 @@ class PipelineConfig(BaseModel):
     destructive_filter_threshold: float = 0.3
     validation: ValidationConfig = Field(default_factory=ValidationConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
+    incremental: IncrementalConfig | None = None
 
     @field_validator("chunk_size")
     @classmethod

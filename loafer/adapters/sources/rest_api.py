@@ -22,11 +22,15 @@ class RestApiSourceConnector(SourceConnector):
         auth_token: str | None = None,
         verify_ssl: bool = True,
         timeout: int = 30,
+        incremental_param: str | None = None,
+        incremental_value: Any = None,
     ) -> None:
         self._url = url
         self._method = method
         self._headers = headers or {}
         self._params = params or {}
+        if incremental_param and incremental_value is not None:
+            self._params[incremental_param] = incremental_value
         self._body = body
         self._response_key = response_key
         self._pagination = pagination or {}
