@@ -305,6 +305,25 @@ class ValidationConfig(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Sandbox config
+# ---------------------------------------------------------------------------
+
+
+class SandboxConfig(BaseModel):
+    """Resource limits for executing custom/AI transform code."""
+
+    timeout: int = 60
+    max_memory_mb: int = 512
+
+    @field_validator("timeout", "max_memory_mb")
+    @classmethod
+    def must_be_positive(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("sandbox limits must be positive integers")
+        return v
+
+
+# ---------------------------------------------------------------------------
 # Incremental loading config
 # ---------------------------------------------------------------------------
 
@@ -488,6 +507,7 @@ class PipelineConfig(BaseModel):
     validation: ValidationConfig = Field(default_factory=ValidationConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     incremental: IncrementalConfig | None = None
+    sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
 
     @field_validator("chunk_size")
     @classmethod

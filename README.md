@@ -195,6 +195,18 @@ target:
 
 Postgres uses `INSERT ... ON CONFLICT (key) DO UPDATE` (auto-creating a unique index on the key if needed); MongoDB uses a bulk `ReplaceOne(..., upsert=True)`. `key` is required when `write_mode` is `upsert`.
 
+## Sandboxed Transforms
+
+AI-generated and custom Python transforms run in an **isolated, resource-limited subprocess**, not in the main process. On Linux/macOS the worker is bounded by CPU and memory rlimits and a hard timeout, so a runaway or malicious transform is killed with a clear error instead of hanging the pipeline or reaching your credentials. Tune the limits with an optional `sandbox` block:
+
+```yaml
+sandbox:
+  timeout: 60        # seconds before the worker is killed
+  max_memory_mb: 512 # address-space cap for the worker
+```
+
+On Windows the sandbox degrades to an in-process best-effort timeout (resource limits aren't enforced) — run on Linux, including the Docker image, for full isolation.
+
 ## Configuration (YAML)
 
 Loafer pipelines are driven by a single YAML configuration file. The `type` field is **optional** — Loafer will auto-detect it when possible.

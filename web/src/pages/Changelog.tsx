@@ -9,6 +9,7 @@ const releases = [
       'Incremental loading — cursor/watermark extraction for Postgres, MySQL, SQLite, and REST sources',
       '`--full-refresh` flag to bypass the saved cursor and re-extract everything',
       'Upsert write mode for Postgres and MongoDB targets — idempotent loads keyed on one or more columns',
+      'Transform code now runs in a resource-limited sandbox subprocess (CPU/memory/timeout enforced on Linux & macOS)',
       'Multi-step pipeline transforms with per-step result tracking',
       'New source connectors: SQLite, Excel, PDF, and REST API (with pagination)',
       'JSON target connector with incremental array writing',
