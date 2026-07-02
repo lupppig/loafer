@@ -1,6 +1,7 @@
 import React from 'react';
 import { Helmet } from 'react-helmet-async';
 import { Hero } from '../components/home/Hero';
+import { DemoVideo } from '../components/home/DemoVideo';
 import { WhoItsFor } from '../components/home/WhoItsFor';
 import { HowItWorks } from '../components/home/HowItWorks';
 import { TransformModes } from '../components/home/TransformModes';
@@ -19,6 +20,7 @@ export function Home() {
       </Helmet>
       <div className="flex flex-col w-full">
         <Hero />
+        <DemoVideo />
         <WhoItsFor />
         <HowItWorks />
         <TransformModes />
