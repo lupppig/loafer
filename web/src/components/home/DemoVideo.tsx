@@ -1,4 +1,6 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+'use client'
+
+import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence, useInView } from 'framer-motion';
 import { Play, Pause, RotateCcw } from 'lucide-react';
 
@@ -105,7 +107,9 @@ function highlightYaml(text: string): React.ReactNode {
   return <span style={{ color: '#e2e8f0' }}>{text}</span>;
 }
 
-function CliLine({ line, fill }: { line: (typeof CLI_OUTPUT)[0]; fill: number }) {
+type CliOutputLine = (typeof CLI_OUTPUT)[number];
+
+function CliLine({ line, fill }: { line: CliOutputLine; fill: number }) {
   if (line.type === 'empty') return <div style={{ height: '1.6em' }} />;
   if (line.type === 'progress') {
     const n = 20, f = Math.floor(fill * n);
@@ -151,29 +155,51 @@ export function DemoVideo() {
   const paused = useRef(0);
   const raf = useRef(0);
 
-  useEffect(() => { if (inView && !started) { setStarted(true); setPlaying(true); } }, [inView, started]);
-
-  const tick = useCallback(() => {
-    const ms = Date.now() - t0.current;
-    setElapsed(ms);
-    const b1 = S_YAML, b2 = b1 + S_TRANSITION, b3 = b2 + S_CLI_TYPE, b4 = b3 + S_CLI_RUN, b5 = b4 + S_DATA;
-    if (ms < b1) setScene('yaml');
-    else if (ms < b2) setScene('transition');
-    else if (ms < b3) setScene('cli-type');
-    else if (ms < b4) setScene('cli-run');
-    else if (ms < b5) setScene('data');
-    else { setScene('done'); setPlaying(false); return; }
-    raf.current = requestAnimationFrame(tick);
-  }, []);
+  useEffect(() => {
+    if (!inView || started) return;
+    const startFrame = requestAnimationFrame(() => {
+      setStarted(true);
+      setPlaying(true);
+    });
+    return () => cancelAnimationFrame(startFrame);
+  }, [inView, started]);
 
   useEffect(() => {
-    if (playing) { t0.current = Date.now() - paused.current; raf.current = requestAnimationFrame(tick); }
-    else { paused.current = elapsed; cancelAnimationFrame(raf.current); }
+    if (!playing) return;
+
+    t0.current = Date.now() - paused.current;
+
+    const tick = () => {
+      const ms = Date.now() - t0.current;
+      paused.current = ms;
+      setElapsed(ms);
+      const b1 = S_YAML;
+      const b2 = b1 + S_TRANSITION;
+      const b3 = b2 + S_CLI_TYPE;
+      const b4 = b3 + S_CLI_RUN;
+      const b5 = b4 + S_DATA;
+      if (ms < b1) setScene('yaml');
+      else if (ms < b2) setScene('transition');
+      else if (ms < b3) setScene('cli-type');
+      else if (ms < b4) setScene('cli-run');
+      else if (ms < b5) setScene('data');
+      else {
+        setScene('done');
+        setPlaying(false);
+        return;
+      }
+      raf.current = requestAnimationFrame(tick);
+    };
+
+    raf.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf.current);
-  }, [playing, tick]);
+  }, [playing]);
 
   const restart = () => { paused.current = 0; setElapsed(0); setScene('yaml'); setPlaying(true); };
-  const toggle = () => { scene === 'done' ? restart() : setPlaying(!playing); };
+  const toggle = () => {
+    if (scene === 'done') restart();
+    else setPlaying(!playing);
+  };
 
   const progress = Math.min(100, (elapsed / TOTAL) * 100);
   const yamlT = elapsed / 1000;
@@ -273,7 +299,9 @@ export function DemoVideo() {
                   {CLI_OUTPUT.map((line, i) => {
                     if (cliRunT < line.ts) return null;
                     let fill = 0;
-                    if (line.type === 'progress' && 'dur' in line) fill = Math.min(1, (cliRunT - line.ts) / ((line as any).dur || 1));
+                    if (line.type === 'progress' && 'dur' in line) {
+                      fill = Math.min(1, (cliRunT - line.ts) / (line.dur || 1));
+                    }
                     return (
                       <motion.div key={i} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
                         <CliLine line={line} fill={fill} />

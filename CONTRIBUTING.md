@@ -67,7 +67,7 @@ The core domain never imports from infrastructure.
 - Never start a commit message with `feat:`, `fix:`, `chore:` — just describe what it does
 - Never start a commit message with `Phase 0`, `Phase 1`, or any phase label
 - Stage only the files you actually created or modified
-- Never stage `ANTIGRAVITY_PROMPT.md`
+- Never commit local prompt scratchpads, credentials, or generated test secrets
 
 ## Testing
 
@@ -77,6 +77,28 @@ The core domain never imports from infrastructure.
 - Integration tests go in `tests/integration/`
 - End-to-end tests go in `tests/e2e/`
 - Each edge case listed in the spec must have a corresponding test
+
+## Pre-Release Smoke Test
+
+Before cutting a release, verify the **built artifacts** (not the dev `.venv`)
+actually run. `uv sync` pulls in transitive dependencies that the published
+wheel / Docker image may not declare, so a pipeline can pass locally and crash
+on every command once installed by a user. The smoke harness installs the built
+artifact into a clean container and runs a real pipeline end-to-end:
+
+```bash
+# Build + test both the PyPI wheel and the Docker image in clean rooms
+scripts/smoke.sh            # default: all
+scripts/smoke.sh wheel      # just the pip-installable wheel
+scripts/smoke.sh docker     # just the Docker image
+
+# Test as if releasing a specific version
+VERSION=0.3.2 scripts/smoke.sh
+```
+
+Requires Docker. The same checks run automatically in CI (the `smoke` job in
+`ci.yml`) and gate the real release: `publish.yml` will not publish a wheel that
+fails the clean-room test, and `docker.yml` will not push an image that fails.
 
 ## Pull Request Process
 

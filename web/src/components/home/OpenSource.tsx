@@ -1,6 +1,5 @@
-import React from 'react';
 import { Button } from '../common/Button';
-import { Link } from 'react-router-dom';
+import Link from 'next/link';
 
 export function OpenSource() {
   return (
@@ -22,7 +21,7 @@ export function OpenSource() {
             <a href="https://github.com/lupppig/loafer" target="_blank" rel="noopener noreferrer">View on GitHub &rarr;</a>
           </Button>
           <Button asChild variant="outline" size="md" className="h-9 px-8 w-full sm:w-auto">
-            <Link to="/docs">Read the docs &rarr;</Link>
+            <Link href="/docs">Read the docs &rarr;</Link>
           </Button>
         </div>
 

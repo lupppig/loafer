@@ -8,6 +8,7 @@ modes.
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from typing import Any
@@ -18,7 +19,7 @@ from loafer.config import PostgresTargetConfig, SQLTransformConfig
 from loafer.core.destructive import detect_destructive_operations, raise_if_destructive
 from loafer.exceptions import TransformError
 from loafer.graph.state import PipelineState
-from loafer.transform import TransformRunner
+from loafer.transform import TransformRunner, materialize_input_rows
 from loafer.transform.sql_validator import validate_transform_sql
 
 _PLACEHOLDER_RE = re.compile(r"\{\{source\}\}")
@@ -37,11 +38,13 @@ class SqlTransformRunner(TransformRunner):
 
         source_table: str = state.get("raw_table_name") or "loafer_source"
 
+        # Substitute {{source}} first — it inserts only a quoted identifier — so
+        # the validator parses real SQL rather than choking on the placeholder.
+        sql = _substitute_source(sql, source_table)
+
         is_valid, reason = validate_transform_sql(sql)
         if not is_valid:
             raise TransformError(f"SQL validation failed: {reason}")
-
-        sql = _substitute_source(sql, source_table)
 
         start = time.monotonic()
 
@@ -50,7 +53,7 @@ class SqlTransformRunner(TransformRunner):
         if mode == "elt":
             self._run_elt(state, sql, source_table)
         else:
-            self._run_etl(state, sql)
+            self._run_etl(state, sql, source_table)
 
         state["duration_ms"]["transform"] = (time.monotonic() - start) * 1000
 
@@ -68,8 +71,12 @@ class SqlTransformRunner(TransformRunner):
 
         return state
 
-    def _run_etl(self, state: PipelineState, sql: str) -> None:
-        """Execute SQL in ETL mode — read results into transformed_data."""
+    def _run_etl(self, state: PipelineState, sql: str, source_table: str) -> None:
+        """Execute SQL in ETL mode — read results into transformed_data.
+
+        Rows (``list[dict]``) are loaded into an in-memory DuckDB table named
+        ``source_table`` so the substituted ``{{source}}`` identifier resolves.
+        """
         try:
             import duckdb
         except ImportError as exc:
@@ -77,30 +84,30 @@ class SqlTransformRunner(TransformRunner):
                 "SQL transform in ETL mode requires 'duckdb'. Install it with: uv add duckdb"
             ) from exc
 
-        raw_data: list[dict[str, Any]] = state.get("raw_data", [])
+        raw_data = materialize_input_rows(state)
+        # Persist the materialized rows so the post-run destructive comparison
+        # (which reads state["raw_data"]) is accurate in streaming mode too.
+        state["raw_data"] = raw_data
 
+        # An empty input is a valid state (e.g. an upstream pipeline step filtered
+        # everything out): there is no schema to build a table from, so the query
+        # trivially yields no rows.
         if not raw_data:
-            is_streaming: bool = state.get("is_streaming", False)
-            if not is_streaming:
-                raise TransformError("No raw data available for SQL transform")
+            state["transformed_data"] = []
+            return
 
         conn = duckdb.connect()
-
-        if raw_data:
-            conn.execute(
-                "CREATE TABLE loafer_source AS SELECT * FROM raw_data",
-                {"raw_data": raw_data},
-            )
-
         try:
+            _load_rows_into_duckdb(conn, source_table, raw_data)
             result = conn.execute(sql).fetchall()
             columns = [desc[0] for desc in conn.description] if conn.description else []
             state["transformed_data"] = [dict(zip(columns, row, strict=False)) for row in result]
+        except TransformError:
+            raise
         except Exception as exc:
-            conn.close()
             raise TransformError(f"SQL execution failed: {exc}") from exc
-
-        conn.close()
+        finally:
+            conn.close()
 
     def _run_elt(self, state: PipelineState, sql: str, source_table: str) -> None:
         """Execute SQL in ELT mode — CREATE TABLE AS SELECT on target."""
@@ -142,22 +149,88 @@ class SqlTransformRunner(TransformRunner):
                 conn.close()
 
 
-def _substitute_source(sql: str, table_name: str) -> str:
-    """Replace {{source}} with a safely quoted table name.
+def _duckdb_type(values: list[Any]) -> str:
+    """Infer a DuckDB column type from the non-null values of a column."""
+    found: set[str] = set()
+    for v in values:
+        if v is None:
+            continue
+        if isinstance(v, bool):
+            found.add("BOOLEAN")
+        elif isinstance(v, int):
+            found.add("BIGINT")
+        elif isinstance(v, float):
+            found.add("DOUBLE")
+        elif isinstance(v, (dict, list)):
+            found.add("JSON")
+        else:
+            found.add("VARCHAR")
 
-    Uses ``psycopg2.sql.Identifier`` when available, otherwise falls
-    back to double-quoting (standard SQL identifier quoting).
+    if not found:
+        return "VARCHAR"
+    if found == {"BIGINT"}:
+        return "BIGINT"
+    if found <= {"BIGINT", "DOUBLE"}:
+        return "DOUBLE"
+    if found == {"BOOLEAN"}:
+        return "BOOLEAN"
+    if found == {"JSON"}:
+        return "JSON"
+    return "VARCHAR"
+
+
+def _load_rows_into_duckdb(conn: Any, table: str, rows: list[dict[str, Any]]) -> None:
+    """Create *table* in DuckDB and insert *rows* (a ``list[dict]``).
+
+    DuckDB cannot replacement-scan a Python ``list[dict]`` directly (that needs
+    pandas/pyarrow), so the table is built explicitly: column types are inferred
+    per column, nested values are JSON-encoded, and rows are inserted via a
+    parameterised statement. Column order follows first-seen key order.
+    """
+    keys: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        for key in row:
+            if key not in seen:
+                seen.add(key)
+                keys.append(key)
+
+    quoted_table = f'"{table.replace(chr(34), chr(34) * 2)}"'
+
+    if not keys:
+        conn.execute(f"CREATE TABLE {quoted_table} (_loafer_empty INTEGER)")
+        return
+
+    types = {k: _duckdb_type([r.get(k) for r in rows]) for k in keys}
+    col_defs = ", ".join(f'"{k.replace(chr(34), chr(34) * 2)}" {types[k]}' for k in keys)
+    conn.execute(f"CREATE TABLE {quoted_table} ({col_defs})")
+
+    placeholders = ", ".join("?" for _ in keys)
+    encoded_rows: list[list[Any]] = []
+    for row in rows:
+        encoded: list[Any] = []
+        for key in keys:
+            value = row.get(key)
+            if isinstance(value, (dict, list)):
+                value = json.dumps(value)
+            encoded.append(value)
+        encoded_rows.append(encoded)
+
+    conn.executemany(f"INSERT INTO {quoted_table} VALUES ({placeholders})", encoded_rows)
+
+
+def _substitute_source(sql: str, table_name: str) -> str:
+    """Replace {{source}} with a safely quoted table identifier.
+
+    The name is double-quoted with any embedded quotes doubled — standard SQL
+    identifier quoting understood by both DuckDB (ETL) and Postgres (ELT).
+    Only an identifier is inserted (never user data), so this cannot inject.
     """
     if not _PLACEHOLDER_RE.search(sql):
         return sql
 
-    try:
-        from psycopg2.sql import Identifier
-
-        return _PLACEHOLDER_RE.sub(str(Identifier(table_name)), sql)
-    except ImportError:
-        safe_name = f'"{table_name.replace(chr(34), chr(34) + chr(34))}"'
-        return _PLACEHOLDER_RE.sub(safe_name, sql)
+    safe_name = '"' + table_name.replace('"', '""') + '"'
+    return _PLACEHOLDER_RE.sub(safe_name, sql)
 
 
 def _transpile_sql(sql: str, target_dialect: str) -> str:

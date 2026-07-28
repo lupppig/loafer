@@ -1,332 +1,229 @@
 # Loafer
 
-> A CLI-first, declarative ETL/ELT pipeline tool driven by YAML.
+Loafer is an open-source, YAML-first ETL/ELT engine for moving and transforming data from the
+command line.
 
-## Overview
+Define a source, transformation, and target; validate the pipeline; then run it locally, in Docker,
+or from a scheduler. Transformations can use SQL, custom Python, multi-step pipelines, or optional
+LLM-generated artifacts.
 
-Modern data pipelines often become bogged down by repetitive boilerplate and fragile scripts. Loafer solves this by treating data movement and transformation as configuration. 
+> **Project status:** Loafer currently ships as a CLI engine with a local scheduler/daemon. The
+> multi-tenant API, distributed workers, web operations dashboard, and terminal dashboard are under
+> active development. The `/studio` web route is a product preview, not a connected control plane.
 
-Loafer is a CLI-first tool that allows you to extract data from databases, files, and APIs, apply powerful transformations (both custom and AI-generated), and load the results into target systems — all configured within a single, highly readable YAML file.
+## What works today
 
-**Key Idea:** Describe your pipeline in YAML, run it from the CLI, and let Loafer handle the execution.
+- Declarative ETL and ELT pipelines with Pydantic validation
+- PostgreSQL, MySQL, MongoDB, SQLite, CSV, Excel, REST, and PDF sources
+- PostgreSQL, MongoDB, CSV, and JSON targets
+- SQL, custom Python, AI-generated, and multi-step transforms
+- PostgreSQL and MongoDB upserts
+- Cursor-based incremental extraction with local state
+- Local scheduling, daemon management, run summaries, and logs
+- Optional Gemini, OpenAI, Claude, and Qwen providers
+- Resource-limited Python transform subprocesses on Linux and macOS
 
-## Features
+Source and target connectors process chunks, but some ETL transform paths still materialize a full
+run. Do not assume bounded memory for 30–100M-row jobs yet. See
+[Production readiness](PRODUCTION_READINESS.md) for the verified limits and release gates.
 
-- **Declarative Configuration:** Define your inputs, outputs, and processing logic in simple YAML. No complex workflow orchestrators required.
-- **ETL & ELT Support:** Choose between Extract-Transform-Load (in-memory/streaming Python transformations) or Extract-Load-Transform (in-database SQL executions).
-- **AI-Powered Transformations:** Optionally use natural language to auto-generate complex Python transforms or target-database SQL using modern LLMs (Gemini, OpenAI, Claude).
-- **Streaming & Batch Processing:** Automatically switches to memory-efficient streaming for large datasets based on configurable thresholds.
-- **Data Quality Guards:** Built-in validation steps to catch malformed data or high null-rates before they hit your target.
-- **Developer-Friendly & Extensible:** Use custom Python files for advanced transformations when declarative logic isn't enough.
+## Install
 
-## Installation
+Python 3.11 or newer is required.
 
-### Via pip (PyPI)
-The easiest way to install Loafer is via pip:
 ```bash
 pip install loafer-etl
+loafer --version
 ```
 
-### Via Docker (GHCR)
-Loafer is officially published to the GitHub Container Registry. Available tags include specific versions (e.g. `0.2.0`, `0.2`) and `latest`.
+Or run the published CLI image:
 
 ```bash
 docker pull ghcr.io/lupppig/loafer:latest
+docker run --rm \
+  -v "$(pwd):/workspace" \
+  -w /workspace \
+  ghcr.io/lupppig/loafer:latest run pipeline.yaml
 ```
 
-To run Loafer using Docker, mount your current working directory so Loafer can access your configuration and local files:
-```bash
-docker run --rm -v $(pwd):/workspace -w /workspace ghcr.io/lupppig/loafer:latest run pipeline.yaml
-```
+Mount pipeline files under `/workspace`, not `/app`; `/app` is reserved by the image.
 
-> **Warning**  
-> Do **not** mount your working directory to `/app` (e.g., `-v $(pwd):/app`). The Loafer image uses `/app` internally for its application core and virtual environment. Overwriting this directory will break the container. Always use `/workspace` or another path.
+## Quick start
 
-### From Source
-To contribute or use the latest unreleased features:
-```bash
-git clone https://github.com/lupppig/loafer.git
-cd loafer
-pip install -e .
-```
+Create `pipeline.yaml`:
 
-## Quick Start
-
-Create a single YAML file describing your pipeline. This example extracts orders from PostgreSQL, normalizes the data via AI, and saves it to a clean CSV.
-
-**`pipeline.yaml`**
 ```yaml
-name: Daily Orders Pipeline
+name: daily_orders
 mode: etl
 
 source:
   url: ${DATABASE_URL}
-  query: "SELECT * FROM orders WHERE created_at >= NOW() - INTERVAL '1 day'"
+  query: SELECT * FROM orders
+
+transform:
+  query: |
+    SELECT *
+    FROM {{source}}
+    WHERE status = 'paid'
 
 target:
-  path: ./output/clean_orders.csv
+  path: ./output/orders.json
   write_mode: overwrite
 
-transform: >
-  Drop cancelled orders, normalize currency to USD, and 
-  combine first_name and last_name into full_name.
-
-llm:
-  provider: gemini
-  model: gemini-2.5-flash
-  api_key: ${GEMINI_API_KEY}
+incremental:
+  column: updated_at
+  initial: "1970-01-01"
 ```
 
-> **Note:** Loafer auto-detects source and target types from URL schemes and file extensions — no need to write `type: postgres` or `type: csv`. See [Auto-Detection](#auto-detection) below.
+Run it:
 
-Run the pipeline from your terminal:
 ```bash
-export DATABASE_URL="postgresql://user:pass@localhost/db"
-export GEMINI_API_KEY="your-api-key"
-
+export DATABASE_URL="postgresql://user:password@localhost/app"
+loafer validate pipeline.yaml
 loafer run pipeline.yaml
 ```
 
-**Expected Outcome:** 
-Loafer will connect to the Postgres database, extract the past day's orders, execute the transformation to clean the data, and successfully write the normalized output to `./output/clean_orders.csv`.
+Loafer infers connector and transform types from URLs, file extensions, and configuration fields.
+Use an explicit `type` when inference would be ambiguous.
 
-## How It Works
+## Transform options
 
-Loafer pipelines consist of three main stages, executed as a directed graph:
+### SQL
 
-1. **Extract:** Loafer connects to your source (e.g., a SQL database, CSV, or REST API) and pulls the data. Large datasets are automatically chunked and streamed to prevent memory exhaustion.
-2. **Transform:** The data is manipulated according to your YAML instructions. This can be AI-generated Python code running in a safe isolated context, a custom Python script you provide, or skipped entirely for simple EL (Extract-Load) operations.
-3. **Load:** The transformed data is pushed to your designated target connector (e.g. CSV, Snowflake, Postgres) adhering to your specified write mode (append, overwrite).
+SQL ETL transforms run through DuckDB and reference the incoming dataset as `{{source}}`.
 
-In **ELT mode**, the steps differ slightly: data is first loaded raw into the target database, and transformations are executed as native SQL queries against the target engine.
-
-## CLI Usage
-
-Loafer provides a streamlined CLI tailored for day-to-day data engineering.
-
-**Command Syntax:**
-```bash
-loafer <command> [options]
+```yaml
+transform:
+  query: SELECT id, email FROM {{source}} WHERE email IS NOT NULL
 ```
 
-**Common Commands:**
-- `loafer run <config.yaml>`: Execute a pipeline defined in the given YAML file.
-  - `--dry-run`: Extracts and transforms data without writing to the target.
-  - `--verbose`: Prints detailed execution logs and agent outputs.
-- `loafer validate <config.yaml>`: Check a configuration file for syntax and connection errors without running the pipeline.
-- `loafer connectors`: List all available source and target connectors.
+### Custom Python
 
-## Project Structure
+```yaml
+transform:
+  path: ./transforms/clean.py
+```
+
+### AI-assisted
+
+AI is an authoring tool, not the data plane. Loafer sends bounded schema/sample context to the
+configured provider, validates the generated artifact, then executes it locally or in the target
+engine.
+
+```yaml
+transform:
+  instruction: Normalize currency to USD and remove cancelled orders
+
+llm:
+  provider: gemini
+  model: gemini-2.5-flash
+  api_key: ${GEMINI_API_KEY}
+```
+
+### Multi-step
+
+```yaml
+transform:
+  - name: tag_active
+    path: ./transforms/tag_active.py
+  - name: keep_active
+    query: SELECT * FROM {{source}} WHERE is_active = true
+```
+
+Each step receives the previous step's output. See
+[`examples/pipelines/multi_step_transform.yaml`](examples/pipelines/multi_step_transform.yaml).
+
+## CLI
 
 ```text
-loafer/
-├── cli.py             # CLI entrypoints and command routing
-├── config.py          # Configuration parsing and validation
-├── runner.py          # Pipeline execution logic and LangGraph orchestration
-├── connectors/        # Integrations (sources and targets)
-│   ├── sources/          # Postgres, CSV, REST API, Excel, etc.
-│   └── targets/          # Postgres, CSV, Snowflake, etc.
-├── transform/         # Transformation engines (AI, custom, SQL)
-├── graph/             # LangGraph state management and pipeline DAGs
-├── llm/               # LLM provider integrations (Gemini, Claude, OpenAI)
-└── agents/            # Individual workflow nodes (extract, transform, load)
+loafer run <pipeline.yaml>
+loafer validate <pipeline.yaml>
+loafer connectors
+loafer schedule <pipeline.yaml>
+loafer list-schedules
+loafer start
+loafer status
+loafer logs
+loafer stop
+loafer init
 ```
 
-## Auto-Detection
+Use `loafer <command> --help` for command-specific options.
 
-Loafer automatically infers connector types so you can write minimal YAML.
+## Self-hosted platform direction
 
-**Sources** — detected from `url` scheme or file `path` extension:
-| Signal | Detected Type |
-|---|---|
-| `postgresql://` / `postgres://` | `postgres` |
-| `mysql://` / `mysql+pymysql://` | `mysql` |
-| `mongodb://` / `mongodb+srv://` | `mongo` |
-| `http://` / `https://` | `rest_api` |
-| `.csv` | `csv` |
-| `.xlsx` / `.xls` | `excel` |
-| `.pdf` | `pdf` |
-| `.db` / `.sqlite` / `.sqlite3` | `sqlite` |
+The production architecture separates clients, control plane, and data plane:
 
-**Targets** — detected from `url` scheme or file `path` extension:
-| Signal | Detected Type |
-|---|---|
-| `postgresql://` / `postgres://` | `postgres` |
-| `mongodb://` / `mongodb+srv://` | `mongo` |
-| `.csv` | `csv` |
-| `.json` / `.jsonl` | `json` |
-
-**Transforms** — detected from which fields are present:
-| Signal | Detected Type |
-|---|---|
-| `instruction` field present | `ai` |
-| `path` field present | `custom` |
-| `query` field present | `sql` |
-
-If Loafer can't detect the type (e.g., a file with no extension), it will ask you to add an explicit `type:` field. You can always specify `type:` manually to override auto-detection.
-
-## Incremental Loading
-
-For SQL sources (`postgres`, `mysql`, `sqlite`) and `rest_api`, Loafer can extract only rows newer than the previous run instead of re-pulling the full dataset — ideal for scheduled pipelines.
-
-```yaml
-source:
-  url: ${DATABASE_URL}
-  query: SELECT * FROM orders
-
-incremental:
-  column: updated_at      # cursor column (or REST response field)
-  initial: "1970-01-01"   # watermark used on the first run
+```text
+Next.js web/BFF ─┐
+                 ├─ Better Auth ─ control-plane API ─ PostgreSQL/outbox ─ NATS JetStream
+CLI / TUI ───────┘                                                        ├─ ETL workers
+                                                                          └─ browser workers
 ```
 
-Loafer remembers the highest `updated_at` it has seen in `<config>.loafer-state.json` (next to your config) and only advances the watermark after a fully successful load. Use `loafer run pipeline.yaml --full-refresh` to ignore the saved cursor and re-pull everything.
+The web dashboard and planned terminal dashboard will use the same API, permissions, run events,
+metrics, and logs. Workers will run independently so startups can deploy the stack on one host
+while larger installations can scale and isolate worker pools.
 
-## Upsert (Idempotent Loads)
+The full stack is not shipped yet. Until the API, durable queue, tenant authorization, worker
+leases, and recovery tests exist, use the CLI/Docker path for bounded workloads and do not expose
+Studio as a production operations surface.
 
-PostgreSQL and MongoDB targets support `write_mode: upsert` so re-running a pipeline updates existing rows instead of duplicating them — the natural companion to incremental loading.
+The planned web source uses Crawlee for Python with HTTP/Parsel and Playwright execution profiles.
+It will support bounded crawling, authorized authenticated sessions, JavaScript rendering, and
+download/PDF discovery behind isolated workers. This is roadmap architecture, not a shipped
+connector.
 
-```yaml
-target:
-  url: ${TARGET_DB_URL}
-  table: orders_synced
-  write_mode: upsert
-  key: order_id          # single column, or [tenant_id, order_id] for a composite key
-```
+Deployment targets:
 
-Postgres uses `INSERT ... ON CONFLICT (key) DO UPDATE` (auto-creating a unique index on the key if needed); MongoDB uses a bulk `ReplaceOne(..., upsert=True)`. `key` is required when `write_mode` is `upsert`.
+- **Startup:** Docker Compose with separate web/API, scheduler, worker, PostgreSQL, NATS, and
+  object-storage services; browser workers are enabled only when needed.
+- **Production:** externally managed state services and horizontally scaled API/worker replicas.
+- **Enterprise:** SSO, external secret management, audit export, isolated worker pools, policy
+  controls, backup/restore, and documented upgrade windows.
 
-## Sandboxed Transforms
+Implementation guidance lives in the repository skills:
 
-AI-generated and custom Python transforms run in an **isolated, resource-limited subprocess**, not in the main process. On Linux/macOS the worker is bounded by CPU and memory rlimits and a hard timeout, so a runaway or malicious transform is killed with a clear error instead of hanging the pipeline or reaching your credentials. Tune the limits with an optional `sandbox` block:
-
-```yaml
-sandbox:
-  timeout: 60        # seconds before the worker is killed
-  max_memory_mb: 512 # address-space cap for the worker
-```
-
-On Windows the sandbox degrades to an in-process best-effort timeout (resource limits aren't enforced) — run on Linux, including the Docker image, for full isolation.
-
-## Configuration (YAML)
-
-Loafer pipelines are driven by a single YAML configuration file. The `type` field is **optional** — Loafer will auto-detect it when possible.
-
-```yaml
-# Pipeline metadata
-name: User Sync Pipeline
-mode: etl  # Supports 'etl' or 'elt'
-
-# Extract — type auto-detected as rest_api from https:// URL
-source:
-  url: "https://api.example.com/users"
-  method: GET
-
-# Load — type auto-detected as postgres from postgresql:// URL
-target:
-  url: ${TARGET_DB_URL}
-  table: users_dim
-
-# Transform — type auto-detected as custom from path field
-transform:
-  path: ./transforms/clean_users.py
-
-# Optional: LLM Configuration (required for AI transforms or ELT mode)
-llm:
-  provider: gemini
-  model: gemini-2.5-flash
-  api_key: ${GEMINI_API_KEY}
-
-# Performance & Validation
-chunk_size: 1000
-streaming_threshold: 10000
-
-validation:
-  strict: true
-  max_null_rate: 0.1
-```
-
-## LLM Setup
-
-To use the AI transformations (via `type: ai`) or dynamic SQL generation in ELT mode, you must specify an LLM provider in your configuration. We recommend setting API keys via environment variables for security.
-
-Loafer supports four providers out-of-the-box:
-
-**1. Gemini (Default)**
-```yaml
-llm:
-  provider: gemini
-  model: gemini-2.5-flash
-  api_key: ${GEMINI_API_KEY}
-```
-
-**2. OpenAI**
-```yaml
-llm:
-  provider: openai
-  model: gpt-4o
-  api_key: ${OPENAI_API_KEY}
-```
-
-**3. Claude (Anthropic)**
-```yaml
-llm:
-  provider: claude
-  model: claude-3-5-sonnet-20241022
-  api_key: ${ANTHROPIC_API_KEY}
-```
-
-**4. Qwen (Alibaba)**
-```yaml
-llm:
-  provider: qwen
-  model: qwen-max
-  api_key: ${QWEN_API_KEY}
-```
-
+- `loafer-web-ui`
+- `loafer-cli-tui`
+- `loafer-auth`
+- `loafer-api-design`
+- `loafer-engine`
+- `loafer-web-scraping`
+- `loafer-workers`
+- `loafer-self-hosting`
 
 ## Development
 
-Setting up Loafer for local development requires `uv` (or standard `pip` / `hatch`).
+```bash
+git clone https://github.com/lupppig/loafer.git
+cd loafer
+uv sync
 
-1. **Clone and Install dependencies:**
-   ```bash
-   git clone https://github.com/yourusername/loafer.git
-   cd loafer
-   # If using uv for fast dependencies:
-   uv sync
-   # Or using standard pip:
-   pip install -e ".[dev]"
-   ```
+uv run pytest tests/unit -q
+uv run ruff check loafer tests
 
-2. **Run Tests:**
-   Loafer uses `pytest` for unit and integration testing.
-   ```bash
-   pytest
-   ```
+cd web
+npm install
+npm run dev
+npm run lint
+npm run typecheck
+npm run build
+npm start
+```
 
-3. **Code Style:**
-   This project uses standard Python linting and formatting tools. We recommend running `ruff` prior to committing:
-   ```bash
-   ruff check .
-   ruff format .
-   ```
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Changes to data correctness,
+security boundaries, connectors, or recovery behavior require tests that exercise the relevant
+failure path.
 
-## Contributing
+## Open-source readiness
 
-Contributions are highly encouraged! Whether it’s a new data connector, a bug fix, or an improvement to the documentation, we'd love your help.
+The project uses the MIT license and accepts connector, engine, documentation, UI, deployment, and
+reliability contributions. Production and scale claims must be backed by reproducible full-pipeline
+tests rather than connector-only benchmarks.
 
-1. Fork the repository.
-2. Create a new branch for your feature (`git checkout -b feature/amazing-connector`).
-3. Commit your changes with clear messages.
-4. Open a Pull Request against the `main` branch.
-
-Keep things simple and ensure any new features include appropriate tests.
-
-## Links
-
-- **GitHub Repository**: [https://github.com/lupppig/loafer](https://github.com/lupppig/loafer)
-- **PyPI Package**: [https://pypi.org/project/loafer-etl/](https://pypi.org/project/loafer-etl/)
-
-## License
-
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+- [GitHub](https://github.com/lupppig/loafer)
+- [PyPI](https://pypi.org/project/loafer-etl/)
+- [Security policy](SECURITY.md)
+- [Code of conduct](CODE_OF_CONDUCT.md)
+- [License](LICENSE)

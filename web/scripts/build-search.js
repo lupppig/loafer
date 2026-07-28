@@ -11,7 +11,6 @@ function parseFile(filePath, fileName) {
   
   const lines = content.split('\n');
   const items = [];
-  let currentSection = '';
   let currentTitle = '';
   
   for(const line of lines) {
@@ -25,7 +24,6 @@ function parseFile(filePath, fileName) {
       });
     } else if (line.startsWith('## ') || line.startsWith('### ')) {
       const heading = line.replace(/#+ /, '').trim();
-      currentSection = heading;
       const hash = heading.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
       items.push({
         title: heading,

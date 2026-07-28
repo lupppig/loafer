@@ -54,3 +54,31 @@ jobs:
 
       - name: Run unit tests
         run: uv run pytest tests/unit/ -v --cov=loafer --cov-report=term-missing
+
+  smoke:
+    name: Artifact Smoke (clean room)
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # hatch-vcs derives the version from tags; full history lets the smoke
+          # scripts resolve a real version via `git describe`.
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      # Build the wheel and install it into a bare python:3.11-slim container —
+      # no dev extras, no repo .venv — then run a real pipeline. This is the
+      # check that catches undeclared runtime deps (e.g. the missing `click`
+      # that made 0.3.0 crash on every command). See scripts/smoke_test.sh.
+      - name: Smoke-test the PyPI wheel
+        run: bash scripts/smoke_wheel.sh
+
+      # Build the Docker image exactly as the release workflow does (single-arch
+      # here for speed) and run the same pipeline against the baked-in binary.
+      - name: Smoke-test the Docker image
+        run: bash scripts/smoke_docker.sh

@@ -68,16 +68,23 @@ class TestTransformAgent:
 
     def test_routes_to_sql_runner(self) -> None:
         state: dict[str, Any] = {
-            "transform_config": SQLTransformConfig(type="sql", query="SELECT 1"),
-            "raw_data": [],
+            "transform_config": SQLTransformConfig(
+                type="sql", query="SELECT id, name FROM {{source}}"
+            ),
+            "raw_data": [{"id": 1, "name": "alice"}, {"id": 2, "name": "bob"}],
             "is_streaming": False,
             "mode": "etl",
             "raw_table_name": "loafer_source",
+            "auto_confirmed": True,
             "duration_ms": {},
             "warnings": [],
         }
-        with pytest.raises(TransformError, match="duckdb"):
-            transform_agent(state)
+        result = transform_agent(state)
+
+        assert result["transformed_data"] == [
+            {"id": 1, "name": "alice"},
+            {"id": 2, "name": "bob"},
+        ]
 
 
 class TestAiTransformRunner:
@@ -522,17 +529,18 @@ class TestSqlTransformRunner:
         runner = SqlTransformRunner()
         state: dict[str, Any] = {
             "transform_config": SQLTransformConfig(
-                type="sql", query="SELECT * FROM loafer_source WHERE id > 0"
+                type="sql", query="SELECT * FROM loafer_source WHERE id > 1"
             ),
             "raw_data": [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}],
             "is_streaming": False,
             "mode": "etl",
             "raw_table_name": "loafer_source",
+            "auto_confirmed": True,
             "duration_ms": {},
             "warnings": [],
         }
-        with pytest.raises(TransformError, match="duckdb"):
-            runner.run(state)
+        result = runner.run(state)
+        assert result["transformed_data"] == [{"id": 2, "name": "Bob"}]
 
     def test_drop_table_rejected(self) -> None:
         from loafer.transform.sql_runner import SqlTransformRunner
@@ -569,16 +577,17 @@ class TestSqlTransformRunner:
 
         runner = SqlTransformRunner()
         state: dict[str, Any] = {
-            "transform_config": SQLTransformConfig(type="sql", query="SELECT * FROM loafer_source"),
+            "transform_config": SQLTransformConfig(type="sql", query="SELECT * FROM {{source}}"),
             "raw_data": [{"id": 1}],
             "is_streaming": False,
             "mode": "etl",
             "raw_table_name": "loafer_source",
+            "auto_confirmed": True,
             "duration_ms": {},
             "warnings": [],
         }
-        with pytest.raises(TransformError, match="duckdb"):
-            runner.run(state)
+        result = runner.run(state)
+        assert result["transformed_data"] == [{"id": 1}]
 
     def test_transpile_called(self) -> None:
         from loafer.transform.sql_runner import _transpile_sql
@@ -599,8 +608,9 @@ class TestSqlTransformRunner:
             "is_streaming": False,
             "mode": "etl",
             "raw_table_name": "loafer_source",
+            "auto_confirmed": True,
             "duration_ms": {},
             "warnings": [],
         }
-        with pytest.raises(TransformError, match="duckdb"):
+        with pytest.raises(TransformError, match="nonexistent"):
             runner.run(state)

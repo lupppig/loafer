@@ -1,0 +1,4 @@
+interface:
+  display_name: "Loafer CLI and TUI"
+  short_description: "Build professional terminal operations UX"
+  default_prompt: "Use $loafer-cli-tui to build a professional Loafer terminal workflow."

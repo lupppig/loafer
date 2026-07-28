@@ -48,12 +48,10 @@ def validate_transform_function(code: str) -> tuple[bool, str | None]:
     Returns ``(True, None)`` when the code is acceptable, or
     ``(False, reason)`` when it must be rejected.
     """
-    # -- length check --------------------------------------------------------
     lines = code.strip().splitlines()
     if len(lines) > _MAX_LINES:
         return False, f"code is {len(lines)} lines (limit is {_MAX_LINES})"
 
-    # -- syntax check --------------------------------------------------------
     try:
         tree = ast.parse(code)
     except SyntaxError as exc:

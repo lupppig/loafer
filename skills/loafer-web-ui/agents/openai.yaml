@@ -1,0 +1,4 @@
+interface:
+  display_name: "Loafer Web UI"
+  short_description: "Design the 3D site and operator dashboard"
+  default_prompt: "Use $loafer-web-ui to design or build a distinctive, accessible Loafer web experience."

@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+'use client'
+
+import { useState } from 'react';
 import ConnectContent from '../../content/home/connect.mdx';
 import DescribeAiContent from '../../content/home/describe-ai.mdx';
 import DescribeSqlContent from '../../content/home/describe-sql.mdx';

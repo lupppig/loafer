@@ -1,0 +1,4 @@
+interface:
+  display_name: "Loafer Engineering"
+  short_description: "Build and review production Loafer pipelines"
+  default_prompt: "Use $loafer-engineering to implement a production-grade Loafer change."

@@ -435,6 +435,26 @@ def _print_progress_bar(node_name: str, label: str, status: str, row_info: str) 
     console.print(f"  {icon}  {label:<35} {row_info}")
 
 
+def _add_step_breakdown_rows(table: Any, state: dict[str, Any]) -> None:
+    """Add one indented row per step of a multi-step transform pipeline."""
+    step_results = state.get("step_results") or []
+    if not step_results:
+        return
+
+    for i, step in enumerate(step_results):
+        connector = "└─" if i == len(step_results) - 1 else "├─"
+        icon = _STATUS_ICONS.get("done" if step.success else "failed", " ")
+        detail = f"({step.type})"
+        if step.token_usage and step.token_usage.get("total_tokens"):
+            detail = f"({step.type}, {step.token_usage['total_tokens']:,} tok)"
+        table.add_row(
+            f"  {connector} {step.name}",
+            icon,
+            f"{step.rows_in:,} → {step.rows_out:,}",
+            f"{step.duration_ms / 1000:.1f}s  [dim]{detail}[/dim]",
+        )
+
+
 def _print_summary_table(state: dict[str, Any], mode: str, failed_stage: str | None = None) -> None:
     """Print the detailed pipeline summary table."""
     console.print()
@@ -467,6 +487,9 @@ def _print_summary_table(state: dict[str, Any], mode: str, failed_stage: str | N
         icon = _STATUS_ICONS.get(status_val, " ")
 
         table.add_row(label, icon, row_info, duration)
+
+        if stage == "transform":
+            _add_step_breakdown_rows(table, state)
 
     console.print(table)
 

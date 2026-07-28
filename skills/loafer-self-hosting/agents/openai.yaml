@@ -1,0 +1,4 @@
+interface:
+  display_name: "Loafer Self-Hosting"
+  short_description: "Ship secure open-source self-host deployments"
+  default_prompt: "Use $loafer-self-hosting to make Loafer safe and operable for self-hosting."

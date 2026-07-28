@@ -54,11 +54,23 @@ jobs:
       # producing a local version like 0.3.2.dev0+g<sha>.dYYYYMMDD that PyPI
       # rejects (400, local versions not allowed). Pinning from the release tag
       # — the same approach docker.yml uses — guarantees a clean release build.
-      - name: Build package
+      # Gate: build the wheel and run a real pipeline against it inside a clean
+      # python:3.11-slim container (no dev extras, no repo .venv). A wheel that
+      # can't run in a clean room — e.g. an undeclared runtime dep like the
+      # missing `click` that made 0.3.0 crash on every command — must never
+      # reach PyPI. smoke_wheel.sh leaves the tested wheel in dist/.
+      - name: Smoke-test the wheel before publishing
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: bash scripts/smoke_wheel.sh
+
+      # Build the sdist too (smoke_wheel.sh built only the wheel into dist/).
+      # The wheel already in dist/ is the exact artifact the smoke test passed.
+      - name: Build sdist
         env:
           SETUPTOOLS_SCM_PRETEND_VERSION_FOR_LOAFER_ETL: ${{ steps.version.outputs.version }}
           SETUPTOOLS_SCM_PRETEND_VERSION: ${{ steps.version.outputs.version }}
-        run: uv build
+        run: uv build --sdist
 
       - name: Publish to PyPI
         run: uv publish --token "${{ secrets.PYPI_API_TOKEN }}"

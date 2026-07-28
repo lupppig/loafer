@@ -1,0 +1,4 @@
+interface:
+  display_name: "Loafer Engine"
+  short_description: "Build the scalable ETL and ELT data engine"
+  default_prompt: "Use $loafer-engine to implement a bounded, recoverable Loafer engine change."

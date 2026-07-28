@@ -33,6 +33,7 @@ dependencies = [
     "anthropic>=0.88.0",
     "openai>=2.30.0",
     "dashscope>=1.25.15",
+    "duckdb>=1.0",
 ]
 
 [project.scripts]

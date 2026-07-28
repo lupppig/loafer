@@ -1,3 +1,5 @@
+'use client'
+
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, useInView } from 'framer-motion';
 
@@ -76,10 +78,10 @@ export function TerminalAnimation() {
         setTypedCommand('');
       }
 
-      requestAnimationFrame(updateFrame);
+      frameId = requestAnimationFrame(updateFrame);
     };
 
-    const frameId = requestAnimationFrame(updateFrame);
+    let frameId = requestAnimationFrame(updateFrame);
 
     return () => {
       isCancelled = true;
@@ -135,7 +137,9 @@ export function TerminalAnimation() {
   );
 }
 
-function LineRenderer({ line, fill }: { line: any, fill: number }) {
+type TerminalLine = (typeof lines)[number];
+
+function LineRenderer({ line, fill }: { line: TerminalLine, fill: number }) {
   if (line.type === 'empty') return <div className="h-[1.6em]" />;
   
   if (line.type === 'progress') {
@@ -153,7 +157,7 @@ function LineRenderer({ line, fill }: { line: any, fill: number }) {
   }
 
   const renderPart = () => {
-    let content = line.text;
+    const content = line.text;
     
     // Highlight checkmarks
     if (content.includes('✓')) {

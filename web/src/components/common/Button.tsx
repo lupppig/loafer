@@ -1,3 +1,5 @@
+'use client'
+
 import React, { forwardRef } from 'react';
 import { cn } from '../../utils/cn';
 
@@ -26,7 +28,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     const classes = cn(baseStyles, variants[variant], sizes[size], className);
 
     if (asChild && React.isValidElement(props.children)) {
-      const child = props.children as React.ReactElement<any>;
+      const child = props.children as React.ReactElement<{
+        className?: string;
+        children?: React.ReactNode;
+      }>;
       return React.cloneElement(child, {
         className: cn(classes, child.props.className),
         ...props,

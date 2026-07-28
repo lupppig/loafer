@@ -33,6 +33,7 @@ def _resolve_runner(transform_type: str) -> TransformRunner:
     """Instantiate the correct TransformRunner for the given type."""
     from loafer.transform.ai_runner import AiTransformRunner
     from loafer.transform.custom_runner import CustomTransformRunner
+    from loafer.transform.pipeline_runner import PipelineTransformRunner
     from loafer.transform.sql_runner import SqlTransformRunner
 
     match transform_type:
@@ -42,7 +43,10 @@ def _resolve_runner(transform_type: str) -> TransformRunner:
             return CustomTransformRunner()
         case "sql":
             return SqlTransformRunner()
+        case "pipeline":
+            return PipelineTransformRunner()
         case _:
             raise TransformError(
-                f"Unknown transform type: '{transform_type}'. Expected one of: ai, custom, sql"
+                f"Unknown transform type: '{transform_type}'. "
+                "Expected one of: ai, custom, sql, pipeline"
             )

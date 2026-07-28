@@ -1,0 +1,4 @@
+interface:
+  display_name: "Loafer Workers"
+  short_description: "Build durable isolated pipeline workers"
+  default_prompt: "Use $loafer-workers to implement or review Loafer worker execution."

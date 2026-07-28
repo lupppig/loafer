@@ -1,7 +1,9 @@
-import React, { useEffect, useState, useRef } from 'react';
+'use client'
+
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import Fuse from 'fuse.js';
 import { Search } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useRouter } from 'next/navigation';
 
 interface SearchItem {
   title: string;
@@ -12,11 +14,15 @@ interface SearchItem {
 
 export function SearchModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<SearchItem[]>([]);
   const [index, setIndex] = useState<SearchItem[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const navigate = useNavigate();
+  const router = useRouter();
+  const closeModal = useCallback(() => {
+    setQuery('');
+    setSelectedIndex(0);
+    onClose();
+  }, [onClose]);
 
   // Load index on mount
   useEffect(() => {
@@ -26,46 +32,24 @@ export function SearchModal({ isOpen, onClose }: { isOpen: boolean, onClose: () 
       .catch(e => console.error('Failed to load search index', e));
   }, []);
 
-  // Cmd+K shortcut
-  useEffect(() => {
-    const down = (e: KeyboardEvent) => {
-      if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        if (isOpen) onClose();
-        else onClose(); // parent handles open
-      }
-    };
-    document.addEventListener('keydown', down);
-    return () => document.removeEventListener('keydown', down);
-  }, [isOpen, onClose]);
-
-  // Handle fuse seach
-  useEffect(() => {
-    if (!query) {
-      setResults([]);
-      return;
-    }
+  const results = useMemo(() => {
+    if (!query) return [];
     const fuse = new Fuse(index, {
       keys: ['title', 'excerpt', 'section'],
       threshold: 0.3,
       includeMatches: true
     });
-    const res = fuse.search(query).slice(0, 8).map(r => r.item);
-    setResults(res);
-    setSelectedIndex(0);
+    return fuse.search(query).slice(0, 8).map(r => r.item);
   }, [query, index]);
 
-  // Handle navigation
   useEffect(() => {
-    if (!isOpen) {
-      setQuery('');
-      return;
-    }
-    setTimeout(() => inputRef.current?.focus(), 50);
+    if (!isOpen) return;
+
+    const focusTimer = window.setTimeout(() => inputRef.current?.focus(), 50);
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-      if (e.key === 'ArrowDown') {
+      if (e.key === 'Escape') closeModal();
+      if (e.key === 'ArrowDown' && results.length > 0) {
         e.preventDefault();
         setSelectedIndex(s => Math.min(s + 1, results.length - 1));
       }
@@ -75,13 +59,16 @@ export function SearchModal({ isOpen, onClose }: { isOpen: boolean, onClose: () 
       }
       if (e.key === 'Enter' && results[selectedIndex]) {
         e.preventDefault();
-        navigate(results[selectedIndex].url);
-        onClose();
+        router.push(results[selectedIndex].url);
+        closeModal();
       }
     };
     document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, results, selectedIndex, navigate, onClose]);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, results, selectedIndex, router, closeModal]);
 
   if (!isOpen) return null;
 
@@ -90,7 +77,7 @@ export function SearchModal({ isOpen, onClose }: { isOpen: boolean, onClose: () 
       {/* Backdrop */}
       <div 
         className="fixed inset-0 bg-bg-base/80 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={closeModal}
       />
       
       {/* Modal */}
@@ -102,7 +89,10 @@ export function SearchModal({ isOpen, onClose }: { isOpen: boolean, onClose: () 
             className="flex-1 bg-transparent outline-none placeholder:text-text-muted text-[14px]"
             placeholder="Search documentation..."
             value={query}
-            onChange={e => setQuery(e.target.value)}
+            onChange={e => {
+              setQuery(e.target.value);
+              setSelectedIndex(0);
+            }}
           />
           <kbd className="hidden sm:inline-block font-sans text-[10px] uppercase font-semibold text-text-muted border border-border-subtle rounded-sm px-1.5 py-0.5 ml-2">ESC</kbd>
         </div>
@@ -114,7 +104,7 @@ export function SearchModal({ isOpen, onClose }: { isOpen: boolean, onClose: () 
                 key={i} 
                 className={`p-3 rounded-sm cursor-pointer transition-colors ${i === selectedIndex ? 'bg-bg-overlay' : ''}`}
                 onMouseEnter={() => setSelectedIndex(i)}
-                onClick={() => { navigate(res.url); onClose(); }}
+                onClick={() => { router.push(res.url); closeModal(); }}
               >
                 <div className="text-[12px] font-semibold text-text-primary mb-1">
                   {res.title} <span className="text-text-muted font-normal ml-2">{res.section}</span>

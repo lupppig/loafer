@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+'use client'
+
+import { useState } from 'react';
+import Link from 'next/link';
 import { Copy, Check } from 'lucide-react';
 import { Button } from '../common/Button';
 import { TerminalAnimation } from './TerminalAnimation';
-import { Link } from 'react-router-dom';
 import { cn } from '../../utils/cn';
 
 export function Hero() {
@@ -51,7 +53,7 @@ export function Hero() {
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3 w-full mb-8">
           <Button asChild size="md" className="h-9 px-8 w-full sm:w-auto text-[14px]">
-            <Link to="/docs/quickstart">Get started &rarr;</Link>
+            <Link href="/docs/quickstart">Get started &rarr;</Link>
           </Button>
           <Button asChild variant="outline" size="md" className="h-9 px-8 w-full sm:w-auto text-[14px] bg-bg-surface">
             <a href="https://github.com/lupppig/loafer" target="_blank" rel="noopener noreferrer">View on GitHub</a>

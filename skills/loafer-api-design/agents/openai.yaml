@@ -1,0 +1,4 @@
+interface:
+  display_name: "Loafer API Design"
+  short_description: "Design the multi-tenant control-plane API"
+  default_prompt: "Use $loafer-api-design to design or implement a safe Loafer API change."

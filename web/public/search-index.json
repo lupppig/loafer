@@ -147,13 +147,13 @@
     "title": "Database Connection",
     "url": "/docs/installation",
     "section": "Database Connection",
-    "excerpt": "DATABASE_URL=\"postgresql://user:password@localhost:5432/db\""
+    "excerpt": "DATABASE_URL=postgresql://user:password@localhost:5432/db"
   },
   {
     "title": "LLM Providers (Choose yours)",
     "url": "/docs/installation",
     "section": "LLM Providers (Choose yours)",
-    "excerpt": "GEMINI_API_KEY=\"AIzaSy...\" OPENAI_API_KEY=\"sk-...\" ANTHROPIC_API_KEY=\"sk-ant-...\" > **Supported Mode..."
+    "excerpt": "GEMINI_API_KEY=AIzaSy... OPENAI_API_KEY=sk-... ANTHROPIC_API_KEY=sk-ant-... > **Supported Models:**..."
   },
   {
     "title": "Docker",
@@ -204,6 +204,60 @@
     "excerpt": "<a href=\"/docs/installation\" className=\"flex-1 p-4 border border-border-default rounded-md bg-bg-sur..."
   },
   {
+    "title": "LLM Setup",
+    "url": "/docs/llms",
+    "section": "LLM Setup",
+    "excerpt": "Loafer uses Large Language Models (LLMs) to perform AI-powered transformations during your ETL/ELT p..."
+  },
+  {
+    "title": "Configuration Overview",
+    "url": "/docs/llms#configuration-overview",
+    "section": "LLM Setup",
+    "excerpt": "Configure the provider, model, and authentication in your `pipeline.yaml`. It's highly recommended t..."
+  },
+  {
+    "title": "Supported Providers",
+    "url": "/docs/llms#supported-providers",
+    "section": "LLM Setup",
+    "excerpt": ""
+  },
+  {
+    "title": "1. Gemini",
+    "url": "/docs/llms#1-gemini",
+    "section": "LLM Setup",
+    "excerpt": "Google's Gemini models are the default recommendation due to their large context windows and strong..."
+  },
+  {
+    "title": "2. OpenAI",
+    "url": "/docs/llms#2-openai",
+    "section": "LLM Setup",
+    "excerpt": "The standard, highly reliable models from OpenAI. **Configuration:** provider: openai model: gpt-4o..."
+  },
+  {
+    "title": "3. Claude",
+    "url": "/docs/llms#3-claude",
+    "section": "LLM Setup",
+    "excerpt": "Anthropic's Claude models excel at following complex instructional transformations and strict format..."
+  },
+  {
+    "title": "4. Qwen",
+    "url": "/docs/llms#4-qwen",
+    "section": "LLM Setup",
+    "excerpt": "Alibaba's robust open-weights model provider, excellent for highly cost-efficient pipelines. **Confi..."
+  },
+  {
+    "title": "Advanced Options",
+    "url": "/docs/llms#advanced-options",
+    "section": "LLM Setup",
+    "excerpt": "Beyond the core provider and model selection, you can optionally configure parameters such as the ba..."
+  },
+  {
+    "title": "Security Best Practices",
+    "url": "/docs/llms#security-best-practices",
+    "section": "LLM Setup",
+    "excerpt": "Never commit `pipeline.yaml` files with hardcoded API keys. Always use Loafer's built-in `${VAR_NAME..."
+  },
+  {
     "title": "Pipeline Configuration",
     "url": "/docs/pipelines",
     "section": "Pipeline Configuration",
@@ -234,15 +288,27 @@
     "excerpt": "Defines where to extract data from. | Key | Type | Required | Default | Description | |---|---|---|-..."
   },
   {
+    "title": "Type auto-detected as postgres from URL scheme",
+    "url": "/docs/pipelines",
+    "section": "Type auto-detected as postgres from URL scheme",
+    "excerpt": "url: ${DATABASE_URL} query: \"SELECT * FROM orders WHERE status = 'paid'\""
+  },
+  {
     "title": "`target`",
     "url": "/docs/pipelines#target",
-    "section": "Pipeline Configuration",
+    "section": "Type auto-detected as postgres from URL scheme",
     "excerpt": "Defines where to load data to. | Key | Type | Required | Default | Description | |---|---|---|---|--..."
+  },
+  {
+    "title": "Type auto-detected as json from .json file extension",
+    "url": "/docs/pipelines",
+    "section": "Type auto-detected as json from .json file extension",
+    "excerpt": "path: ./output/data.json"
   },
   {
     "title": "Environment variable interpolation",
     "url": "/docs/pipelines#environment-variable-interpolation",
-    "section": "Pipeline Configuration",
+    "section": "Type auto-detected as json from .json file extension",
     "excerpt": "You can safely interpolate environment variables anywhere in the pipeline using the `${VAR_NAME}` sy..."
   },
   {
@@ -333,7 +399,7 @@
     "title": "Complete example",
     "url": "/docs/sources#complete-example",
     "section": "Source Connectors",
-    "excerpt": "type: postgres url: postgresql://admin:${DB_PASS}@localhost:5432/production query: \"SELECT id, amoun..."
+    "excerpt": "url: postgresql://admin:${DB_PASS}@localhost:5432/production query: \"SELECT id, amount, created_at F..."
   },
   {
     "title": "Common errors",
@@ -357,13 +423,19 @@
     "title": "Complete example",
     "url": "/docs/sources#complete-example",
     "section": "Source Connectors",
-    "excerpt": "type: mongodb url: mongodb+srv://cluster.mongodb.net database: ecom collection: users > **Notes:** M..."
+    "excerpt": "url: mongodb+srv://cluster.mongodb.net database: ecom collection: users > **Notes:** MongoDB `Object..."
   },
   {
     "title": "CSV & Excel",
     "url": "/docs/sources#csv-excel",
     "section": "Source Connectors",
     "excerpt": "When extracting from standard system files, Loafer defaults to a line-by-line generator which is inf..."
+  },
+  {
+    "title": "Incremental Loading",
+    "url": "/docs/sources#incremental-loading",
+    "section": "Source Connectors",
+    "excerpt": "For SQL sources (`postgres`, `mysql`, `sqlite`) and `rest_api`, Loafer can extract only rows newer t..."
   },
   {
     "title": "Target Connectors",
@@ -387,7 +459,7 @@
     "title": "Complete example",
     "url": "/docs/targets#complete-example",
     "section": "Target Connectors",
-    "excerpt": "type: postgres url: postgresql://analytics:${DB_PASS}@localhost:5432/wh table: fact_orders mode: ove..."
+    "excerpt": "url: postgresql://analytics:${DB_PASS}@localhost:5432/wh table: fact_orders write_mode: replace > [!..."
   },
   {
     "title": "MongoDB",
@@ -405,13 +477,19 @@
     "title": "Complete example",
     "url": "/docs/targets#complete-example",
     "section": "Target Connectors",
-    "excerpt": "type: mongodb url: mongodb://${MONGO_USER}:${MONGO_PASS}@localhost:27017/ database: loafer_db collec..."
+    "excerpt": "url: mongodb://${MONGO_USER}:${MONGO_PASS}@localhost:27017/ database: loafer_db collection: customer..."
   },
   {
     "title": "JSON",
     "url": "/docs/targets#json",
     "section": "Target Connectors",
     "excerpt": "A local target system to flush records into standard `ndjson` (Newline Delimited JSON) or pure JSON..."
+  },
+  {
+    "title": "Upsert (idempotent loads)",
+    "url": "/docs/targets#upsert-idempotent-loads",
+    "section": "Target Connectors",
+    "excerpt": "PostgreSQL and MongoDB targets support `write_mode: upsert` — rows are matched on a `key` and update..."
   },
   {
     "title": "Transform Modes",
@@ -472,5 +550,11 @@
     "url": "/docs/transform#custom-python-mode",
     "section": "Transform Modes",
     "excerpt": "If your transformation logic spans hundreds of lines or involves complex API integrations not fit fo..."
+  },
+  {
+    "title": "Sandboxing",
+    "url": "/docs/transform#sandboxing",
+    "section": "Transform Modes",
+    "excerpt": "Both AI-generated and custom transform code run in an **isolated, resource-limited subprocess** — no..."
   }
 ]

@@ -1,6 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { ArrowUpRight, Star, Menu, X } from 'lucide-react';
+'use client'
+
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { ArrowUpRight, Star, Menu, X, PanelsTopLeft } from 'lucide-react';
 import { NavLink } from './NavLink';
 import { Button } from '../common/Button';
 import { cn } from '../../utils/cn';
@@ -8,7 +10,6 @@ import { cn } from '../../utils/cn';
 export function Topbar() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const location = useLocation();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -17,11 +18,6 @@ export function Topbar() {
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
-
-  // Close mobile menu on route change
-  useEffect(() => {
-    setMobileMenuOpen(false);
-  }, [location.pathname]);
 
   return (
     <>
@@ -35,14 +31,15 @@ export function Topbar() {
       >
         <div className="w-full max-w-7xl px-6 flex items-center justify-between">
           <Link 
-            to="/" 
+            href="/"
             className="font-sans font-semibold text-base text-text-primary flex items-center outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-sm transition-opacity hover:opacity-80"
           >
             loafer
           </Link>
 
           <nav className="hidden md:flex items-center gap-6">
-            <NavLink to="/docs">Docs</NavLink>
+            <NavLink href="/docs">Docs</NavLink>
+            <NavLink href="/studio">Studio preview</NavLink>
             <a href="https://github.com/lupppig/loafer" target="_blank" rel="noopener noreferrer" className="flex items-center text-[13px] font-medium text-text-muted hover:text-text-primary transition-colors h-full px-2 mt-[2px] group">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 mr-1.5 opacity-70 group-hover:opacity-100 transition-opacity">
                 <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/>
@@ -51,7 +48,7 @@ export function Topbar() {
               GitHub
               <ArrowUpRight className="w-3.5 h-3.5 opacity-50 group-hover:opacity-100 transition-opacity ml-0.5" />
             </a>
-            <NavLink to="/changelog">Changelog</NavLink>
+            <NavLink href="/changelog">Changelog</NavLink>
             
             <div className="w-px h-4 bg-border-default mx-2" />
 
@@ -89,8 +86,12 @@ export function Topbar() {
         )}
       >
         <nav className="flex flex-col items-center justify-center h-full gap-8 px-6 text-center">
-          <Link to="/docs" className="text-2xl font-semibold text-text-primary hover:text-indigo-400 transition-colors">Docs</Link>
-          <Link to="/changelog" className="text-2xl font-semibold text-text-primary hover:text-indigo-400 transition-colors">Changelog</Link>
+          <Link onClick={() => setMobileMenuOpen(false)} href="/docs" className="text-2xl font-semibold text-text-primary hover:text-indigo-400 transition-colors">Docs</Link>
+          <Link onClick={() => setMobileMenuOpen(false)} href="/studio" className="flex items-center gap-3 text-2xl font-semibold text-text-primary hover:text-indigo-400 transition-colors">
+            Studio preview
+            <PanelsTopLeft className="w-5 h-5 opacity-50" />
+          </Link>
+          <Link onClick={() => setMobileMenuOpen(false)} href="/changelog" className="text-2xl font-semibold text-text-primary hover:text-indigo-400 transition-colors">Changelog</Link>
           <a 
             href="https://github.com/lupppig/loafer" 
             target="_blank" 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Loafer Authentication"
+  short_description: "Build secure identity and tenant access"
+  default_prompt: "Use $loafer-auth to implement or review Loafer authentication and tenant access."

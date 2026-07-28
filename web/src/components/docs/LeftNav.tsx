@@ -1,5 +1,7 @@
-import React from 'react';
-import { NavLink } from 'react-router-dom';
+'use client'
+
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { Search, ArrowUpRight, X } from 'lucide-react';
 import { cn } from '../../utils/cn';
 
@@ -43,6 +45,8 @@ const NAV_GROUPS = [
 ];
 
 export function LeftNav({ onSearchClick, isMobileOpen, onClose }: { onSearchClick: () => void, isMobileOpen?: boolean, onClose?: () => void }) {
+  const pathname = usePathname();
+
   return (
     <nav className={cn(
       "w-[240px] shrink-0 bg-bg-base border-r border-border-subtle h-[calc(100vh-52px)] sticky top-[52px] overflow-y-auto select-none scrollbar-hide z-50 transition-transform duration-300",
@@ -79,19 +83,19 @@ export function LeftNav({ onSearchClick, isMobileOpen, onClose }: { onSearchClic
             </h4>
             <div className="flex flex-col gap-0.5">
               {group.items.map((item, j) => (
-                <NavLink
+                <Link
                   key={j}
-                  to={item.path}
+                  href={item.path}
                   onClick={() => onClose?.()}
-                  className={({ isActive }) => cn(
+                  className={cn(
                     "h-7 flex items-center px-2 text-[13px] rounded-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-indigo-500",
-                    isActive 
+                    pathname === item.path
                       ? "text-text-primary bg-indigo-950 font-medium border-l-2 border-indigo-500 pl-1.5" 
                       : "text-text-secondary hover:bg-bg-overlay hover:text-text-primary border-l-2 border-transparent pl-2"
                   )}
                 >
                   {item.name}
-                </NavLink>
+                </Link>
               ))}
             </div>
           </div>
@@ -111,14 +115,14 @@ export function LeftNav({ onSearchClick, isMobileOpen, onClose }: { onSearchClic
               GitHub
               <ArrowUpRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity text-text-muted" />
             </a>
-            <NavLink 
-              to="/changelog" 
+            <Link
+              href="/changelog"
               onClick={() => onClose?.()}
               className="h-7 flex items-center justify-between px-2 text-[13px] text-text-secondary rounded-sm hover:bg-bg-overlay hover:text-text-primary transition-colors group outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 border-l-2 border-transparent"
             >
               Changelog
               <ArrowUpRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity text-text-muted" />
-            </NavLink>
+            </Link>
           </div>
         </div>
       </div>

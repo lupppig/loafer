@@ -1,0 +1,4 @@
+interface:
+  display_name: "Loafer Web Scraping"
+  short_description: "Build durable browser and HTTP ingestion"
+  default_prompt: "Use $loafer-web-scraping to design a safe, resumable web crawling source for Loafer."

@@ -1,21 +1,29 @@
-import React from 'react';
-import { NavLink as RouterNavLink, NavLinkProps as RouterNavLinkProps } from 'react-router-dom';
-import { cn } from '../../utils/cn';
+'use client'
 
-export interface NavLinkProps extends RouterNavLinkProps {
-  className?: string;
-  activeClassName?: string;
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import type { AnchorHTMLAttributes } from 'react'
+import { cn } from '../../utils/cn'
+
+export interface NavLinkProps
+  extends Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> {
+  href: string
+  activeClassName?: string
 }
 
-export function NavLink({ className, activeClassName, ...props }: NavLinkProps) {
+export function NavLink({ className, activeClassName, href, ...props }: NavLinkProps) {
+  const pathname = usePathname()
+  const isActive = pathname === href || (href !== '/' && pathname.startsWith(`${href}/`))
+
   return (
-    <RouterNavLink
+    <Link
       {...props}
-      className={({ isActive }) => cn(
+      href={href}
+      className={cn(
         'text-[13px] text-text-secondary transition-colors hover:text-text-primary hover:underline underline-offset-4 decoration-border-strong rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-indigo-500',
         isActive && cn('text-text-primary', activeClassName),
-        className
+        className,
       )}
     />
-  );
+  )
 }

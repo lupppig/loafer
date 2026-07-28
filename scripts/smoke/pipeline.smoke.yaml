@@ -1,0 +1,30 @@
+# Hermetic smoke pipeline used by scripts/smoke_test.sh.
+#
+# CSV -> JSON with a custom passthrough transform. No API keys, no databases,
+# no network. Paths are "./"-prefixed so Loafer resolves them relative to THIS
+# file's directory (see loafer/config.py::_walk_and_resolve), making the run
+# independent of the current working directory — important when the same config
+# is executed from a mounted volume inside a container.
+#
+# The point of this file is NOT to exercise features; it is to prove that a
+# freshly built artifact (PyPI wheel / Docker image) can import its deps and run
+# a real pipeline end-to-end. This is the check that the contaminated dev .venv
+# hides (e.g. BUG-1: missing `click` dependency).
+
+name: Loafer Smoke Test
+
+source:
+  path: ./sample.csv
+
+target:
+  path: ./out/smoke_output.json
+
+transform:
+  path: ./passthrough.py
+
+mode: etl
+chunk_size: 500
+
+validation:
+  max_null_rate: 0.5
+  strict: false
