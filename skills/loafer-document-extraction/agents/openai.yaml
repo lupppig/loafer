@@ -1,0 +1,4 @@
+interface:
+  display_name: "Loafer Document Extraction"
+  short_description: "Build reliable PDF and document ingestion"
+  default_prompt: "Use $loafer-document-extraction to design a production-grade PDF extraction pipeline for Loafer."

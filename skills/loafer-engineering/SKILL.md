@@ -20,6 +20,8 @@ Use the narrow skill when the task is owned by one surface:
 - `$loafer-engine` for connectors, transforms, batch execution, and data correctness.
 - `$loafer-web-scraping` for HTTP/browser crawling, authentication, frontiers, discovered PDFs,
   and crawl safety.
+- `$loafer-document-extraction` for native PDF parsing, tables, OCR, page provenance, document
+  quality, and parser-worker isolation.
 - `$loafer-workers` for queues, leases, isolation, retries, and worker lifecycle.
 - `$loafer-self-hosting` for containers, Compose, Kubernetes, upgrades, and open-source releases.
 

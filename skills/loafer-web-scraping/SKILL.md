@@ -51,7 +51,7 @@ crawler, browser, credentials, or crawl frontier in the Next.js process.
   logs, or samples.
 - Isolate browser contexts per crawl identity and close them deterministically.
 - Treat downloaded files as artifacts. Route discovered PDFs through the existing PDF source
-  capability for text/table extraction.
+  capability and use `$loafer-document-extraction` for text, tables, OCR, quality, and provenance.
 - Do not claim OCR for scanned PDFs until an OCR adapter, limits, quality reporting, and tests
   exist.
 

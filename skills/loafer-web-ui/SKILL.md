@@ -17,8 +17,9 @@ source or target database credentials, or infer authoritative run state in brows
 3. Read [references/visual-direction.md](references/visual-direction.md) for landing-page, 3D,
    illustration, mascot, or brand-system work.
 4. Use `$loafer-web-scraping` for crawler configuration, frontier, and crawl-run semantics.
-5. Confirm whether data is live, mocked, or unavailable. Label non-live surfaces.
-6. Inspect `git status --short` and preserve unrelated changes.
+5. Use `$loafer-document-extraction` for PDF upload, preview, OCR, provenance, and quality states.
+6. Confirm whether data is live, mocked, or unavailable. Label non-live surfaces.
+7. Inspect `git status --short` and preserve unrelated changes.
 
 ## Apply the product model
 

@@ -174,6 +174,10 @@ It will support bounded crawling, authorized authenticated sessions, JavaScript 
 download/PDF discovery behind isolated workers. This is roadmap architecture, not a shipped
 connector.
 
+Planned database expansion treats ClickHouse, MariaDB, TiDB, Tiger Data/TimescaleDB, CouchDB, and
+TigerGraph as separately tested connectors or capability profiles. Protocol compatibility with
+MySQL or PostgreSQL is not treated as proof of equivalent behavior.
+
 Deployment targets:
 
 - **Startup:** Docker Compose with separate web/API, scheduler, worker, PostgreSQL, NATS, and
@@ -189,6 +193,7 @@ Implementation guidance lives in the repository skills:
 - `loafer-auth`
 - `loafer-api-design`
 - `loafer-engine`
+- `loafer-document-extraction`
 - `loafer-web-scraping`
 - `loafer-workers`
 - `loafer-self-hosting`

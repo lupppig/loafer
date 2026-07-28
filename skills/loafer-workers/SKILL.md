@@ -15,6 +15,7 @@ deployable from the API, scheduler, web, and CLI.
 3. Define crash points and the durable state before and after each point.
 4. Identify tenant, environment, pool, network, and resource isolation requirements.
 5. Use `$loafer-web-scraping` for browser workers, crawl frontiers, and per-page semantics.
+6. Use `$loafer-document-extraction` for parser/OCR worker limits, artifacts, and page semantics.
 
 ## Claim work safely
 

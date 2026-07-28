@@ -1,6 +1,6 @@
 ---
 name: loafer-api-design
-description: Design, implement, review, or document Loafer's versioned multi-tenant control-plane API. Use for authentication, organizations, workspaces, pipelines, web crawl sources, crawl previews and frontiers, versions, connections, secrets, schedules, runs, events, metrics, logs, quality, artifacts, authorization, idempotency, pagination, OpenAPI, SSE, and webhooks.
+description: Design, implement, review, or document Loafer's versioned multi-tenant control-plane API. Use for authentication, organizations, workspaces, pipelines, PDF/document and web-crawl sources, asynchronous previews, crawl frontiers, versions, connections, secrets, schedules, runs, events, metrics, logs, quality, artifacts, authorization, idempotency, pagination, OpenAPI, SSE, and webhooks.
 ---
 
 # Loafer API Design
@@ -11,10 +11,11 @@ HTTP request processes.
 ## Start
 
 1. Use `$loafer-auth` for identity, sessions, organizations, SSO, and machine credentials.
-2. Read [references/resource-model.md](references/resource-model.md).
-3. Inspect current engine/application boundaries and persistence before choosing endpoints.
-4. Define the resource, actor, tenant, state transition, idempotency behavior, and audit event.
-5. Preserve API compatibility or version the breaking change.
+2. Use `$loafer-document-extraction` for document source, preview, artifact, and quality semantics.
+3. Read [references/resource-model.md](references/resource-model.md).
+4. Inspect current engine/application boundaries and persistence before choosing endpoints.
+5. Define the resource, actor, tenant, state transition, idempotency behavior, and audit event.
+6. Preserve API compatibility or version the breaking change.
 
 ## Enforce the control-plane boundary
 

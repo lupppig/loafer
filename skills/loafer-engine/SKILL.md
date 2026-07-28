@@ -53,6 +53,9 @@ Define capability flags for discovery, streaming, partitioning, incremental curs
 bulk load, staging, merge, upsert, and transactional publication. Fail unsupported combinations at
 validation time. Require live integration tests against pinned service versions.
 
+For PDF text/tables, scanned documents, OCR, layout extraction, page provenance, and document
+quality, use `$loafer-document-extraction`. Keep document parsing behind the normal source port.
+
 For web scraping, recursive crawling, JavaScript rendering, authenticated browser sessions, or
 download discovery, use `$loafer-web-scraping`. Keep the crawler behind a source port and return
 normal bounded record batches; do not embed crawling policy or browser lifecycle in an agent.
