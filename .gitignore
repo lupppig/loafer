@@ -214,3 +214,11 @@ __marimo__/
 
 # Generated example outputs
 examples/output/
+
+# Local benchmark artifacts and reports
+benchmarks/results/
+benchmarks/work/
+
+.codex
+.qodo
+.agents

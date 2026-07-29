@@ -50,6 +50,7 @@ class LLMProvider(ABC):
         instruction: str,
         previous_error: str | None = None,
         previous_code: str | None = None,
+        custom_code: str | None = None,
     ) -> TransformPromptResult:
         """Generate a Python ``transform(data)`` function."""
 

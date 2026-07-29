@@ -1,0 +1,20 @@
+# Escape hatch: keep the instruction documented in the config but skip the
+# model entirely and run only the custom transform. No API key needed.
+name: bypass_ai
+
+mode: etl
+
+source:
+  path: examples/data/orders.csv
+
+transform:
+  type: ai
+  instruction: >-
+    Lowercase and trim every email address, drop orders whose status is
+    cancelled or refunded, and add an amount_usd column.
+  custom_path: examples/transforms/tag_region.py
+  bypass_ai: true
+
+target:
+  path: examples/output/04_bypass_ai.json
+  write_mode: overwrite

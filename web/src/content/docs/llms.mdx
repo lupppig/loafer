@@ -13,13 +13,15 @@ To use AI transformations, you must provide your preferred LLM configuration in 
 
 ## Configuration Overview
 
-Configure the provider, model, and authentication in your `pipeline.yaml`. It's highly recommended to use environment variable substitution (`${ENV_VAR}`) to avoid hardcoding secrets.
+Configure the provider and authentication in your `pipeline.yaml`. The `model` field is optional:
+when omitted, Loafer selects the provider-specific default listed below. Pin a model explicitly
+when reproducibility across Loafer upgrades matters. Use environment variable substitution
+(`${ENV_VAR}`) instead of hardcoding secrets.
 
 ```yaml
 llm:
-  provider: gemini          # gemini, openai, claude, qwen
-  model: gemini-2.5-flash   # Model specific to the provider
-  api_key: ${API_KEY}       # Resolved from your environment
+  provider: gemini
+  api_key: ${GEMINI_API_KEY}
 ```
 
 ---
@@ -27,13 +29,13 @@ llm:
 ## Supported Providers
 
 ### 1. Gemini
-Google's Gemini models are the default recommendation due to their large context windows and strong code-generation capabilities.
+Gemini is Loafer's default provider. The default model is `gemini-3.6-flash`.
 
 **Configuration:**
 ```yaml
 llm:
   provider: gemini
-  model: gemini-2.5-flash   # Or gemini-2.0-pro
+  model: gemini-3.6-flash
   api_key: ${GEMINI_API_KEY}
 ```
 
@@ -43,13 +45,13 @@ export GEMINI_API_KEY="your-gemini-api-key"
 ```
 
 ### 2. OpenAI
-The standard, highly reliable models from OpenAI.
+The default model is `gpt-5.6-terra`, selected to balance transformation quality and cost.
 
 **Configuration:**
 ```yaml
 llm:
   provider: openai
-  model: gpt-4o             # Or gpt-4o-mini
+  model: gpt-5.6-terra
   api_key: ${OPENAI_API_KEY}
 ```
 
@@ -59,13 +61,13 @@ export OPENAI_API_KEY="your-openai-api-key"
 ```
 
 ### 3. Claude
-Anthropic's Claude models excel at following complex instructional transformations and strict formatting criteria.
+The default model is `claude-sonnet-5`.
 
 **Configuration:**
 ```yaml
 llm:
   provider: claude
-  model: claude-3-5-sonnet-20241022  # Or claude-3-haiku
+  model: claude-sonnet-5
   api_key: ${ANTHROPIC_API_KEY}
 ```
 
@@ -75,13 +77,13 @@ export ANTHROPIC_API_KEY="your-anthropic-api-key"
 ```
 
 ### 4. Qwen
-Alibaba's robust open-weights model provider, excellent for highly cost-efficient pipelines.
+The default model is `qwen3.7-plus`.
 
 **Configuration:**
 ```yaml
 llm:
   provider: qwen
-  model: qwen-max           # Or qwen-plus, qwen-turbo
+  model: qwen3.7-plus
   api_key: ${QWEN_API_KEY}
 ```
 
@@ -92,18 +94,18 @@ export QWEN_API_KEY="your-qwen-api-key"
 
 ---
 
-## Advanced Options
+## Default Selection and Model Pins
 
-Beyond the core provider and model selection, you can optionally configure parameters such as the base URL (useful for custom endpoints or proxies) and max retries:
+Omit `model` to follow the default shipped with your installed Loafer version:
 
 ```yaml
 llm:
-  provider: openai
-  model: gpt-4o
-  api_key: ${OPENAI_API_KEY}
-  base_url: "https://your-custom-proxy.com/v1"
-  temperature: 0.0          # Defaults to 0.0 to ensure deterministic transformations
+  provider: claude
+  api_key: ${ANTHROPIC_API_KEY}
 ```
+
+For reproducible production pipelines, pin the tested provider-native model ID and review model
+changes during Loafer upgrades.
 
 ## Security Best Practices
 Never commit `pipeline.yaml` files with hardcoded API keys. Always use Loafer's built-in `${VAR_NAME}` syntax to securely source secrets at runtime.

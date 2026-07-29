@@ -2,26 +2,45 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
+from psycopg2 import sql
+
+from loafer.adapters.postgres_sql import column_list, qualified_identifier
+from loafer.core.identifiers import split_qualified_name
 from loafer.ports.connector import TargetConnector
 
 
-def _build_upsert_sql(table: str, cols: list[str], keys: list[str]) -> str:
+def _build_upsert_sql(table: str, cols: list[str], keys: list[str]) -> sql.Composed:
     """Build an ``INSERT ... ON CONFLICT DO UPDATE`` statement for execute_values.
 
     Non-key columns are updated from ``EXCLUDED``; when every column is a key the
     conflict is a no-op (``DO NOTHING``).
     """
-    col_names = ", ".join(f'"{c}"' for c in cols)
-    conflict = ", ".join(f'"{k}"' for k in keys)
     updates = [c for c in cols if c not in keys]
     if updates:
-        set_clause = ", ".join(f'"{c}" = EXCLUDED."{c}"' for c in updates)
-        action = f"DO UPDATE SET {set_clause}"
+        assignments = sql.SQL(", ").join(
+            sql.SQL("{} = EXCLUDED.{}").format(sql.Identifier(column), sql.Identifier(column))
+            for column in updates
+        )
+        action = sql.SQL("DO UPDATE SET {}").format(assignments)
     else:
-        action = "DO NOTHING"
-    return f"INSERT INTO {table} ({col_names}) VALUES %s ON CONFLICT ({conflict}) {action}"
+        action = sql.SQL("DO NOTHING")
+    return sql.SQL("INSERT INTO {} ({}) VALUES %s ON CONFLICT ({}) {}").format(
+        qualified_identifier(table),
+        column_list(cols),
+        column_list(keys),
+        action,
+    )
+
+
+def _build_insert_sql(table: str, columns: list[str]) -> sql.Composed:
+    """Build a safely composed INSERT statement for execute_values."""
+    return sql.SQL("INSERT INTO {} ({}) VALUES %s").format(
+        qualified_identifier(table),
+        column_list(columns),
+    )
 
 
 class PostgresTargetConnector(TargetConnector):
@@ -67,7 +86,8 @@ class PostgresTargetConnector(TargetConnector):
 
         if self._write_mode == "replace":
             try:
-                self._cursor.execute(f"DROP TABLE IF EXISTS {self._table}")
+                query = sql.SQL("DROP TABLE IF EXISTS {}").format(qualified_identifier(self._table))
+                self._cursor.execute(query)
                 self._conn.commit()
             except psycopg2.Error as exc:
                 self._conn.rollback()
@@ -121,8 +141,7 @@ class PostgresTargetConnector(TargetConnector):
             if is_upsert:
                 query = _build_upsert_sql(self._table, cols, self._key)
             else:
-                col_names = ", ".join(cols)
-                query = f"INSERT INTO {self._table} ({col_names}) VALUES %s"
+                query = _build_insert_sql(self._table, cols)
             values = [self._serialize_value(row, cols) for row in batch]
 
             try:
@@ -143,15 +162,16 @@ class PostgresTargetConnector(TargetConnector):
     def _table_exists(self) -> bool:
         import psycopg2
 
+        schema, table = split_qualified_name(self._table)
         query = """
             SELECT EXISTS (
                 SELECT FROM information_schema.tables
-                WHERE table_schema = 'public'
+                WHERE table_schema = %s
                 AND table_name = %s
             )
         """
         try:
-            self._cursor.execute(query, (self._table,))
+            self._cursor.execute(query, (schema, table))
             return bool(self._cursor.fetchone()[0])
         except psycopg2.Error:
             return False
@@ -159,12 +179,20 @@ class PostgresTargetConnector(TargetConnector):
     def _create_table(self, sample_row: dict[str, Any]) -> None:
         import psycopg2
 
-        col_defs: list[str] = []
+        col_defs: list[sql.Composed] = []
         for col, val in sample_row.items():
             pg_type = self._infer_pg_type(val)
-            col_defs.append(f'"{col}" {pg_type}')
+            col_defs.append(
+                sql.SQL("{} {}").format(
+                    sql.Identifier(col),
+                    sql.SQL(pg_type),
+                )
+            )
 
-        query = f"CREATE TABLE {self._table} ({', '.join(col_defs)})"
+        query = sql.SQL("CREATE TABLE {} ({})").format(
+            qualified_identifier(self._table),
+            sql.SQL(", ").join(col_defs),
+        )
         try:
             self._cursor.execute(query)
             self._conn.commit()
@@ -182,9 +210,13 @@ class PostgresTargetConnector(TargetConnector):
         """Create a unique index on the key columns so ON CONFLICT has a target."""
         import psycopg2
 
-        cols = ", ".join(f'"{k}"' for k in self._key)
-        index_name = f"loafer_uq_{self._table.replace('.', '_')}_{'_'.join(self._key)}"
-        query = f'CREATE UNIQUE INDEX IF NOT EXISTS "{index_name}" ON {self._table} ({cols})'
+        identity = f"{self._table}:{','.join(self._key)}".encode()
+        index_name = f"loafer_uq_{hashlib.sha256(identity).hexdigest()[:16]}"
+        query = sql.SQL("CREATE UNIQUE INDEX IF NOT EXISTS {} ON {} ({})").format(
+            sql.Identifier(index_name),
+            qualified_identifier(self._table),
+            column_list(self._key),
+        )
         try:
             self._cursor.execute(query)
             self._conn.commit()
@@ -193,7 +225,7 @@ class PostgresTargetConnector(TargetConnector):
             from loafer.exceptions import LoadError
 
             raise LoadError(
-                f"failed to create unique index on {self._table} ({cols}) — "
+                f"failed to create unique index on {self._table} ({', '.join(self._key)}) — "
                 f"existing data may contain duplicate keys: {exc}"
             ) from exc
 

@@ -181,11 +181,8 @@ def run_pipeline(
     state = _build_initial_state(config, config_path, full_refresh)
     state["auto_confirmed"] = yes
 
-    if config.transform.type == "ai":
-        ai_config = config.transform
-        if not ai_config.bypass_ai:
-            llm_provider = _build_llm_provider(config)
-            state["llm_provider"] = llm_provider
+    if _transform_requires_llm(config):
+        state["llm_provider"] = _build_llm_provider(config)
 
     mode = config.mode
 
@@ -201,15 +198,18 @@ def run_pipeline(
             state = _run_dry_run(graph, state, mode)
         else:
             state = graph.invoke(state, config=_GRAPH_CONFIG)
+            _raise_on_terminal_failure(state, mode)
     except Exception as exc:
         total_ms = (time.monotonic() - start) * 1000
         state["duration_ms"]["total"] = total_ms
         _cleanup_source_connector(state)
+        _cleanup_elt_staging(state, mode)
         raise PipelineError(f"Pipeline failed (run_id={state['run_id']}): {exc}") from exc
 
     total_ms = (time.monotonic() - start) * 1000
     state["duration_ms"]["total"] = total_ms
     _cleanup_source_connector(state)
+    _cleanup_elt_staging(state, mode)
 
     if not dry_run:
         _persist_cursor(state)
@@ -243,11 +243,8 @@ def run_pipeline_streaming(
     state = _build_initial_state(config, config_path, full_refresh)
     state["auto_confirmed"] = yes
 
-    if config.transform.type == "ai":
-        ai_config = config.transform
-        if not ai_config.bypass_ai:
-            llm_provider = _build_llm_provider(config)
-            state["llm_provider"] = llm_provider
+    if _transform_requires_llm(config):
+        state["llm_provider"] = _build_llm_provider(config)
 
     mode = config.mode
 
@@ -265,14 +262,17 @@ def run_pipeline_streaming(
             yield from _stream_graph(graph, state, mode, start)
     except PipelineError:
         _cleanup_source_connector(state)
+        _cleanup_elt_staging(state, mode)
         raise
     except Exception as exc:
         total_ms = (time.monotonic() - start) * 1000
         state["duration_ms"]["total"] = total_ms
         _cleanup_source_connector(state)
+        _cleanup_elt_staging(state, mode)
         raise PipelineError(f"Pipeline failed (run_id={state['run_id']}): {exc}") from exc
     else:
         _cleanup_source_connector(state)
+        _cleanup_elt_staging(state, mode)
         if not dry_run:
             _persist_cursor(state)
 
@@ -314,6 +314,8 @@ def _stream_graph(
                     "load_raw",
                     "transform_in_target",
                 ):
+                    if node_name == "transform_in_target" and state.get("last_error"):
+                        continue
                     yield (node_name, "done", state)
 
                     # Yield "running" for the next expected stage
@@ -327,6 +329,16 @@ def _stream_graph(
         for stage in expected - nodes_executed:
             yield (stage, "skipped", state)
 
+        if mode == "elt" and state.get("last_error"):
+            yield ("transform_in_target", "failed", state)
+            total_ms = (time.monotonic() - start) * 1000
+            state["duration_ms"]["total"] = total_ms
+            raise PipelineError(
+                f"Pipeline failed (run_id={state['run_id']}): {state['last_error']}"
+            )
+
+    except PipelineError:
+        raise
     except Exception as exc:
         # The stage that failed is the next expected stage that hasn't completed
         failed_stage = next(
@@ -526,6 +538,16 @@ def _persist_cursor(state: PipelineState) -> None:
     StateStore(store_path).set_cursor(state["state_key"], new_cursor)
 
 
+def _transform_requires_llm(config: PipelineConfig) -> bool:
+    """Return whether the top-level transform or any pipeline step uses AI."""
+    transform = config.transform
+    if transform.type == "ai":
+        return not transform.bypass_ai
+    if transform.type == "pipeline":
+        return any(step.type == "ai" and not step.bypass_ai for step in transform.steps)
+    return False
+
+
 def _cleanup_source_connector(state: PipelineState) -> None:
     """Disconnect the source connector if it was kept alive for streaming."""
     connector = state.get("_source_connector")
@@ -535,3 +557,49 @@ def _cleanup_source_connector(state: PipelineState) -> None:
         except Exception:
             pass
         state["_source_connector"] = None
+
+
+def _raise_on_terminal_failure(state: PipelineState, mode: str) -> None:
+    """Raise when a graph exhausted retries but returned an error state."""
+    if mode == "elt" and state.get("last_error"):
+        raise PipelineError(str(state["last_error"]))
+
+
+def _cleanup_elt_staging(state: PipelineState, mode: str) -> None:
+    """Best-effort removal of the per-run PostgreSQL staging table."""
+    if mode != "elt":
+        return
+
+    raw_table = state.get("raw_table_name")
+    target_config = state.get("target_config")
+    if not raw_table or not hasattr(target_config, "url"):
+        return
+
+    conn: Any | None = None
+    cursor: Any | None = None
+    try:
+        import psycopg2
+        from psycopg2 import sql as pg_sql
+
+        from loafer.adapters.postgres_sql import qualified_identifier
+
+        conn = psycopg2.connect(target_config.url)
+        cursor = conn.cursor()
+        cursor.execute(
+            pg_sql.SQL("DROP TABLE IF EXISTS {}").format(qualified_identifier(raw_table))
+        )
+        conn.commit()
+    except Exception as exc:
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        state.setdefault("warnings", []).append(
+            f"Could not remove ELT staging table '{raw_table}': {exc}"
+        )
+    finally:
+        if cursor is not None:
+            cursor.close()
+        if conn is not None:
+            conn.close()

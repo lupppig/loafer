@@ -81,3 +81,53 @@ class TestCsvTargetConnector:
 
         rows = list(csv.DictReader(f.open()))
         assert rows[0]["text"] == "hello, world"
+
+    def test_final_path_is_unchanged_until_successful_finalize(self, tmp_path: Any) -> None:
+        f = tmp_path / "out.csv"
+        f.write_text("old data")
+
+        with CsvTargetConnector(str(f)) as conn:
+            conn.write_chunk([{"new": "data"}])
+            assert f.read_text() == "old data"
+            assert len(list(tmp_path.glob(".out.csv.*.tmp"))) == 1
+
+        assert "new" in f.read_text()
+        assert not list(tmp_path.glob(".out.csv.*.tmp"))
+
+    def test_body_failure_preserves_existing_file_and_discards_temp(self, tmp_path: Any) -> None:
+        f = tmp_path / "out.csv"
+        f.write_text("known-good")
+
+        with (
+            pytest.raises(RuntimeError, match="pipeline failed"),
+            CsvTargetConnector(str(f)) as conn,
+        ):
+            conn.write_chunk([{"new": "partial"}])
+            raise RuntimeError("pipeline failed")
+
+        assert f.read_text() == "known-good"
+        assert not list(tmp_path.glob(".out.csv.*.tmp"))
+
+    def test_body_failure_never_publishes_new_file(self, tmp_path: Any) -> None:
+        f = tmp_path / "out.csv"
+
+        with pytest.raises(RuntimeError), CsvTargetConnector(str(f)) as conn:
+            conn.write_chunk([{"new": "partial"}])
+            raise RuntimeError("disk full")
+
+        assert not f.exists()
+        assert not list(tmp_path.glob(".out.csv.*.tmp"))
+
+    def test_error_mode_detects_finalize_race_without_overwrite(self, tmp_path: Any) -> None:
+        f = tmp_path / "out.csv"
+        conn = CsvTargetConnector(str(f), write_mode="error")
+        conn.connect()
+        conn.write_chunk([{"candidate": 1}])
+        f.write_text("concurrent-winner")
+
+        with pytest.raises(LoadError, match="already exists"):
+            conn.finalize()
+        conn.disconnect()
+
+        assert f.read_text() == "concurrent-winner"
+        assert not list(tmp_path.glob(".out.csv.*.tmp"))

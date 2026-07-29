@@ -10,7 +10,7 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from loafer.config import PipelineConfig, load_config
+from loafer.config import LLMConfig, PipelineConfig, load_config
 from loafer.exceptions import ConfigError
 
 
@@ -435,6 +435,27 @@ class TestPipelineConfigModel:
         )
         assert config.transform.type == "ai"
         assert config.transform.instruction == "do something cool"
+
+
+class TestLLMConfig:
+    @pytest.mark.parametrize(
+        ("provider", "expected_model"),
+        [
+            ("gemini", "gemini-3.6-flash"),
+            ("claude", "claude-sonnet-5"),
+            ("openai", "gpt-5.6-terra"),
+            ("qwen", "qwen3.7-plus"),
+        ],
+    )
+    def test_model_defaults_follow_provider(self, provider: str, expected_model: str) -> None:
+        config = LLMConfig(provider=provider)  # type: ignore[arg-type]
+
+        assert config.model == expected_model
+
+    def test_explicit_model_pin_is_preserved(self) -> None:
+        config = LLMConfig(provider="claude", model="claude-haiku-4-5-20251001")
+
+        assert config.model == "claude-haiku-4-5-20251001"
 
 
 def _base_source_target() -> dict[str, dict[str, str]]:

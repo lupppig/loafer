@@ -14,6 +14,7 @@ from loafer.agents.transform_in_target import (
 )
 from loafer.config import PostgresTargetConfig
 from loafer.exceptions import TransformError
+from tests.postgres_sql import render_sql
 
 
 class TestTransformInTargetAgent:
@@ -35,7 +36,7 @@ class TestTransformInTargetAgent:
         state: dict[str, Any] = {
             "llm_provider": MagicMock(),
             "raw_table_name": "raw_data",
-            "target_config": PostgresTargetConfig(
+            "target_config": PostgresTargetConfig.model_construct(
                 type="postgres", url="postgresql://localhost/db", table=""
             ),
             "transform_instruction": "noop",
@@ -236,7 +237,20 @@ class TestTableExists:
 
         assert result is True
         mock_cursor.execute.assert_called_once()
+        assert mock_cursor.execute.call_args.args[1] == ("public", "my_table")
         mock_conn.close.assert_called_once()
+
+    def test_table_exists_splits_schema_and_table(self) -> None:
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (True,)
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("psycopg2.connect", return_value=mock_conn):
+            result = _table_exists("postgresql://localhost/db", "analytics.events")
+
+        assert result is True
+        assert mock_cursor.execute.call_args.args[1] == ("analytics", "events")
 
     def test_table_exists_false(self) -> None:
         mock_conn = MagicMock()
@@ -267,7 +281,10 @@ class TestExecuteEltSql:
             count = _execute_elt_sql("postgresql://localhost/db", "SELECT 1", "output")
 
         assert count == 100
-        mock_cursor.execute.assert_any_call("CREATE TABLE output AS (SELECT 1)")
+        executed = [render_sql(call.args[0]) for call in mock_cursor.execute.call_args_list]
+        assert 'CREATE TABLE "public"."output" AS (SELECT 1)' in executed
+        assert 'SELECT COUNT(*) FROM "public"."output"' in executed
+        mock_conn.commit.assert_called_once()
 
     def test_replace_mode_drops_table_first(self) -> None:
         """BUG-7: write_mode 'replace' must DROP before CREATE so a re-run works."""
@@ -282,11 +299,11 @@ class TestExecuteEltSql:
             )
 
         assert count == 5
-        executed = [c.args[0] for c in mock_cursor.execute.call_args_list]
-        assert "DROP TABLE IF EXISTS output" in executed
+        executed = [render_sql(call.args[0]) for call in mock_cursor.execute.call_args_list]
+        assert 'DROP TABLE IF EXISTS "public"."output"' in executed
         # Drop must come before the create.
-        assert executed.index("DROP TABLE IF EXISTS output") < executed.index(
-            "CREATE TABLE output AS (SELECT 1)"
+        assert executed.index('DROP TABLE IF EXISTS "public"."output"') < executed.index(
+            'CREATE TABLE "public"."output" AS (SELECT 1)'
         )
 
     def test_append_mode_does_not_drop(self) -> None:
@@ -298,8 +315,24 @@ class TestExecuteEltSql:
         with patch("psycopg2.connect", return_value=mock_conn):
             _execute_elt_sql("postgresql://localhost/db", "SELECT 1", "output", write_mode="append")
 
-        executed = [c.args[0] for c in mock_cursor.execute.call_args_list]
+        executed = [render_sql(call.args[0]) for call in mock_cursor.execute.call_args_list]
         assert not any("DROP TABLE" in s for s in executed)
+
+    def test_adversarial_schema_qualified_output_is_quoted(self) -> None:
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (1,)
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("psycopg2.connect", return_value=mock_conn):
+            _execute_elt_sql(
+                "postgresql://localhost/db",
+                "SELECT 1",
+                'analytics.output"; DROP TABLE users; --',
+            )
+
+        executed = [render_sql(call.args[0]) for call in mock_cursor.execute.call_args_list]
+        assert 'CREATE TABLE "analytics"."output""; DROP TABLE users; --" AS (SELECT 1)' in executed
 
     def test_psycopg2_error_raises(self) -> None:
         import psycopg2
@@ -314,3 +347,5 @@ class TestExecuteEltSql:
             pytest.raises(TransformError, match="syntax error"),
         ):
             _execute_elt_sql("postgresql://localhost/db", "BAD SQL", "output")
+
+        mock_conn.rollback.assert_called_once()

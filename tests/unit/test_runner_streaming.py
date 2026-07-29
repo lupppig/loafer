@@ -3,6 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
+
+from loafer.exceptions import PipelineError
+from loafer.runner import _raise_on_terminal_failure, _transform_requires_llm
 
 
 class TestRunPipelineStreaming:
@@ -137,3 +143,33 @@ class TestRunPipelineStreaming:
         final_state = events[-1][2]
         assert "extract" in final_state.get("duration_ms", {})
         assert "total" in final_state.get("duration_ms", {})
+
+
+class TestRunnerFailureContracts:
+    def test_exhausted_elt_error_is_terminal(self) -> None:
+        with pytest.raises(PipelineError, match="relation does not exist"):
+            _raise_on_terminal_failure(
+                {"last_error": "relation does not exist"},  # type: ignore[arg-type]
+                "elt",
+            )
+
+    def test_etl_state_is_not_interpreted_as_elt_terminal_error(self) -> None:
+        _raise_on_terminal_failure(
+            {"last_error": "handled elsewhere"},  # type: ignore[arg-type]
+            "etl",
+        )
+
+    def test_pipeline_ai_step_requires_provider(self) -> None:
+        ai_step = MagicMock(type="ai", bypass_ai=False)
+        custom_step = MagicMock(type="custom")
+        config = MagicMock()
+        config.transform.type = "pipeline"
+        config.transform.steps = [custom_step, ai_step]
+        assert _transform_requires_llm(config) is True
+
+    def test_pipeline_bypassed_ai_step_needs_no_provider(self) -> None:
+        ai_step = MagicMock(type="ai", bypass_ai=True)
+        config = MagicMock()
+        config.transform.type = "pipeline"
+        config.transform.steps = [ai_step]
+        assert _transform_requires_llm(config) is False

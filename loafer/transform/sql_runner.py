@@ -15,6 +15,7 @@ from typing import Any
 
 import sqlglot
 
+from loafer.adapters.postgres_sql import qualified_identifier
 from loafer.config import PostgresTargetConfig, SQLTransformConfig
 from loafer.core.destructive import detect_destructive_operations, raise_if_destructive
 from loafer.exceptions import TransformError
@@ -121,26 +122,38 @@ class SqlTransformRunner(TransformRunner):
 
         sql = _transpile_sql(sql, "postgres")
 
-        create_sql = f"CREATE TABLE {output_table} AS ({sql})"
-
         try:
             import psycopg2
         except ImportError as exc:
             raise TransformError("ELT SQL transform requires 'psycopg2-binary'") from exc
+        from psycopg2 import sql as pg_sql
+
+        table_identifier = qualified_identifier(output_table)
+        create_sql = pg_sql.SQL("CREATE TABLE {} AS ({})").format(
+            table_identifier,
+            pg_sql.SQL(sql),
+        )
+        count_sql = pg_sql.SQL("SELECT COUNT(*) FROM {}").format(table_identifier)
 
         target_url: str = target_config.url
         conn: Any | None = None
         cursor: Any | None = None
         try:
             conn = psycopg2.connect(target_url)
-            conn.autocommit = True
+            conn.autocommit = False
             cursor = conn.cursor()
+            if target_config.write_mode == "replace":
+                drop_sql = pg_sql.SQL("DROP TABLE IF EXISTS {}").format(table_identifier)
+                cursor.execute(drop_sql)
             cursor.execute(create_sql)
-            cursor.execute(f"SELECT COUNT(*) FROM {output_table}")
+            cursor.execute(count_sql)
             count = cursor.fetchone()[0]
+            conn.commit()
             state["rows_loaded"] = count
             state["generated_sql"] = sql
         except psycopg2.Error as exc:
+            if conn is not None:
+                conn.rollback()
             raise TransformError(f"ELT SQL execution failed: {exc}") from exc
         finally:
             if cursor is not None:

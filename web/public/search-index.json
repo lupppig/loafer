@@ -213,7 +213,7 @@
     "title": "Configuration Overview",
     "url": "/docs/llms#configuration-overview",
     "section": "LLM Setup",
-    "excerpt": "Configure the provider, model, and authentication in your `pipeline.yaml`. It's highly recommended t..."
+    "excerpt": "Configure the provider and authentication in your `pipeline.yaml`. The `model` field is optional: wh..."
   },
   {
     "title": "Supported Providers",
@@ -225,31 +225,31 @@
     "title": "1. Gemini",
     "url": "/docs/llms#1-gemini",
     "section": "LLM Setup",
-    "excerpt": "Google's Gemini models are the default recommendation due to their large context windows and strong..."
+    "excerpt": "Gemini is Loafer's default provider. The default model is `gemini-3.6-flash`. **Configuration:** pro..."
   },
   {
     "title": "2. OpenAI",
     "url": "/docs/llms#2-openai",
     "section": "LLM Setup",
-    "excerpt": "The standard, highly reliable models from OpenAI. **Configuration:** provider: openai model: gpt-4o..."
+    "excerpt": "The default model is `gpt-5.6-terra`, selected to balance transformation quality and cost. **Configu..."
   },
   {
     "title": "3. Claude",
     "url": "/docs/llms#3-claude",
     "section": "LLM Setup",
-    "excerpt": "Anthropic's Claude models excel at following complex instructional transformations and strict format..."
+    "excerpt": "The default model is `claude-sonnet-5`. **Configuration:** provider: claude model: claude-sonnet-5 a..."
   },
   {
     "title": "4. Qwen",
     "url": "/docs/llms#4-qwen",
     "section": "LLM Setup",
-    "excerpt": "Alibaba's robust open-weights model provider, excellent for highly cost-efficient pipelines. **Confi..."
+    "excerpt": "The default model is `qwen3.7-plus`. **Configuration:** provider: qwen model: qwen3.7-plus api_key:..."
   },
   {
-    "title": "Advanced Options",
-    "url": "/docs/llms#advanced-options",
+    "title": "Default Selection and Model Pins",
+    "url": "/docs/llms#default-selection-and-model-pins",
     "section": "LLM Setup",
-    "excerpt": "Beyond the core provider and model selection, you can optionally configure parameters such as the ba..."
+    "excerpt": "Omit `model` to follow the default shipped with your installed Loafer version: provider: claude api_..."
   },
   {
     "title": "Security Best Practices",

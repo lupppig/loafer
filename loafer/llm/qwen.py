@@ -1,6 +1,6 @@
 """Qwen LLM provider implementation.
 
-Uses the ``dashscope`` SDK (Alibaba Cloud) with ``qwen-plus`` for transform
+Uses the ``dashscope`` SDK (Alibaba Cloud) with ``qwen3.7-plus`` for transform
 generation.
 """
 
@@ -14,6 +14,7 @@ from dashscope.api_entities.dashscope_response import GenerationResponse
 
 from loafer.exceptions import LLMInvalidOutputError, LLMRateLimitError
 from loafer.llm.base import ELTSQLResult, LLMProvider, TransformPromptResult
+from loafer.llm.models import DEFAULT_QWEN_MODEL
 from loafer.llm.prompt_builder import build_elt_sql_prompt, build_etl_transform_prompt
 
 _FENCE_RE = re.compile(
@@ -56,7 +57,7 @@ class QwenProvider(LLMProvider):
     def __init__(
         self,
         api_key: str,
-        model: str = "qwen-plus",
+        model: str = DEFAULT_QWEN_MODEL,
     ) -> None:
         dashscope.api_key = api_key
         self._model = model
@@ -67,9 +68,10 @@ class QwenProvider(LLMProvider):
         instruction: str,
         previous_error: str | None = None,
         previous_code: str | None = None,
+        custom_code: str | None = None,
     ) -> TransformPromptResult:
         prompt = build_etl_transform_prompt(
-            schema_sample, instruction, previous_error, previous_code
+            schema_sample, instruction, previous_error, previous_code, custom_code
         )
         response = self._call(prompt)
         raw_text = _extract_text(response)

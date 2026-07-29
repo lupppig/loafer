@@ -55,7 +55,9 @@ This separation is strong enough to evolve without a rewrite, but several bounda
 
 ## Verified strengths
 
-- The unit suite contains 578 passing tests with 8 skips in the current working tree.
+- The unit suite contains 614 passing tests with 8 skips in the current working tree.
+- Clean-room wheel and production Docker-image smoke tests execute version/help, connector
+  discovery, configuration validation, and a real pipeline successfully.
 - ETL and ELT are modeled as separate graphs.
 - Source adapters expose a chunk iterator and database sources use streaming cursors.
 - LLM prompts receive a schema sample rather than a full dataset.
@@ -63,6 +65,10 @@ This separation is strong enough to evolve without a rewrite, but several bounda
 - Custom and generated Python run in a separate process with CPU/memory/time limits on POSIX.
 - Incremental extraction advances its cursor after a completed run.
 - PostgreSQL and MongoDB support upsert modes.
+- CSV and JSON targets publish same-directory temporary files atomically after successful
+  finalization and preserve the previous output on failure.
+- PostgreSQL target and ELT identifiers use driver-native composition; incremental cursor
+  identifiers escape their engine-specific quote character.
 - The CLI exposes stage-aware Rich output and human-readable errors.
 - The website production build completes successfully.
 
@@ -112,42 +118,39 @@ Required correction:
 - Give workers leases and cooperative cancellation at batch boundaries.
 - Advance checkpoints only after the corresponding target effect is durable.
 
-### P0 — Partial outputs can appear final
+### P0 — Database partial outputs can appear final
 
-CSV and JSON targets open the final path directly. PostgreSQL commits every small insert batch and
-also commits table creation/index changes separately.
+CSV and JSON targets now publish atomically and discard unpublished temporary files on failure.
+PostgreSQL still commits every small insert batch, and its target adapter commits table/index
+creation separately.
 
 Impact:
 
-- Failed file runs leave truncated or invalid files at the requested output path.
 - Failed database runs leave partially loaded rows.
 - A retry may duplicate data in append mode.
 - “Pipeline failed” does not mean “target unchanged.”
 
 Required correction:
 
-- Write file/object outputs to run-scoped temporary locations and atomically publish on success.
 - Use staging tables plus transactional merge/swap for replace/upsert flows.
 - Define per-target guarantees: at-most-once, at-least-once with idempotency, or exactly-once effect.
 - Expose partial-write state and recovery instructions.
 
-### P0 — SQL identifier construction is unsafe
+### Phase 0 completed — SQL identifier composition
 
-PostgreSQL target table, column, key, and index identifiers are interpolated into SQL strings.
-ELT table creation/drop paths follow the same pattern. Cursor values are bound safely, but cursor
-identifiers are string-quoted manually.
+PostgreSQL target table, schema, column, conflict-key, and index identifiers now use
+`psycopg2.sql.Identifier`/`SQL` composition. ELT create/drop/count paths use the same composition,
+configured table names are parsed as `name` or `schema.name`, and incremental cursor identifiers
+escape PostgreSQL/SQLite double quotes or MySQL backticks.
 
-Impact:
+Verified behavior:
 
-- Unusual or reserved identifiers break.
-- User-controlled configuration can cross the intended identifier boundary.
-- Schema-qualified names are handled inconsistently.
+- schema-qualified table existence checks bind schema and table separately;
+- adversarial table, column, conflict-key, CTAS, and cursor identifiers remain quoted identifiers;
+- ELT replace/drop/create/count executes in one transaction and rolls back on PostgreSQL errors.
 
-Required correction:
-
-- Use `psycopg2.sql.Identifier`/`SQL` composition throughout.
-- Parse schema and table separately.
-- Validate config identifiers and add adversarial tests.
+Keep live PostgreSQL integration coverage in the release matrix so driver/server behavior remains
+verified in addition to unit-level composition tests.
 
 ### P0 — Scale claims are not measured end to end
 
@@ -162,6 +165,39 @@ Required correction:
 - Test worker kill, source disconnect, target disconnect, disk full, schema drift, cancellation,
   and retries.
 - Publish hardware/container/dependency versions and the supported workload envelope.
+
+Use the resource-capped full-pipeline harness rather than the legacy parent-process RSS estimate:
+
+```bash
+uv run python benchmarks/full_pipeline.py \
+  --rows 1000000 \
+  --rss-limit-mb 2048 \
+  --report benchmarks/results/1m.json
+
+uv run python benchmarks/full_pipeline.py \
+  --rows 10000000 \
+  --rss-limit-mb 2048 \
+  --report benchmarks/results/10m.json
+```
+
+The harness generates deterministic input, executes the real CLI and transform subprocess, samples
+the complete Linux process group, enforces RSS/time limits, and verifies output row count and
+SHA-256 equality. A limit-triggered result is evidence of an unsupported workload, not a benchmark
+success.
+
+Measured on 2026-07-29 with Python 3.13.5 on Linux x86-64, chunk size 1,000, a four-column
+deterministic CSV, and the current custom identity transform:
+
+| Requested rows | Pipeline wall time | Peak process-tree RSS | Result |
+|---:|---:|---:|---|
+| 10,000 | 1.32s | 123.8 MiB | exact row count/SHA-256 |
+| 1,000,000 | 12.57s | 1,149.4 MiB | exact row count/SHA-256 |
+| 10,000,000 | 18.59s before cutoff | 2,060.0 MiB | terminated at 2 GiB; no final/temp output |
+
+Input generation time is excluded from pipeline wall time. These results demonstrate full-run
+materialization rather than a bounded-memory curve. They are working-tree evidence, not a formal
+release baseline; rerun from a committed revision in the pinned release container before publishing
+versioned benchmark artifacts.
 
 ## High-priority production gaps
 
@@ -270,8 +306,12 @@ Exit gate:
 - adversarial SQL identifier tests pass;
 - benchmark results and current limitations are published.
 
-**Current status:** in progress. Release/documentation infrastructure exists; identifier safety,
-atomic publication, and full-pipeline memory evidence remain.
+**Current status:** implementation complete in the current working tree. Identifier composition
+and atomic CSV/JSON publication are covered by adversarial/failure tests; 614 unit tests pass; and
+the clean-room wheel and production Docker-image smoke pipelines pass. The resource-capped 1M/10M
+matrix proves that 1M narrow identity rows complete at about 1.15 GiB while 10M exceeds a 2 GiB
+process-tree budget. Commit this state and rerun the benchmark matrix from that immutable revision
+before treating these measurements as the published release baseline.
 
 ### Phase 1 — Separate engine, application, and clients
 
@@ -497,12 +537,11 @@ Exit gate:
 
 Start with Phase 0 and Phase 1 only:
 
-1. Fix SQL identifier composition and atomic file publication.
-2. Add full-pipeline 1M/10M RSS and correctness benchmarks.
-3. Define the serializable `ExecutionPlan`, `BatchEnvelope`, `RunEvent`, `RunResult`,
+1. Commit Phase 0, then rerun the benchmark matrix from that immutable revision.
+2. Define the serializable `ExecutionPlan`, `BatchEnvelope`, `RunEvent`, `RunResult`,
    `CancellationPort`, `CheckpointPort`, and `SecretResolver` contracts.
-4. Extract one `RunPipeline` application use case from the CLI/runner.
-5. Migrate one vertical slice—CSV → row-local transform → JSON—through the new boundary while
+3. Extract one `RunPipeline` application use case from the CLI/runner.
+4. Migrate one vertical slice—CSV → row-local transform → JSON—through the new boundary while
    preserving current CLI behavior.
 
 This slice creates the seam needed for every later phase without prematurely introducing Better

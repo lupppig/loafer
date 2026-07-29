@@ -1,0 +1,26 @@
+# The simplest AI transform: describe the change in English, let the model
+# write the Python, Loafer validates + sandboxes + runs it.
+#
+#   loafer validate examples/pipelines/01_ai_basic.yaml
+#   loafer run      examples/pipelines/01_ai_basic.yaml
+name: ai_basic
+
+mode: etl
+
+source:
+  path: examples/data/orders.csv
+
+transform:
+  instruction: >-
+    Lowercase and trim every email address, drop orders whose status is
+    cancelled or refunded, and add an amount_usd column converting amount
+    from its currency to USD (GBP 1.27, EUR 1.08, USD 1.0).
+
+target:
+  path: examples/output/01_ai_basic.json
+  write_mode: overwrite
+
+llm:
+  provider: claude
+  model: claude-opus-5
+  api_key: ${ANTHROPIC_API_KEY}

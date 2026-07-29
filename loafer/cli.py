@@ -24,6 +24,7 @@ from rich.spinner import Spinner
 from rich.table import Table
 
 from loafer.exceptions import LLMError, PipelineError, SchedulerError
+from loafer.llm.models import DEFAULT_GEMINI_MODEL, default_model_for, provider_for_model
 from loafer.runner import list_connectors, run_pipeline_streaming, validate_config
 
 app = typer.Typer(
@@ -333,22 +334,22 @@ def _parse_model_not_found(raw: str) -> str:
     """Extract model name from a 404 model-not-found error."""
     model = "unknown"
     for part in raw.split():
-        if part.startswith("gemini") or part.startswith("claude") or part.startswith("gpt"):
+        if part.startswith(("gemini", "claude", "gpt", "qwen")):
             model = part.strip("',.")
             break
-    if "gemini" in model.lower():
+    provider = provider_for_model(model)
+    if provider:
+        recommended = default_model_for(provider)
         return (
             f"Model [bold]{model}[/bold] was not found.\n"
             f"\n"
-            f"  Google has renamed or deprecated this model.\n"
-            f"  Try one of these instead:\n"
-            f"    • gemini-2.0-flash  (fast, cheap — recommended)\n"
-            f"    • gemini-2.5-flash  (newer)\n"
-            f"    • gemini-2.0-flash-lite\n"
+            f"  It may have been renamed, retired, or may not be enabled for your account.\n"
+            f"  Current Loafer default for {provider}: [bold]{recommended}[/bold]\n"
             f"\n"
             f"  Update your config:\n"
             f"    llm:\n"
-            f"      model: gemini-2.0-flash"
+            f"      provider: {provider}\n"
+            f"      model: {recommended}"
         )
     return (
         f"Model [bold]{model}[/bold] was not found.\n"
@@ -1063,7 +1064,7 @@ def init(
         "mode": pipeline_mode,
         "llm": {
             "provider": "gemini",
-            "model": "gemini-1.5-flash",
+            "model": DEFAULT_GEMINI_MODEL,
             "api_key": "${GEMINI_API_KEY}",
         },
     }

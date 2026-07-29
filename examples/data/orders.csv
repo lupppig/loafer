@@ -1,0 +1,13 @@
+order_id,customer,email,country,currency,amount,status,placed_at
+ORD-1001,Ada Lovelace,ada@example.com,GB,GBP,120.50,paid,2026-06-01T09:14:00Z
+ORD-1002,Grace Hopper,GRACE@EXAMPLE.COM,US,USD,240.00,paid,2026-06-01T11:02:00Z
+ORD-1003,Alan Turing,alan@example.com,GB,GBP,75.25,cancelled,2026-06-02T08:30:00Z
+ORD-1004,Katherine Johnson,katherine@example.com,US,USD,310.75,paid,2026-06-02T14:45:00Z
+ORD-1005,Edsger Dijkstra,,NL,EUR,89.99,pending,2026-06-03T10:00:00Z
+ORD-1006,Barbara Liskov,barbara@example.com,US,USD,55.00,paid,2026-06-03T16:20:00Z
+ORD-1007,Tim Berners-Lee,tim@example.com,GB,GBP,199.99,refunded,2026-06-04T12:05:00Z
+ORD-1008,Margaret Hamilton,MARGARET@EXAMPLE.COM,US,USD,420.00,paid,2026-06-04T18:40:00Z
+ORD-1009,Donald Knuth,knuth@example.com,US,USD,64.10,paid,2026-06-05T07:55:00Z
+ORD-1010,Frances Allen,frances@example.com,NL,EUR,150.00,cancelled,2026-06-05T13:15:00Z
+ORD-1011,John Backus,backus@example.com,US,USD,88.88,paid,2026-06-06T09:09:00Z
+ORD-1012,Adele Goldberg,adele@example.com,GB,GBP,275.40,paid,2026-06-06T15:30:00Z

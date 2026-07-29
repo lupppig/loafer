@@ -15,6 +15,7 @@ import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from loafer.exceptions import ConfigError
+from loafer.llm.models import default_model_for
 
 _ENV_VAR_PATTERN = re.compile(r"\$\{([^}]+)}")
 
@@ -182,6 +183,14 @@ class PostgresTargetConfig(BaseModel):
     write_mode: Literal["append", "replace", "error", "upsert"] = "append"
     key: str | list[str] | None = None
 
+    @field_validator("table")
+    @classmethod
+    def table_must_be_qualified_name(cls, value: str) -> str:
+        from loafer.core.identifiers import split_qualified_name
+
+        split_qualified_name(value)
+        return value
+
     @model_validator(mode="after")
     def key_required_for_upsert(self) -> PostgresTargetConfig:
         return _validate_upsert_key(self)
@@ -333,8 +342,14 @@ class IncrementalConfig(BaseModel):
 
 class LLMConfig(BaseModel):
     provider: Literal["gemini", "claude", "openai", "qwen"] = "gemini"
-    model: str = "gemini-2.0-flash"
+    model: str = ""
     api_key: str | None = None
+
+    @model_validator(mode="after")
+    def resolve_provider_default_model(self) -> LLMConfig:
+        """Use the selected provider's default when no explicit model is pinned."""
+        self.model = self.model.strip() or default_model_for(self.provider)
+        return self
 
 
 # Auto-detection helpers

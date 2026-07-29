@@ -77,6 +77,7 @@ class TestGeminiProviderTransform:
         assert result.token_usage["prompt_tokens"] == 100
         assert result.token_usage["completion_tokens"] == 50
         assert result.token_usage["total_tokens"] == 150
+        assert mock_client.models.generate_content.call_args.kwargs["model"] == "gemini-3.6-flash"
 
     def test_response_with_markdown_fences(self) -> None:
         raw = "```python\ndef transform(data):\n    return data\n```"

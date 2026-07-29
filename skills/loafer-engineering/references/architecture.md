@@ -97,8 +97,10 @@ Re-check the repository because this reference is a snapshot, not a substitute f
   multi-step ETL transforms. The ETL load agent then writes from `transformed_data`.
 - Sample-based validation does not validate every partition.
 - Local JSON watermark state is not sufficient for concurrent or distributed workers.
-- File targets expose partial output at the final path during a failed run.
-- Several SQL statements interpolate table/column identifiers directly.
+- CSV and JSON targets publish atomically, but the local watermark/state file does not yet use the
+  same publication protocol.
+- PostgreSQL target/ELT identifiers are safely composed, but every future SQL adapter and
+  identifier-bearing source feature must preserve that boundary.
 - Postgres target commits individual insert batches, so a later failure leaves partial writes.
 - The graph state contains non-serializable objects, preventing straightforward durable LangGraph
   checkpointing.

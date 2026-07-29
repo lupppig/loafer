@@ -85,3 +85,49 @@ class TestJsonTargetConnector:
 
         data = json.loads(f.read_text())
         assert data == []
+
+    def test_final_path_is_unchanged_until_successful_finalize(self, tmp_path: Any) -> None:
+        f = tmp_path / "out.json"
+        f.write_text('[{"stable": true}]')
+
+        with JsonTargetConnector(str(f)) as conn:
+            conn.write_chunk([{"replacement": True}])
+            assert json.loads(f.read_text()) == [{"stable": True}]
+            assert len(list(tmp_path.glob(".out.json.*.tmp"))) == 1
+
+        assert json.loads(f.read_text()) == [{"replacement": True}]
+        assert not list(tmp_path.glob(".out.json.*.tmp"))
+
+    def test_serialization_failure_preserves_existing_file(self, tmp_path: Any) -> None:
+        f = tmp_path / "out.json"
+        f.write_text('[{"stable": true}]')
+
+        with pytest.raises(TypeError), JsonTargetConnector(str(f)) as conn:
+            conn.write_chunk([{"unsupported": object()}])
+
+        assert json.loads(f.read_text()) == [{"stable": True}]
+        assert not list(tmp_path.glob(".out.json.*.tmp"))
+
+    def test_body_failure_never_publishes_new_file(self, tmp_path: Any) -> None:
+        f = tmp_path / "out.json"
+
+        with pytest.raises(RuntimeError), JsonTargetConnector(str(f)) as conn:
+            conn.write_chunk([{"partial": True}])
+            raise RuntimeError("pipeline failed")
+
+        assert not f.exists()
+        assert not list(tmp_path.glob(".out.json.*.tmp"))
+
+    def test_error_mode_detects_finalize_race_without_overwrite(self, tmp_path: Any) -> None:
+        f = tmp_path / "out.json"
+        conn = JsonTargetConnector(str(f), write_mode="error")
+        conn.connect()
+        conn.write_chunk([{"candidate": True}])
+        f.write_text('[{"winner": true}]')
+
+        with pytest.raises(LoadError, match="already exists"):
+            conn.finalize()
+        conn.disconnect()
+
+        assert json.loads(f.read_text()) == [{"winner": True}]
+        assert not list(tmp_path.glob(".out.json.*.tmp"))

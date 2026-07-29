@@ -19,6 +19,8 @@ if TYPE_CHECKING:
     from loafer.graph.state import PipelineState
     from loafer.ports.connector import SourceConnector
 
+_INCREMENTAL_PUSHDOWN_SOURCES = {"postgres", "mysql", "sqlite", "rest_api"}
+
 
 class _PeekableStream:
     """Stream wrapper that holds a peeked first chunk.
@@ -61,9 +63,17 @@ def extract_agent(state: PipelineState) -> PipelineState:
     source_config = state["source_config"]
     incremental = state.get("incremental_config")
     cursor_column: str | None = getattr(incremental, "column", None)
+    source_type = (
+        source_config.get("type")
+        if isinstance(source_config, dict)
+        else getattr(source_config, "type", None)
+    )
+    client_side_incremental = (
+        incremental is not None and source_type not in _INCREMENTAL_PUSHDOWN_SOURCES
+    )
 
     connector: SourceConnector
-    if incremental is not None:
+    if incremental is not None and not client_side_incremental:
         param = getattr(incremental, "param", None) or cursor_column
         connector = get_source_connector(
             source_config,
@@ -73,6 +83,12 @@ def extract_agent(state: PipelineState) -> PipelineState:
         )
     else:
         connector = get_source_connector(source_config)
+
+    if client_side_incremental:
+        state.setdefault("warnings", []).append(
+            f"Incremental filtering for source type '{source_type}' is applied client-side "
+            "and scans the source"
+        )
 
     try:
         connector.connect()
@@ -93,10 +109,18 @@ def extract_agent(state: PipelineState) -> PipelineState:
             raw_iter: Iterator[list[dict[str, Any]]] = connector.stream(
                 state.get("chunk_size", 500)
             )
+            if client_side_incremental and cursor_column is not None:
+                raw_iter = _filter_incremental_stream(
+                    raw_iter,
+                    cursor_column,
+                    state.get("cursor_value"),
+                )
             peekable = _PeekableStream(raw_iter)
             peekable_stream = _counting_stream(peekable, state, cursor_column)
             state["stream_iterator"] = peekable_stream
-            state["rows_extracted"] = count if count is not None else 0
+            state["rows_extracted"] = (
+                count if count is not None and not client_side_incremental else 0
+            )
 
             first_chunk = peekable.peek()
             state["schema_sample"] = build_schema_sample(
@@ -105,6 +129,14 @@ def extract_agent(state: PipelineState) -> PipelineState:
             )
         else:
             raw_data: list[dict[str, Any]] = connector.read_all()
+            if client_side_incremental and cursor_column is not None:
+                from loafer.core.incremental import filter_rows_after_cursor
+
+                raw_data = filter_rows_after_cursor(
+                    raw_data,
+                    cursor_column,
+                    state.get("cursor_value"),
+                )
             state["raw_data"] = raw_data
             state["rows_extracted"] = len(raw_data)
 
@@ -114,7 +146,7 @@ def extract_agent(state: PipelineState) -> PipelineState:
                 state["new_cursor"] = max_cursor(raw_data, cursor_column, state.get("cursor_value"))
 
             state["schema_sample"] = build_schema_sample(
-                raw_data[:5],
+                raw_data,
                 max_sample_rows=5,
             )
 
@@ -160,3 +192,17 @@ def _counting_stream(
     # placeholder count set at extract time (BUG-5).
     if total == 0:
         state.setdefault("warnings", []).append("Source returned 0 rows")
+
+
+def _filter_incremental_stream(
+    stream_iter: Iterator[list[dict[str, Any]]],
+    column: str,
+    cursor: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    """Filter non-pushdown source chunks without materializing the full source."""
+    from loafer.core.incremental import filter_rows_after_cursor
+
+    for chunk in stream_iter:
+        filtered = filter_rows_after_cursor(chunk, column, cursor)
+        if filtered:
+            yield filtered

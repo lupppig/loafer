@@ -24,7 +24,7 @@ const YAML_LINES = [
   { text: '', delay: 8.3 },
   { text: 'llm:', delay: 8.8 },
   { text: '  provider: gemini', delay: 9.4 },
-  { text: '  model: gemini-2.5-flash', delay: 10.0 },
+  { text: '  model: gemini-3.6-flash', delay: 10.0 },
 ];
 
 const CLI_CMD = '$ loafer run pipeline.yaml';
