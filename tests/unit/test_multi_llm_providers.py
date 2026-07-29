@@ -41,7 +41,7 @@ class TestClaudeProvider:
         from loafer.llm.claude import ClaudeProvider
 
         p = ClaudeProvider(api_key="test-key")
-        assert p._model == "claude-sonnet-4-20250514"
+        assert p._model == "claude-sonnet-5"
 
     def test_custom_model(self) -> None:
         from loafer.llm.claude import ClaudeProvider
@@ -79,7 +79,7 @@ class TestOpenAIProvider:
         from loafer.llm.openai import OpenAIProvider
 
         p = OpenAIProvider(api_key="test-key")
-        assert p._model == "gpt-4o-mini"
+        assert p._model == "gpt-5.6-terra"
 
     def test_custom_model(self) -> None:
         from loafer.llm.openai import OpenAIProvider
@@ -111,7 +111,7 @@ class TestQwenProvider:
         from loafer.llm.qwen import QwenProvider
 
         p = QwenProvider(api_key="test-key")
-        assert p._model == "qwen-plus"
+        assert p._model == "qwen3.7-plus"
 
     def test_custom_model(self) -> None:
         from loafer.llm.qwen import QwenProvider

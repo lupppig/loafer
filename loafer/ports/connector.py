@@ -72,6 +72,14 @@ class TargetConnector(ABC):
         self.connect()
         return self
 
-    def __exit__(self, *_: object) -> None:
-        self.finalize()
-        self.disconnect()
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        _exc: BaseException | None,
+        _traceback: object,
+    ) -> None:
+        try:
+            if exc_type is None:
+                self.finalize()
+        finally:
+            self.disconnect()

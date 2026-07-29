@@ -10,6 +10,7 @@ import pytest
 from loafer.adapters.targets.postgres import _build_upsert_sql
 from loafer.config import load_config
 from loafer.exceptions import ConfigError
+from tests.postgres_sql import render_sql
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -111,10 +112,30 @@ class TestUpsertConfig:
         assert cfg.target.write_mode == "append"
         assert cfg.target.key is None
 
+    @pytest.mark.parametrize("table", ["", ".events", "analytics.", "a.b.c"])
+    def test_postgres_table_requires_name_or_schema_name(
+        self,
+        tmp_path: Path,
+        table: str,
+    ) -> None:
+        with pytest.raises(ConfigError, match="database"):
+            load_config(
+                _write(
+                    tmp_path,
+                    f"""
+                    type: postgres
+                    url: postgresql://u:p@localhost:5432/db
+                    table: {table!r}
+                    write_mode: append
+                    """,
+                )
+            )
+
 
 class TestBuildUpsertSql:
     def test_updates_non_key_columns_from_excluded(self) -> None:
-        sql = _build_upsert_sql("orders", ["id", "name", "amount"], ["id"])
+        sql = render_sql(_build_upsert_sql("orders", ["id", "name", "amount"], ["id"]))
+        assert sql.startswith('INSERT INTO "public"."orders"')
         assert 'ON CONFLICT ("id")' in sql
         assert '"name" = EXCLUDED."name"' in sql
         assert '"amount" = EXCLUDED."amount"' in sql
@@ -122,10 +143,24 @@ class TestBuildUpsertSql:
         assert '"id" = EXCLUDED."id"' not in sql
 
     def test_composite_key(self) -> None:
-        sql = _build_upsert_sql("t", ["a", "b", "v"], ["a", "b"])
+        sql = render_sql(_build_upsert_sql("t", ["a", "b", "v"], ["a", "b"]))
         assert 'ON CONFLICT ("a", "b")' in sql
         assert '"v" = EXCLUDED."v"' in sql
 
     def test_all_columns_are_keys_do_nothing(self) -> None:
-        sql = _build_upsert_sql("t", ["a", "b"], ["a", "b"])
+        sql = render_sql(_build_upsert_sql("t", ["a", "b"], ["a", "b"]))
         assert sql.endswith("DO NOTHING")
+
+    def test_schema_table_and_adversarial_columns_are_identifiers(self) -> None:
+        sql = render_sql(
+            _build_upsert_sql(
+                'analytics.orders"; DROP TABLE users; --',
+                ['id"; DROP TABLE accounts; --', "value"],
+                ['id"; DROP TABLE accounts; --'],
+            )
+        )
+
+        assert '"analytics"."orders""; DROP TABLE users; --"' in sql
+        assert '"id""; DROP TABLE accounts; --"' in sql
+        assert sql.count("DROP TABLE") == 3
+        assert "ON CONFLICT" in sql

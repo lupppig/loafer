@@ -1,0 +1,22 @@
+# Human-in-the-loop: Loafer prints the generated code and waits for y/N
+# before executing it. Answering "n" skips the AI step.
+name: ai_review
+
+mode: etl
+
+source:
+  path: examples/data/orders.csv
+
+transform:
+  type: ai
+  instruction: Add a value_band column of high/medium/low based on amount.
+  review: true
+
+target:
+  path: examples/output/05_ai_review.json
+  write_mode: overwrite
+
+llm:
+  provider: claude
+  model: claude-opus-5
+  api_key: ${ANTHROPIC_API_KEY}

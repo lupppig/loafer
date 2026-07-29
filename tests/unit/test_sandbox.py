@@ -7,6 +7,8 @@ where the sandbox degrades to a best-effort in-process thread.
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 import textwrap
 import time
 from typing import TYPE_CHECKING
@@ -28,6 +30,10 @@ class TestSandboxExecution:
     def test_happy_path(self) -> None:
         code = "def transform(d):\n    return [{'x': r['x'] * 2} for r in d]"
         assert run_sandboxed(code, [{"x": 1}, {"x": 2}], timeout=10) == [{"x": 2}, {"x": 4}]
+
+    def test_transform_print_does_not_corrupt_worker_response(self) -> None:
+        code = "def transform(d):\n    print('transform log')\n    return d"
+        assert run_sandboxed(code, [{"x": 1}], timeout=10) == [{"x": 1}]
 
     def test_missing_transform_function(self) -> None:
         with pytest.raises(TransformError, match="does not define"):
@@ -73,6 +79,60 @@ class TestSandboxExecution:
         with pytest.raises(TransformError):
             run_sandboxed(code, [{"x": 1}], timeout=5)
         assert not target.exists()
+
+    @_posix_only
+    def test_programmatic_pipeline_without_main_guard(self, tmp_path: Path) -> None:
+        """A top-level library call must not be re-imported by the sandbox worker."""
+        source = tmp_path / "input.csv"
+        source.write_text("id,name\n1,Alice\n", encoding="utf-8")
+        transform = tmp_path / "transform.py"
+        transform.write_text(
+            "def transform(data):\n"
+            "    return [{**row, 'name': row['name'].lower()} for row in data]\n",
+            encoding="utf-8",
+        )
+        output = tmp_path / "output.json"
+        config = tmp_path / "pipeline.yaml"
+        config.write_text(
+            textwrap.dedent(
+                f"""
+                source:
+                  type: csv
+                  path: {source}
+                target:
+                  type: json
+                  path: {output}
+                transform:
+                  type: custom
+                  path: {transform}
+                sandbox:
+                  timeout: 2
+                  max_memory_mb: 256
+                """
+            ),
+            encoding="utf-8",
+        )
+        caller = tmp_path / "call_loafer.py"
+        caller.write_text(
+            "import sys\n"
+            "from loafer.runner import run_pipeline\n"
+            # Deliberately no if __name__ == '__main__' guard.
+            "state = run_pipeline(sys.argv[1], yes=True)\n"
+            "print(f\"ROWS={state['rows_loaded']}\")\n",
+            encoding="utf-8",
+        )
+
+        completed = subprocess.run(
+            [sys.executable, str(caller), str(config)],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+
+        assert completed.returncode == 0, completed.stderr
+        assert "ROWS=1" in completed.stdout
+        assert output.exists()
 
 
 class TestSandboxConfig:

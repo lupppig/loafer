@@ -614,3 +614,48 @@ class TestSqlTransformRunner:
         }
         with pytest.raises(TransformError, match="nonexistent"):
             runner.run(state)
+
+    def test_elt_quotes_schema_qualified_adversarial_output(self) -> None:
+        from unittest.mock import patch
+
+        from loafer.config import PostgresTargetConfig
+        from loafer.transform.sql_runner import SqlTransformRunner
+        from tests.postgres_sql import render_sql
+
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (4,)
+        mock_conn.cursor.return_value = mock_cursor
+        runner = SqlTransformRunner()
+        state: dict[str, Any] = {
+            "transform_config": SQLTransformConfig(
+                type="sql",
+                query="SELECT * FROM {{source}}",
+            ),
+            "raw_data": [],
+            "is_streaming": False,
+            "mode": "elt",
+            "raw_table_name": "loafer_raw_postgres_1234",
+            "target_config": PostgresTargetConfig(
+                type="postgres",
+                url="postgresql://localhost/db",
+                table='analytics.output"; DROP TABLE users; --',
+                write_mode="replace",
+            ),
+            "auto_confirmed": True,
+            "duration_ms": {},
+            "warnings": [],
+        }
+
+        with patch("psycopg2.connect", return_value=mock_conn):
+            result = runner.run(state)
+
+        executed = [render_sql(call.args[0]) for call in mock_cursor.execute.call_args_list]
+        quoted_table = '"analytics"."output""; DROP TABLE users; --"'
+        assert f"DROP TABLE IF EXISTS {quoted_table}" in executed
+        assert any(
+            statement.startswith(f"CREATE TABLE {quoted_table} AS") for statement in executed
+        )
+        assert f"SELECT COUNT(*) FROM {quoted_table}" in executed
+        assert result["rows_loaded"] == 4
+        mock_conn.commit.assert_called_once()

@@ -12,7 +12,16 @@ from loafer.agents.load_raw import (
     _write_stream_raw,
     load_raw_agent,
 )
+from loafer.config import PostgresTargetConfig
 from loafer.exceptions import LoadError
+
+
+def _target(table: str = "analytics.orders") -> PostgresTargetConfig:
+    return PostgresTargetConfig(
+        type="postgres",
+        url="postgresql://user:pass@localhost/test",
+        table=table,
+    )
 
 
 class TestBuildStagingTableName:
@@ -36,6 +45,10 @@ class TestBuildStagingTableName:
         config = MagicMock(spec=[])  # no type attribute
         name = _build_staging_table_name(config)
         assert "unknown" in name
+
+    def test_preserves_target_schema(self) -> None:
+        name = _build_staging_table_name(_target())
+        assert name.startswith("analytics.loafer_raw_postgres_")
 
 
 class TestWriteStreamRaw:
@@ -84,7 +97,7 @@ class TestLoadRawAgent:
         mock_connector.connect.side_effect = ConnectionError("refused")
 
         state: dict[str, Any] = {
-            "target_config": MagicMock(),
+            "target_config": _target(),
             "raw_data": [],
             "is_streaming": False,
             "chunk_size": 500,
@@ -103,21 +116,32 @@ class TestLoadRawAgent:
         mock_connector.write_chunk.return_value = 5
 
         state: dict[str, Any] = {
-            "target_config": MagicMock(type="postgres"),
+            "target_config": _target(),
             "raw_data": [{"id": i} for i in range(10)],
             "is_streaming": False,
             "chunk_size": 5,
             "duration_ms": {},
         }
 
+        connector_config = None
+
+        def _connector_for(config: Any) -> MagicMock:
+            nonlocal connector_config
+            connector_config = config
+            return mock_connector
+
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(
                 "loafer.agents.load_raw.get_target_connector",
-                lambda cfg: mock_connector,
+                _connector_for,
             )
             result = load_raw_agent(state)
 
-        assert result["raw_table_name"].startswith("loafer_raw_")
+        assert result["raw_table_name"].startswith("analytics.loafer_raw_")
+        assert connector_config.table == result["raw_table_name"]
+        assert connector_config.table != state["target_config"].table
+        assert connector_config.write_mode == "error"
+        assert connector_config.key is None
         assert result["rows_extracted"] == 10
         assert "load_raw" in result["duration_ms"]
         assert mock_connector.write_chunk.call_count == 2
@@ -129,7 +153,7 @@ class TestLoadRawAgent:
         mock_connector.write_chunk.side_effect = [3, 2]
 
         state: dict[str, Any] = {
-            "target_config": MagicMock(type="postgres"),
+            "target_config": _target(),
             "raw_data": [],
             "is_streaming": True,
             "chunk_size": 500,
@@ -156,7 +180,7 @@ class TestLoadRawAgent:
         mock_connector = MagicMock()
 
         state: dict[str, Any] = {
-            "target_config": MagicMock(type="postgres"),
+            "target_config": _target(),
             "raw_data": [],
             "is_streaming": False,
             "chunk_size": 500,
@@ -179,7 +203,7 @@ class TestLoadRawAgent:
         mock_connector.write_chunk.side_effect = RuntimeError("boom")
 
         state: dict[str, Any] = {
-            "target_config": MagicMock(type="postgres"),
+            "target_config": _target(),
             "raw_data": [{"id": 1}],
             "is_streaming": False,
             "chunk_size": 500,

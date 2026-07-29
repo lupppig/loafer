@@ -44,6 +44,12 @@ def materialize_input_rows(state: PipelineState) -> list[dict[str, Any]]:
     for chunk in stream_iter:
         rows.extend(chunk)
     state["rows_extracted"] = len(rows)
+    incremental = state.get("incremental_config")
+    cursor_column = getattr(incremental, "column", None)
+    if cursor_column is not None:
+        from loafer.core.incremental import max_cursor
+
+        state["new_cursor"] = max_cursor(rows, cursor_column, state.get("cursor_value"))
     return rows
 
 

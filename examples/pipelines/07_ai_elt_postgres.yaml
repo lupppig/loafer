@@ -1,0 +1,23 @@
+# ELT: raw rows land in Postgres first, then the model writes a SELECT that
+# Loafer validates and runs as CREATE TABLE AS SELECT inside the warehouse.
+#
+#   export LOAFER_PG_URL=postgresql://loafer:loafer@localhost:55432/loafer_test
+name: ai_elt_postgres
+
+mode: elt
+
+source:
+  path: examples/data/orders.csv
+
+transform:
+  instruction: Keep only paid orders and lowercase the email column.
+
+target:
+  url: ${LOAFER_PG_URL}
+  table: orders_clean
+  write_mode: replace
+
+llm:
+  provider: claude
+  model: claude-opus-5
+  api_key: ${ANTHROPIC_API_KEY}

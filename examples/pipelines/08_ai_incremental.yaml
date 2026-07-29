@@ -1,0 +1,24 @@
+# AI transform plus cursor-based incremental extraction. Only rows newer
+# than the stored watermark reach the model's generated code.
+name: ai_incremental
+
+mode: etl
+
+source:
+  path: examples/data/orders.csv
+
+transform:
+  instruction: Add a value_band column of high/medium/low based on amount.
+
+target:
+  path: examples/output/08_ai_incremental.json
+  write_mode: overwrite
+
+incremental:
+  column: placed_at
+  initial: "2026-06-04T00:00:00Z"
+
+llm:
+  provider: claude
+  model: claude-opus-5
+  api_key: ${ANTHROPIC_API_KEY}

@@ -1,7 +1,7 @@
 """Gemini LLM provider implementation.
 
 Uses ``google-genai`` (the new Google Gen AI SDK) with
-``gemini-2.5-flash`` (fast and cheap, appropriate for transform
+``gemini-3.6-flash`` (balanced speed and intelligence for transform
 generation).  The SDK includes built-in retry on 429/5xx errors;
 an outer tenacity retry layer is kept for additional resilience.
 """
@@ -16,6 +16,7 @@ from google.genai import types
 
 from loafer.exceptions import LLMAuthError, LLMInvalidOutputError, LLMRateLimitError
 from loafer.llm.base import ELTSQLResult, LLMProvider, TransformPromptResult
+from loafer.llm.models import DEFAULT_GEMINI_MODEL
 from loafer.llm.prompt_builder import build_elt_sql_prompt, build_etl_transform_prompt
 
 _FENCE_RE = re.compile(
@@ -63,7 +64,7 @@ class GeminiProvider(LLMProvider):
     def __init__(
         self,
         api_key: str,
-        model: str = "gemini-2.5-flash",
+        model: str = DEFAULT_GEMINI_MODEL,
     ) -> None:
         self._client = genai.Client(api_key=api_key)
         self._model = model
@@ -76,9 +77,10 @@ class GeminiProvider(LLMProvider):
         instruction: str,
         previous_error: str | None = None,
         previous_code: str | None = None,
+        custom_code: str | None = None,
     ) -> TransformPromptResult:
         prompt = build_etl_transform_prompt(
-            schema_sample, instruction, previous_error, previous_code
+            schema_sample, instruction, previous_error, previous_code, custom_code
         )
         response = self._call_with_retry(prompt)
         raw_text = self._response_text(response)

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from loafer.config import load_config
 from loafer.core.incremental import (
     StateStore,
+    filter_rows_after_cursor,
     max_cursor,
     state_path_for,
     wrap_incremental_query,
@@ -67,6 +68,25 @@ class TestWrapIncrementalQuery:
         q = wrap_incremental_query("SELECT * FROM t;", "id", "?")
         assert "t;" not in q
 
+    def test_postgres_identifier_quote_is_escaped(self) -> None:
+        q = wrap_incremental_query(
+            "SELECT * FROM orders",
+            'updated"; DROP TABLE users; --',
+            "%s",
+        )
+        assert '_loafer_src."updated""; DROP TABLE users; --" > %s' in q
+        assert q.count("DROP TABLE") == 2
+
+    def test_mysql_identifier_quote_is_escaped(self) -> None:
+        q = wrap_incremental_query(
+            "SELECT * FROM orders",
+            "updated`; DROP TABLE users; --",
+            "%s",
+            quote="`",
+        )
+        assert "_loafer_src.`updated``; DROP TABLE users; --` > %s" in q
+        assert q.count("DROP TABLE") == 2
+
 
 class TestMaxCursor:
     def test_returns_current_when_no_rows(self) -> None:
@@ -90,6 +110,20 @@ class TestMaxCursor:
 
     def test_missing_column_returns_current(self) -> None:
         assert max_cursor([{"other": 1}], "id", current=None) is None
+
+
+class TestFilterRowsAfterCursor:
+    def test_keeps_only_strictly_newer_rows(self) -> None:
+        rows = [{"id": 1}, {"id": 2}, {"id": 3}]
+        assert filter_rows_after_cursor(rows, "id", 1) == [{"id": 2}, {"id": 3}]
+
+    def test_ignores_null_and_missing_cursor_values(self) -> None:
+        rows = [{"id": None}, {"other": 2}, {"id": 3}]
+        assert filter_rows_after_cursor(rows, "id", 1) == [{"id": 3}]
+
+    def test_none_cursor_preserves_all_rows(self) -> None:
+        rows = [{"id": None}, {"id": 1}]
+        assert filter_rows_after_cursor(rows, "id", None) == rows
 
 
 class TestIncrementalConfig:

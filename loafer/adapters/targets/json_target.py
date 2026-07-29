@@ -11,8 +11,14 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
+from loafer.adapters.targets.atomic_file import (
+    discard_temporary_file,
+    open_temporary_text,
+    publish_temporary_file,
+    sync_and_close,
+)
 from loafer.exceptions import LoadError
 from loafer.ports.connector import TargetConnector
 
@@ -38,7 +44,8 @@ class JsonTargetConnector(TargetConnector):
     def __init__(self, path: str, write_mode: str = "overwrite") -> None:
         self._path = Path(path)
         self._write_mode = write_mode
-        self._file: Any = None
+        self._file: TextIO | None = None
+        self._temporary_path: Path | None = None
         self._first_row = True
         self._rows_written = 0
 
@@ -48,16 +55,15 @@ class JsonTargetConnector(TargetConnector):
         if self._write_mode == "error" and self._path.exists():
             raise LoadError(f"Output file already exists: {self._path}")
 
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._file = open(self._path, "w", encoding="utf-8")
+        self._file, self._temporary_path = open_temporary_text(self._path)
         self._file.write("[\n")
         self._first_row = True
         self._rows_written = 0
 
     def disconnect(self) -> None:
-        if self._file and not self._file.closed:
-            self._file.close()
-            self._file = None
+        discard_temporary_file(self._file, self._temporary_path)
+        self._file = None
+        self._temporary_path = None
 
     # -- writing -------------------------------------------------------------
 
@@ -75,6 +81,15 @@ class JsonTargetConnector(TargetConnector):
         return len(chunk)
 
     def finalize(self) -> None:
-        if self._file and not self._file.closed:
-            self._file.write("\n]\n")
-            self._file.flush()
+        if self._file is None or self._temporary_path is None:
+            return
+
+        self._file.write("\n]\n")
+        sync_and_close(self._file)
+        self._file = None
+        publish_temporary_file(
+            self._temporary_path,
+            self._path,
+            write_mode=self._write_mode,
+        )
+        self._temporary_path = None

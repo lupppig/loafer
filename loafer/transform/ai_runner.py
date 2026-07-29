@@ -12,6 +12,7 @@ custom code so it does not duplicate or override it.
 from __future__ import annotations
 
 import copy
+import re
 import time
 import traceback
 from pathlib import Path
@@ -23,12 +24,43 @@ from loafer.core.sandbox import run_sandboxed
 from loafer.exceptions import LLMAuthError, LLMError, LLMRateLimitError, TransformError
 from loafer.graph.state import PipelineState
 from loafer.llm.base import LLMProvider, TransformPromptResult
-from loafer.llm.prompt_builder import build_etl_transform_prompt
+from loafer.llm.models import default_model_for, provider_for_model
+from loafer.llm.schema import build_schema_sample
 from loafer.transform import TransformRunner, materialize_input_rows
 from loafer.transform.code_validator import validate_transform_function
 
 # Maximum number of retry attempts for AI-generated code.
 _MAX_RETRIES = 3
+_TRANSIENT_HTTP_STATUS_CODES = {408, 409, 425, 429}
+
+
+def _llm_status_code(exc: Exception) -> int | None:
+    """Extract an HTTP status from provider exceptions or their messages."""
+    for candidate in (exc, getattr(exc, "response", None)):
+        value = getattr(candidate, "status_code", None)
+        if isinstance(value, int):
+            return value
+        value = getattr(candidate, "code", None)
+        if isinstance(value, int):
+            return value
+
+    match = re.search(r"\b(?:error\s+code\s*:\s*)?([1-5]\d{2})\b", str(exc), re.IGNORECASE)
+    return int(match.group(1)) if match else None
+
+
+def _is_retryable_llm_error(exc: Exception) -> bool:
+    """Return whether repeating the same provider request may succeed."""
+    if isinstance(exc, LLMAuthError):
+        return False
+    if isinstance(exc, LLMRateLimitError):
+        return True
+
+    status = _llm_status_code(exc)
+    if status is None:
+        return True
+    if status in _TRANSIENT_HTTP_STATUS_CODES or status >= 500:
+        return True
+    return not 400 <= status < 500
 
 
 def _human_readable_llm_error(exc: Exception) -> str:
@@ -62,10 +94,13 @@ def _human_readable_llm_error(exc: Exception) -> str:
                 if part.startswith(("gemini", "claude", "gpt", "qwen")):
                     model = part.strip("',.")
                     break
-            if "gemini" in model.lower():
+            provider = provider_for_model(model)
+            if provider:
+                recommended = default_model_for(provider)
                 return (
-                    f"Model '{model}' was not found. Google has renamed or deprecated it.\n"
-                    f"  Try: gemini-2.0-flash, gemini-2.5-flash, or gemini-2.0-flash-lite"
+                    f"Model '{model}' was not found. It may be retired or unavailable "
+                    f"for your account.\n"
+                    f"  Current Loafer default for {provider}: {recommended}"
                 )
             return (
                 f"Model '{model}' was not found. Check your provider's docs for available models."
@@ -166,7 +201,6 @@ class AiTransformRunner(TransformRunner):
             )
 
         llm_provider: LLMProvider = state["llm_provider"]
-        schema_sample: dict[str, Any] = state["schema_sample"]
         instruction: str = state["transform_instruction"]
 
         custom_code: str | None = None
@@ -177,6 +211,8 @@ class AiTransformRunner(TransformRunner):
         # Drain the stream (streaming mode) or read raw_data — exactly once.
         input_rows = materialize_input_rows(state)
         raw_data_snapshot = copy.deepcopy(input_rows)
+        schema_sample = build_schema_sample(input_rows, max_sample_rows=5)
+        state["schema_sample"] = schema_sample
 
         # Determine data flow: custom_first or ai_first
         order = transform_config.custom_order
@@ -186,13 +222,15 @@ class AiTransformRunner(TransformRunner):
         if custom_code and order == "custom_first":
             data = self._run_custom_code(custom_code, data, state)
             state["transformed_data"] = data
+            schema_sample = build_schema_sample(data, max_sample_rows=5)
+            state["schema_sample"] = schema_sample
 
         # Step 2: Run AI transform
-        ai_code = self._generate_ai_code(
-            llm_provider, schema_sample, instruction, custom_code, state
-        )
+        while True:
+            ai_code = self._generate_ai_code(
+                llm_provider, schema_sample, instruction, custom_code, state
+            )
 
-        if ai_code:
             # Human review if requested
             if transform_config.review and not _ask_user_confirmation(ai_code):
                 # User rejected — skip AI, keep custom result if any
@@ -200,7 +238,20 @@ class AiTransformRunner(TransformRunner):
                 state["duration_ms"]["transform"] = (time.monotonic() - start) * 1000
                 return state
 
-            data = self._run_ai_code(ai_code, data, state)
+            try:
+                data = self._run_ai_code(ai_code, data, state)
+                break
+            except TransformError as exc:
+                retry_count = state.get("retry_count", 0) + 1
+                previous_error = f"Execution error: {exc}"
+                state["retry_count"] = retry_count
+                state["last_error"] = previous_error
+                state["generated_code"] = ai_code
+                if retry_count >= _MAX_RETRIES:
+                    raise TransformError(
+                        f"AI transform failed after {_MAX_RETRIES} attempts. "
+                        f"Last error: {previous_error}"
+                    ) from exc
 
         # Step 3: Run custom transform after AI if order is ai_first
         if custom_code and order == "ai_first":
@@ -208,7 +259,6 @@ class AiTransformRunner(TransformRunner):
 
         state["transformed_data"] = data
         state["last_error"] = None
-        state["retry_count"] = 0
         state["duration_ms"]["transform"] = (time.monotonic() - start) * 1000
 
         if len(data) == 0:
@@ -230,7 +280,6 @@ class AiTransformRunner(TransformRunner):
     def _run_simple_ai(self, state: PipelineState) -> PipelineState:
         """Legacy path: AI-only transform without custom code support."""
         llm_provider: LLMProvider = state["llm_provider"]
-        schema_sample: dict[str, Any] = state["schema_sample"]
         instruction: str = state["transform_instruction"]
 
         previous_error: str | None = state.get("last_error")
@@ -243,13 +292,13 @@ class AiTransformRunner(TransformRunner):
         # before the retry loop so the single-use iterator isn't re-consumed.
         input_rows = materialize_input_rows(state)
         raw_data_snapshot = copy.deepcopy(input_rows)
+        schema_sample = build_schema_sample(input_rows, max_sample_rows=5)
+        state["schema_sample"] = schema_sample
 
         while retry_count < _MAX_RETRIES:
             if retry_count > 0:
                 wait = 2**retry_count  # 2s, 4s, 8s
                 time.sleep(wait)
-            build_etl_transform_prompt(schema_sample, instruction, previous_error, previous_code)
-
             try:
                 result: TransformPromptResult = llm_provider.generate_transform_function(
                     schema_sample,
@@ -261,6 +310,8 @@ class AiTransformRunner(TransformRunner):
                 # Non-retryable: a bad key won't fix itself across retries.
                 raise TransformError(_human_readable_llm_error(exc)) from exc
             except Exception as exc:
+                if not _is_retryable_llm_error(exc):
+                    raise TransformError(_human_readable_llm_error(exc)) from exc
                 retry_count += 1
                 user_msg = _human_readable_llm_error(exc)
                 previous_error = f"LLM call failed: {user_msg}"
@@ -383,21 +434,20 @@ class AiTransformRunner(TransformRunner):
             if retry_count > 0:
                 wait = 2**retry_count  # 2s, 4s, 8s
                 time.sleep(wait)
-            build_etl_transform_prompt(
-                schema_sample, instruction, previous_error, previous_code, custom_code
-            )
-
             try:
                 result: TransformPromptResult = llm_provider.generate_transform_function(
                     schema_sample,
                     instruction,
                     previous_error=previous_error,
                     previous_code=previous_code,
+                    custom_code=custom_code,
                 )
             except LLMAuthError as exc:
                 # Non-retryable: a bad key won't fix itself across retries.
                 raise TransformError(_human_readable_llm_error(exc)) from exc
             except Exception as exc:
+                if not _is_retryable_llm_error(exc):
+                    raise TransformError(_human_readable_llm_error(exc)) from exc
                 retry_count += 1
                 user_msg = _human_readable_llm_error(exc)
                 previous_error = f"LLM call failed: {user_msg}"

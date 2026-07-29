@@ -36,6 +36,9 @@ class TestClaudeProvider:
 
         assert "def transform" in result.code
         assert result.token_usage["total_tokens"] == 150
+        call_kwargs = mock_client.messages.create.call_args.kwargs
+        assert call_kwargs["model"] == "claude-sonnet-5"
+        assert call_kwargs["thinking"] == {"type": "disabled"}
 
     def test_generate_transform_function_with_previous_error(self) -> None:
         from loafer.llm.claude import ClaudeProvider
@@ -190,6 +193,9 @@ class TestOpenAIProvider:
 
         assert "def transform" in result.code
         assert result.token_usage["total_tokens"] == 150
+        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+        assert call_kwargs["model"] == "gpt-5.6-terra"
+        assert call_kwargs["max_completion_tokens"] == 4096
 
     def test_generate_transform_function_with_previous_error(self) -> None:
         from loafer.llm.openai import OpenAIProvider
@@ -305,7 +311,7 @@ class TestOpenAIProvider:
 
         call_kwargs = mock_client.chat.completions.create.call_args[1]
         assert call_kwargs["model"] == "gpt-4o"
-        assert call_kwargs["max_tokens"] == 2048
+        assert call_kwargs["max_completion_tokens"] == 2048
 
 
 class TestQwenProvider:

@@ -27,6 +27,11 @@ Source and target connectors process chunks, but some ETL transform paths still 
 run. Do not assume bounded memory for 30–100M-row jobs yet. See
 [Production readiness](PRODUCTION_READINESS.md) for the verified limits and release gates.
 
+The current measured four-column custom identity path completed 1M rows at roughly 1.15 GiB peak
+process-tree RSS, while a 10M run crossed a 2 GiB safety limit and was terminated without
+publishing output. Treat 1M narrow rows as a measured case, not a general guarantee; wider rows,
+other transforms, and concurrent runs require their own capped benchmark.
+
 ## Install
 
 Python 3.11 or newer is required.
@@ -116,7 +121,7 @@ transform:
 
 llm:
   provider: gemini
-  model: gemini-2.5-flash
+  model: gemini-3.6-flash
   api_key: ${GEMINI_API_KEY}
 ```
 
@@ -231,4 +236,5 @@ tests rather than connector-only benchmarks.
 - [PyPI](https://pypi.org/project/loafer-etl/)
 - [Security policy](SECURITY.md)
 - [Code of conduct](CODE_OF_CONDUCT.md)
+- [Changelog](CHANGELOG.md)
 - [License](LICENSE)

@@ -1,6 +1,6 @@
 """Claude LLM provider implementation.
 
-Uses the ``anthropic`` SDK with ``claude-sonnet-4-20250514`` for transform
+Uses the ``anthropic`` SDK with ``claude-sonnet-5`` for transform
 generation.  The SDK includes built-in retry on 429/5xx errors.
 """
 
@@ -13,6 +13,7 @@ from anthropic import APIStatusError
 
 from loafer.exceptions import LLMRateLimitError
 from loafer.llm.base import ELTSQLResult, LLMProvider, TransformPromptResult
+from loafer.llm.models import DEFAULT_CLAUDE_MODEL
 from loafer.llm.prompt_builder import build_elt_sql_prompt, build_etl_transform_prompt
 
 _FENCE_RE = re.compile(
@@ -33,7 +34,7 @@ class ClaudeProvider(LLMProvider):
     def __init__(
         self,
         api_key: str,
-        model: str = "claude-sonnet-4-20250514",
+        model: str = DEFAULT_CLAUDE_MODEL,
         max_tokens: int = 4096,
     ) -> None:
         self._client = anthropic.Anthropic(api_key=api_key)
@@ -46,9 +47,10 @@ class ClaudeProvider(LLMProvider):
         instruction: str,
         previous_error: str | None = None,
         previous_code: str | None = None,
+        custom_code: str | None = None,
     ) -> TransformPromptResult:
         prompt = build_etl_transform_prompt(
-            schema_sample, instruction, previous_error, previous_code
+            schema_sample, instruction, previous_error, previous_code, custom_code
         )
         response = self._call(prompt)
         raw_text = response.content[0].text  # type: ignore[union-attr]
@@ -87,6 +89,15 @@ class ClaudeProvider(LLMProvider):
     def _call(self, prompt: str) -> anthropic.types.Message:
         """Call Claude. The SDK already retries 429/5xx internally."""
         try:
+            if self._model == DEFAULT_CLAUDE_MODEL:
+                # Sonnet 5 enables adaptive thinking by default. Loafer expects the
+                # configured token limit to remain available for generated code/SQL.
+                return self._client.messages.create(
+                    model=self._model,
+                    max_tokens=self._max_tokens,
+                    messages=[{"role": "user", "content": prompt}],
+                    thinking={"type": "disabled"},
+                )
             return self._client.messages.create(
                 model=self._model,
                 max_tokens=self._max_tokens,

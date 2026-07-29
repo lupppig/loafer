@@ -3,6 +3,24 @@ import { Sparkles, Zap, Bug, Package } from 'lucide-react';
 
 const releases = [
   {
+    version: 'Unreleased',
+    date: 'Phase 0',
+    new: [
+      'A deterministic full-pipeline benchmark now enforces memory and timeout limits while verifying row counts and SHA-256 output checksums',
+      'Provider-aware model defaults: <code>gemini-3.6-flash</code>, <code>claude-sonnet-5</code>, <code>gpt-5.6-terra</code>, and <code>qwen3.7-plus</code>'
+    ],
+    improved: [
+      'CSV and JSON targets publish completed output atomically and preserve existing files when a run fails',
+      'PostgreSQL target and ELT identifiers now use driver-native composition, including schema-qualified table names',
+      'Omitting <code>llm.model</code> now selects the default for the configured provider instead of inheriting Gemini\u2019s model'
+    ],
+    fixed: [
+      'Retired Claude Sonnet 4 and Gemini 2.0 defaults no longer break newly configured AI pipelines',
+      'Failed target contexts no longer finalize partial CSV or JSON output',
+      '<code>write_mode: error</code> no longer overwrites a file created concurrently by another process'
+    ]
+  },
+  {
     version: 'v0.3.1',
     date: 'June 2026',
     new: [

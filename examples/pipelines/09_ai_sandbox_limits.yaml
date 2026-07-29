@@ -1,0 +1,24 @@
+# Tight sandbox limits. AI-generated code runs in a resource-capped
+# subprocess; a runaway transform becomes a clear error, not a hung host.
+name: ai_sandbox_limits
+
+mode: etl
+
+source:
+  path: examples/data/orders.csv
+
+transform:
+  instruction: Add a value_band column of high/medium/low based on amount.
+
+target:
+  path: examples/output/09_ai_sandbox_limits.json
+  write_mode: overwrite
+
+sandbox:
+  timeout: 5
+  max_memory_mb: 128
+
+llm:
+  provider: claude
+  model: claude-opus-5
+  api_key: ${ANTHROPIC_API_KEY}

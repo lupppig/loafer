@@ -65,7 +65,8 @@ def wrap_incremental_query(base_query: str, column: str, placeholder: str, quote
     quote char (``"`` for postgres/sqlite, `` ` `` for mysql).
     """
     inner = base_query.strip().rstrip(";")
-    col = f"{quote}{column}{quote}"
+    escaped_column = column.replace(quote, quote * 2)
+    col = f"{quote}{escaped_column}{quote}"
     return (
         f"SELECT * FROM ({inner}) AS _loafer_src "
         f"WHERE _loafer_src.{col} > {placeholder} "
@@ -95,3 +96,17 @@ def max_cursor(rows: list[dict[str, Any]], column: str, current: Any = None) -> 
         if best is None or _sort_key(val) > _sort_key(best):
             best = val
     return best
+
+
+def filter_rows_after_cursor(
+    rows: list[dict[str, Any]],
+    column: str,
+    cursor: Any,
+) -> list[dict[str, Any]]:
+    """Return rows whose non-null cursor value is strictly after *cursor*."""
+    if cursor is None:
+        return list(rows)
+    cursor_key = _sort_key(cursor)
+    return [
+        row for row in rows if row.get(column) is not None and _sort_key(row[column]) > cursor_key
+    ]

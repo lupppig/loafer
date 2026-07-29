@@ -11,6 +11,12 @@ from collections.abc import Callable
 
 from loafer.exceptions import LLMError
 from loafer.llm.base import LLMProvider
+from loafer.llm.models import (
+    DEFAULT_CLAUDE_MODEL,
+    DEFAULT_GEMINI_MODEL,
+    DEFAULT_OPENAI_MODEL,
+    DEFAULT_QWEN_MODEL,
+)
 
 _ProviderFactory = Callable[..., LLMProvider]
 
@@ -56,7 +62,7 @@ def _register_gemini() -> None:
 
     def _factory(**kwargs: object) -> GeminiProvider:
         api_key = kwargs.get("api_key") or kwargs.get("api_key", "")
-        model = kwargs.get("model", "gemini-2.5-flash")
+        model = kwargs.get("model") or DEFAULT_GEMINI_MODEL
         return GeminiProvider(api_key=str(api_key), model=str(model))
 
     register_provider("gemini", _factory)
@@ -67,7 +73,7 @@ def _register_claude() -> None:
 
     def _factory(**kwargs: object) -> ClaudeProvider:
         api_key = str(kwargs.get("api_key", ""))
-        model = str(kwargs.get("model", "claude-sonnet-4-20250514"))
+        model = str(kwargs.get("model") or DEFAULT_CLAUDE_MODEL)
         max_tokens = int(kwargs.get("max_tokens", 4096))
         return ClaudeProvider(api_key=api_key, model=model, max_tokens=max_tokens)
 
@@ -79,7 +85,7 @@ def _register_openai() -> None:
 
     def _factory(**kwargs: object) -> OpenAIProvider:
         api_key = kwargs.get("api_key", "")
-        model = kwargs.get("model", "gpt-4o-mini")
+        model = kwargs.get("model") or DEFAULT_OPENAI_MODEL
         max_tokens = kwargs.get("max_tokens", 4096)
         return OpenAIProvider(api_key=str(api_key), model=str(model), max_tokens=int(max_tokens))
 
@@ -91,7 +97,7 @@ def _register_qwen() -> None:
 
     def _factory(**kwargs: object) -> QwenProvider:
         api_key = kwargs.get("api_key", "")
-        model = kwargs.get("model", "qwen-plus")
+        model = kwargs.get("model") or DEFAULT_QWEN_MODEL
         return QwenProvider(api_key=str(api_key), model=str(model))
 
     register_provider("qwen", _factory)

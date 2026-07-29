@@ -12,8 +12,10 @@ sandbox is the enforcement layer behind it.
 
 from __future__ import annotations
 
-import multiprocessing
-import queue as _queue
+import contextlib
+import pickle
+import subprocess
+import sys
 from typing import Any
 
 from loafer.exceptions import TransformError
@@ -41,14 +43,8 @@ def _run_transform(code: str, data: list[dict[str, Any]]) -> list[dict[str, Any]
     return result
 
 
-def _child_entry(
-    code: str,
-    data: list[dict[str, Any]],
-    timeout: int,
-    max_memory_mb: int,
-    out: Any,
-) -> None:
-    """Subprocess entry: apply rlimits, run the transform, report via the queue."""
+def _apply_resource_limits(timeout: int, max_memory_mb: int) -> None:
+    """Apply POSIX memory and CPU limits inside the sandbox worker."""
     if _resource is not None:
         mem_bytes = max_memory_mb * 1024 * 1024
         try:
@@ -57,11 +53,30 @@ def _child_entry(
         except (ValueError, OSError):
             pass
 
+
+def _worker_main() -> None:
+    """Read one request from stdin and write one result to stdout.
+
+    This module entrypoint is intentionally independent of the caller's
+    ``__main__`` module. Unlike ``multiprocessing`` with the spawn start method,
+    it never re-imports and re-executes an unguarded user script.
+    """
     try:
-        result = _run_transform(code, data)
-        out.put(("ok", result))
+        request = pickle.loads(sys.stdin.buffer.read())
+        code, data, timeout, max_memory_mb = request
+        _apply_resource_limits(timeout, max_memory_mb)
+        # Keep transform print() calls away from the binary result protocol.
+        with contextlib.redirect_stdout(sys.stderr):
+            result = _run_transform(code, data)
+        response: tuple[str, Any] = ("ok", result)
     except BaseException as exc:
-        out.put(("err", f"{type(exc).__name__}: {exc}"))
+        response = ("err", f"{type(exc).__name__}: {exc}")
+
+    try:
+        sys.stdout.buffer.write(pickle.dumps(response, protocol=pickle.HIGHEST_PROTOCOL))
+        sys.stdout.buffer.flush()
+    except BaseException:
+        raise SystemExit(2) from None
 
 
 def run_sandboxed(
@@ -79,32 +94,45 @@ def run_sandboxed(
     if not _POSIX:
         return _run_in_thread(code, data, timeout=timeout)
 
-    ctx = multiprocessing.get_context("spawn")
-    out: Any = ctx.Queue()
-    proc = ctx.Process(
-        target=_child_entry,
-        args=(code, data, timeout, max_memory_mb, out),
-    )
-    proc.start()
+    try:
+        request = pickle.dumps(
+            (code, data, timeout, max_memory_mb),
+            protocol=pickle.HIGHEST_PROTOCOL,
+        )
+    except (pickle.PickleError, TypeError, ValueError) as exc:
+        raise TransformError(f"Transform input could not be serialized: {exc}") from exc
 
     try:
-        status, payload = out.get(timeout=timeout + 2)
-    except _queue.Empty:
-        proc.kill()
-        proc.join()
-        raise TransformError(f"Transform exceeded {timeout}s timeout and was terminated") from None
-    finally:
-        proc.join(timeout=1)
-        if proc.is_alive():
-            proc.kill()
-            proc.join()
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "loafer.core.sandbox"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            # Transform print() calls are redirected to stderr in the worker.
+            # Discard them so hostile code cannot exhaust parent memory by
+            # making communicate() buffer an unbounded log stream.
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError as exc:
+        raise TransformError(f"Could not start transform worker: {exc}") from exc
 
-    if proc.exitcode not in (0, None):
+    try:
+        stdout, _ = proc.communicate(input=request, timeout=timeout + 2)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.communicate()
+        raise TransformError(f"Transform exceeded {timeout}s timeout and was terminated") from None
+
+    if proc.returncode != 0:
         # Killed by the kernel before reporting — almost always a limit breach.
         raise TransformError(
-            f"Transform worker was killed (exit {proc.exitcode}) — likely exceeded "
+            f"Transform worker was killed (exit {proc.returncode}) — likely exceeded "
             f"the {max_memory_mb}MB memory or {timeout}s CPU limit"
         )
+
+    try:
+        status, payload = pickle.loads(stdout)
+    except (pickle.PickleError, EOFError, TypeError, ValueError) as exc:
+        raise TransformError("Transform worker returned an invalid response") from exc
 
     if status == "err":
         raise TransformError(f"Transform execution failed: {payload}")
@@ -147,3 +175,7 @@ def _run_in_thread(
     if "error" in box:
         raise TransformError(f"Transform execution failed: {box['error']}")
     return box.get("result", [])
+
+
+if __name__ == "__main__":  # pragma: no cover - exercised through the parent process
+    _worker_main()
