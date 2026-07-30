@@ -142,6 +142,11 @@ class PdfSourceConfig(BaseModel):
     type: Literal["pdf"]
     path: str
     extract_tables: bool = True
+    max_pages: int | None = None
+    max_file_size_mb: int = 100
+    page_timeout_seconds: float = 30.0
+    total_timeout_seconds: float = 300.0
+    page_failure_policy: Literal["fail", "skip"] = "fail"
 
     @field_validator("path")
     @classmethod
@@ -149,6 +154,20 @@ class PdfSourceConfig(BaseModel):
         if not Path(v).exists():
             raise ValueError(f"PDF file not found: {v}")
         return v
+
+    @field_validator("max_pages", "max_file_size_mb")
+    @classmethod
+    def positive_limits(cls, value: int | None) -> int | None:
+        if value is not None and value <= 0:
+            raise ValueError("PDF page and file-size limits must be positive")
+        return value
+
+    @field_validator("page_timeout_seconds", "total_timeout_seconds")
+    @classmethod
+    def positive_time_limits(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("PDF timeout limits must be positive")
+        return value
 
 
 SourceConfig = Annotated[
@@ -300,9 +319,49 @@ TransformConfig = Annotated[
 # Validation config
 
 
+SchemaType = Literal[
+    "null",
+    "boolean",
+    "integer",
+    "float",
+    "string",
+    "datetime",
+    "object",
+    "array",
+]
+
+
 class ValidationConfig(BaseModel):
     max_null_rate: float = 0.5
     strict: bool = False
+    required_columns: list[str] = Field(default_factory=list)
+    column_types: dict[str, SchemaType] = Field(default_factory=dict)
+    on_failure: Literal["fail", "quarantine"] = "fail"
+
+    @field_validator("max_null_rate")
+    @classmethod
+    def null_rate_is_fraction(cls, value: float) -> float:
+        if not 0 <= value <= 1:
+            raise ValueError("max_null_rate must be between 0 and 1")
+        return value
+
+    @field_validator("required_columns")
+    @classmethod
+    def required_columns_are_unique(cls, value: list[str]) -> list[str]:
+        normalized = [column.strip() for column in value]
+        if any(not column for column in normalized):
+            raise ValueError("required_columns cannot contain empty names")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("required_columns cannot contain duplicates")
+        return normalized
+
+
+class ExecutionConfig(BaseModel):
+    """Data-plane semantics that must be declared independently of chunk size."""
+
+    transform_class: Literal["materialized", "row_local", "global_relational"] = "materialized"
+    schema_drift: Literal["fail", "evolve", "quarantine", "coerce"] = "fail"
+    quarantine_path: str | None = None
 
 
 # Sandbox config
@@ -502,6 +561,7 @@ class PipelineConfig(BaseModel):
     streaming_threshold: int = 10_000
     destructive_filter_threshold: float = 0.3
     validation: ValidationConfig = Field(default_factory=ValidationConfig)
+    execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     incremental: IncrementalConfig | None = None
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
@@ -512,6 +572,55 @@ class PipelineConfig(BaseModel):
         if v <= 0:
             raise ValueError("chunk_size must be a positive integer")
         return v
+
+    @model_validator(mode="after")
+    def validate_execution_contract(self) -> PipelineConfig:
+        execution = self.execution
+        transform_types = (
+            [step.type for step in self.transform.steps]
+            if isinstance(self.transform, PipelineTransformConfig)
+            else [self.transform.type]
+        )
+        if "sql" in transform_types and execution.transform_class == "materialized":
+            execution.transform_class = "global_relational"
+
+        if execution.transform_class == "row_local":
+            if self.mode != "etl":
+                raise ValueError(
+                    "execution.transform_class 'row_local' is only supported in ETL mode; "
+                    "use ELT pushdown for global relational work"
+                )
+            if "sql" in transform_types:
+                raise ValueError(
+                    "SQL transforms cannot be declared row_local because joins, sorts, windows, "
+                    "aggregates, and deduplication require global semantics; use ELT pushdown or "
+                    "execution.transform_class 'global_relational'"
+                )
+            if self.target.type not in {"csv", "json", "postgres"}:
+                raise ValueError(
+                    "bounded row_local execution currently requires an atomically published "
+                    "CSV/JSON target or the PostgreSQL staging target"
+                )
+
+        needs_quarantine = (
+            execution.schema_drift == "quarantine" or self.validation.on_failure == "quarantine"
+        )
+        if needs_quarantine and not execution.quarantine_path:
+            raise ValueError(
+                "execution.quarantine_path is required when schema drift or validation failures "
+                "use the quarantine policy"
+            )
+        if execution.schema_drift == "evolve" and self.target.type in {"csv", "postgres"}:
+            target_constraint = (
+                "the CSV header is fixed after the first batch"
+                if self.target.type == "csv"
+                else "the PostgreSQL staging table schema is fixed by the first batch"
+            )
+            raise ValueError(
+                f"schema_drift 'evolve' is not supported for {self.target.type} targets because "
+                f"{target_constraint}; use JSON or choose fail/quarantine/coerce"
+            )
+        return self
 
     @model_validator(mode="before")
     @classmethod

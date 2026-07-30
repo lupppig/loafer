@@ -12,6 +12,14 @@ Notable changes to Loafer are documented here. This project follows
   requests, execution plans, batch envelopes, events, snapshots, and results.
 - Runtime ports and local adapters for cancellation, checkpoints, secret resolution, event
   publication, and interactive transform review.
+- An opt-in bounded row-local ETL data plane with per-batch envelopes, validation, schema
+  versioning, quarantine output, rolling row/byte/checksum reconciliation, cancellation
+  boundaries, and atomic CSV/JSON publication.
+- Explicit `fail`, `evolve`, `quarantine`, and `coerce` schema-drift policies plus required-column
+  and column-type validation.
+- Native PDF text/table provenance, file/page/time limits, and configurable page failure handling.
+- Run-scoped PostgreSQL staging with transactional replace, create-once, append, and keyed-upsert
+  publication plus an explicit delivery guarantee in validated execution plans.
 
 ### Changed
 
@@ -19,6 +27,29 @@ Notable changes to Loafer are documented here. This project follows
   execution orchestration remains independent of client frameworks.
 - Durable application contracts now exclude credentials, connector instances, iterators, provider
   clients, row payloads, and other ephemeral runtime objects.
+- AI row-local transforms now generate and version one validated artifact per run and reuse it for
+  every bounded batch.
+- SQL transforms are classified as global relational work, and the volume benchmark now exercises
+  the declared row-local path.
+
+### Fixed
+
+- Cancellation, transform failures, and target failures during bounded file runs now discard
+  run-scoped temporary output instead of publishing a final partial file.
+- CSV encoding detection now scans in bounded chunks instead of allocating the entire source file
+  during connection.
+- The Linux process-tree benchmark now tolerates sandbox workers exiting during `/proc` sampling
+  instead of aborting on the normal `ESRCH` race, and treats absent Git tooling in production
+  images as optional provenance rather than a benchmark failure.
+
+### Known limitations
+
+- MongoDB row-local runs remain rejected until a tested staging/merge protocol replaces direct
+  partial batch effects. PostgreSQL append is intentionally at-least-once across an ambiguous
+  target-commit/checkpoint gap; keyed upsert is the replay-safe merge mode.
+- Undeclared/materialized transforms and local SQL ETL still retain full-run state. The bounded
+  path passed the clean production-image 30M-row gate at 118.23 MiB peak process-tree RSS.
+- PDF extraction supports native text and tables; OCR remains unimplemented.
 
 ## [0.4.0] - 2026-07-29
 

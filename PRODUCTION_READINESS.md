@@ -77,11 +77,13 @@ operational envelope.
 
 ## Release blockers for 30–100M+ ETL
 
-### P0 — End-to-end materialization
+### P0 — End-to-end materialization outside the declared row-local path
 
 `loafer/transform/__init__.py::materialize_input_rows` drains every source chunk into one list.
-AI, custom Python, SQL, and multi-step ETL runners use it. `loafer/agents/load.py` then writes from
-`transformed_data`, which is also a full-run list.
+Undeclared/materialized AI, custom Python, SQL, and multi-step ETL runners still use it.
+`loafer/agents/load.py` then writes from `transformed_data`, which is also a full-run list. Declared
+`row_local` custom, AI, and custom/AI pipelines bypass this graph and keep one bounded batch in
+flight.
 
 Impact:
 
@@ -118,11 +120,12 @@ Required correction:
 - Give workers leases and cooperative cancellation at batch boundaries.
 - Advance checkpoints only after the corresponding target effect is durable.
 
-### P0 — Database partial outputs can appear final
+### P0 — Database partial outputs outside staged targets can appear final
 
 CSV and JSON targets now publish atomically and discard unpublished temporary files on failure.
-PostgreSQL still commits every small insert batch, and its target adapter commits table/index
-creation separately.
+Declared row-local PostgreSQL runs now commit batches only to a hidden run-scoped table and publish
+with one final transaction. The legacy direct PostgreSQL adapter still commits every small insert
+batch, and MongoDB has no equivalent staging protocol.
 
 Impact:
 
@@ -178,6 +181,14 @@ uv run python benchmarks/full_pipeline.py \
   --rows 10000000 \
   --rss-limit-mb 2048 \
   --report benchmarks/results/10m.json
+
+uv run python benchmarks/full_pipeline.py \
+  --rows 30000000 \
+  --chunk-size 10000 \
+  --rss-limit-mb 512 \
+  --sandbox-memory-mb 256 \
+  --timeout-seconds 3600 \
+  --report benchmarks/results/30m-row-local.json
 ```
 
 The harness generates deterministic input, executes the real CLI and transform subprocess, samples
@@ -195,27 +206,32 @@ the current custom identity transform:
 |---:|---:|---:|---|---|
 | 1,000,000 | 13.36s | 1,310.1 MiB | exact row count/SHA-256 | [`1m.json`](benchmarks/results/1m.json) |
 | 10,000,000 | 19.54s before cutoff | 2,056.7 MiB | terminated at 2 GiB; no final/temp output | [`10m.json`](benchmarks/results/10m.json) |
+| 30,000,000 row-local | 2,028.26s | 118.23 MiB | exact row count/SHA-256; clean production image | [`30m-row-local.json`](benchmarks/results/30m-row-local.json) |
 
 Input generation time is excluded from pipeline wall time. These results demonstrate full-run
-materialization rather than a bounded-memory curve. Environment, image, limits, and interpretation
-are recorded with the [versioned benchmark artifacts](benchmarks/results/README.md).
+materialization in the Phase 0 path and bounded memory in the declared Phase 2 row-local path.
+Environment, limits, provenance caveats, and interpretation are recorded with the
+[versioned benchmark artifacts](benchmarks/results/README.md).
 
 ## High-priority production gaps
 
-### P1 — Data quality is sample-based
+### P1 — Data quality is complete only on the declared row-local path
 
-Validation is primarily computed from the schema sample. It cannot prove whole-run null rates,
-type consistency, uniqueness, referential integrity, or rejected-row counts.
+Declared row-local runs validate every batch and aggregate column/null/rejected metrics with
+quarantine output. The legacy materialized graph remains primarily schema-sample based, and neither
+path yet provides declared uniqueness or referential-integrity checks.
 
-Build batch-level validation with aggregated run metrics and a quarantine output.
+Extend the same contract to global/materialized plans and add uniqueness and referential-integrity
+policies where their storage requirements are explicit.
 
-### P1 — Schema drift policy is implicit
+### P1 — Schema drift policy remains implicit outside row-local execution
 
-Target schema is inferred from the first row/chunk. Later columns and type changes can fail or be
-silently coerced depending on the adapter.
+Declared row-local runs expose schema versions and `fail | evolve | quarantine | coerce` policy.
+Legacy target behavior is still inferred from the first row/chunk, so later columns and type
+changes can fail or be silently coerced depending on the adapter.
 
-Add declared contracts, schema versions, and explicit `fail | evolve | quarantine | coerce`
-policies.
+Extend the declared schema contract to global/materialized execution and add compatibility tests
+for representative wide and nested records.
 
 ### P1 — The sandbox is a resource limiter, not a complete isolation boundary
 
@@ -369,6 +385,29 @@ Exit gate:
 - input/output/rejected counts and checksums reconcile;
 - cancellation and target failure do not publish a false success or final partial output;
 - native PDF text/table fixtures prove page provenance, limits, and failure reporting.
+
+**Current status:** implementation and clean production-image verification complete. Declared
+row-local custom, AI, and custom/AI pipeline transforms now use `BatchEnvelope` units without
+populating full-run `raw_data` or `transformed_data`; AI artifacts are generated and versioned once
+per run. Every batch receives
+schema-drift and validation policy, quarantine metadata, row/byte/checksum reconciliation,
+cooperative cancellation, and a final checkpoint only after atomic CSV/JSON publication or a
+PostgreSQL staging-table transaction. PostgreSQL replace/create-once/append/upsert modes now hide
+all batches until final swap or merge; live-database tests cover atomic visibility, failure cleanup,
+append, and idempotent keyed upsert. Target and transform failure tests prove that existing output
+is preserved and temporary output is discarded. Native PDF fixtures cover text, ruled tables,
+provenance, file/page limits, enforced page timeout, and fail/skip reporting; OCR remains explicitly
+unimplemented.
+
+The production-image exit run processed 30,000,000 deterministic rows in 2,028.26 seconds with
+118.23 MiB peak process-tree RSS under a 512 MiB cap, exact input/output row and SHA-256
+reconciliation, atomic publication, and no temporary output. Its
+[`30m-row-local.json`](benchmarks/results/30m-row-local.json) report pins source revision
+`b2d474b`, image ID `sha256:70d60d4c…`, Python 3.11.15, container limits, and disk-backed storage.
+MongoDB remains intentionally rejected by the row-local path until it implements staging/merge
+publication rather than partial direct batch effects. PostgreSQL append is at-least-once across an
+ambiguous target-commit/checkpoint gap; deterministic keyed upsert is replay-safe. Local/global SQL
+remains classified as global relational work and is not presented as bounded row-local execution.
 
 ### Phase 3 — Add durable metadata and single-node recovery
 
@@ -546,15 +585,16 @@ Exit gate:
 
 ## What to implement next
 
-With Phase 0 and Phase 1 complete, start Phase 2:
+Finish the bounded data-plane gate before starting durable metadata:
 
-1. Add a `transform_batch` execution path for declared row-local transforms.
-2. Keep bounded `BatchEnvelope` units flowing through CSV extract → validate → transform →
-   staged JSON publication without populating full-run `raw_data` or `transformed_data`.
-3. Generate and version AI transform artifacts once per run, then execute the validated artifact
-   per batch.
-4. Reconcile batch/input/output/rejected counts and checksums, and test cancellation or target
-   failure without false success or final partial output.
+1. Extend the pinned production-image curve to 1M/10M and representative wide-row/custom-transform
+   workloads; the 30M narrow identity gate is complete.
+2. Keep MongoDB blocked until an equivalent tested staging/merge protocol exists, and extend the
+   PostgreSQL live failure matrix to connection loss during final publication.
+3. Add a spill-capable local global-relational plan with explicit disk/memory/temp limits, while
+   continuing to prefer ELT pushdown.
+4. Expand schema evolution compatibility tests across supported targets and representative wide
+   or nested records.
 
 Do not add Better Auth, PostgreSQL run metadata, NATS, or distributed workers until the bounded
 single-node data-plane contract is real.

@@ -37,6 +37,10 @@ class SourceConnector(ABC):
     def count(self) -> int | None:
         """Row count if cheap to compute, else ``None``."""
 
+    def diagnostics(self) -> list[str]:
+        """Return redacted warnings collected while streaming."""
+        return []
+
     # -- context manager -----------------------------------------------------
 
     def __enter__(self) -> SourceConnector:

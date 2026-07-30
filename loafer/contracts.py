@@ -56,9 +56,12 @@ class ExecutionPlan(ContractModel):
     source_type: str
     target_type: str
     transform_type: str
+    transform_class: str = "materialized"
     chunk_size: int = Field(gt=0)
     streaming_threshold: int = Field(gt=0)
     validation_strict: bool
+    schema_drift_policy: str = "fail"
+    delivery_guarantee: str = "target_defined"
     llm_provider: str
     llm_model: str
     incremental_column: str | None = None
@@ -91,9 +94,13 @@ class BatchEnvelope(ContractModel):
     rows_in: int = Field(ge=0)
     rows_out: int = Field(ge=0)
     rows_rejected: int = Field(ge=0)
+    rows_filtered: int = Field(default=0, ge=0)
     bytes_in: int = Field(ge=0)
     bytes_out: int = Field(ge=0)
     checksum: str | None = None
+    input_checksum: str | None = None
+    output_checksum: str | None = None
+    duration_ms: float = Field(default=0.0, ge=0)
 
 
 class Checkpoint(ContractModel):
@@ -135,6 +142,15 @@ class RunSnapshot(ContractModel):
     rows_extracted: int = Field(ge=0)
     rows_transformed: int = Field(ge=0)
     rows_loaded: int = Field(ge=0)
+    rows_rejected: int = Field(default=0, ge=0)
+    rows_filtered: int = Field(default=0, ge=0)
+    batches_completed: int = Field(default=0, ge=0)
+    bytes_in: int = Field(default=0, ge=0)
+    bytes_out: int = Field(default=0, ge=0)
+    input_checksum: str | None = None
+    output_checksum: str | None = None
+    schema_version: str | None = None
+    transform_artifact_version: str | None = None
     validation_passed: bool
     duration_ms: dict[str, float] = Field(default_factory=dict)
     warnings: tuple[str, ...] = ()
@@ -154,6 +170,7 @@ class RunEvent(ContractModel):
     status: StageStatus
     occurred_at: datetime = Field(default_factory=_utc_now)
     snapshot: RunSnapshot
+    batch: BatchEnvelope | None = None
 
 
 class RunResult(ContractModel):

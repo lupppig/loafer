@@ -62,6 +62,22 @@ def _config_digest(config: PipelineConfig) -> str:
     return hashlib.sha256(rendered.encode("utf-8")).hexdigest()
 
 
+def _delivery_guarantee(config: PipelineConfig) -> str:
+    if config.execution.transform_class != "row_local":
+        return "target_defined"
+    if config.target.type in {"csv", "json"}:
+        return "atomic_run_publication"
+    if config.target.type == "postgres":
+        if config.target.write_mode == "replace":
+            return "atomic_transactional_replace"
+        if config.target.write_mode == "error":
+            return "atomic_transactional_create_once"
+        if config.target.write_mode == "upsert":
+            return "idempotent_keyed_atomic_merge"
+        return "at_least_once_atomic_merge"
+    return "unsupported"
+
+
 def _build_plan(
     config: PipelineConfig,
     request: RunRequest,
@@ -91,9 +107,12 @@ def _build_plan(
         source_type=config.source.type,
         target_type=config.target.type,
         transform_type=config.transform.type,
+        transform_class=config.execution.transform_class,
         chunk_size=config.chunk_size,
         streaming_threshold=config.streaming_threshold,
         validation_strict=config.validation.strict,
+        schema_drift_policy=config.execution.schema_drift,
+        delivery_guarantee=_delivery_guarantee(config),
         llm_provider=config.llm.provider,
         llm_model=config.llm.model,
         incremental_column=config.incremental.column if config.incremental else None,
@@ -150,8 +169,24 @@ def _snapshot(
         target_type=plan.target_type,
         transform_type=plan.transform_type,
         rows_extracted=max(0, int(state.get("rows_extracted", 0))),
-        rows_transformed=max(0, len(state.get("transformed_data", []))),
+        rows_transformed=max(
+            0,
+            int(
+                state.get("rows_transformed", 0)
+                if state.get("batches_completed", 0)
+                else len(state.get("transformed_data", []))
+            ),
+        ),
         rows_loaded=max(0, int(state.get("rows_loaded", 0))),
+        rows_rejected=max(0, int(state.get("rows_rejected", 0))),
+        rows_filtered=max(0, int(state.get("rows_filtered", 0))),
+        batches_completed=max(0, int(state.get("batches_completed", 0))),
+        bytes_in=max(0, int(state.get("bytes_in", 0))),
+        bytes_out=max(0, int(state.get("bytes_out", 0))),
+        input_checksum=state.get("input_checksum"),
+        output_checksum=state.get("output_checksum"),
+        schema_version=state.get("schema_version"),
+        transform_artifact_version=state.get("transform_artifact_version"),
         validation_passed=bool(state.get("validation_passed", False)),
         duration_ms=durations,
         warnings=warnings,
@@ -259,11 +294,15 @@ class RunPipeline:
             reviewer=self._reviewer,
             secret_resolver=self._secrets,
             provider_factory=self._provider_factory,
+            cancellation=self._cancellation,
+            checkpoints=self._checkpoints,
         )
         sequence = 0
 
         while True:
-            if self._cancellation.is_cancelled(request.run_id):
+            if plan.transform_class != "row_local" and self._cancellation.is_cancelled(
+                request.run_id
+            ):
                 raise PipelineError(f"Pipeline cancelled (run_id={request.run_id})")
             try:
                 stage, status, state = next(updates)
@@ -278,6 +317,7 @@ class RunPipeline:
                 stage=stage,
                 status=StageStatus(status),
                 snapshot=_snapshot(state, plan, config),
+                batch=state.get("last_batch_envelope") if stage == "batch" else None,
             )
             self._events.publish(event)
             yield event, state

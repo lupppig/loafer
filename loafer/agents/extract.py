@@ -116,7 +116,12 @@ def extract_agent(state: PipelineState) -> PipelineState:
                     state.get("cursor_value"),
                 )
             peekable = _PeekableStream(raw_iter)
-            peekable_stream = _counting_stream(peekable, state, cursor_column)
+            peekable_stream = _counting_stream(
+                peekable,
+                state,
+                cursor_column,
+                connector,
+            )
             state["stream_iterator"] = peekable_stream
             state["rows_extracted"] = (
                 count if count is not None and not client_side_incremental else 0
@@ -176,6 +181,7 @@ def _counting_stream(
     stream_iter: Iterator[list[dict[str, Any]]],
     state: PipelineState,
     cursor_column: str | None = None,
+    connector: SourceConnector | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     """Wrap a stream iterator to count rows and track the max cursor as consumed."""
     total = 0
@@ -192,6 +198,8 @@ def _counting_stream(
     # placeholder count set at extract time (BUG-5).
     if total == 0:
         state.setdefault("warnings", []).append("Source returned 0 rows")
+    if connector is not None:
+        state.setdefault("warnings", []).extend(connector.diagnostics())
 
 
 def _filter_incremental_stream(
