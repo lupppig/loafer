@@ -206,7 +206,7 @@ the current custom identity transform:
 |---:|---:|---:|---|---|
 | 1,000,000 | 13.36s | 1,310.1 MiB | exact row count/SHA-256 | [`1m.json`](benchmarks/results/1m.json) |
 | 10,000,000 | 19.54s before cutoff | 2,056.7 MiB | terminated at 2 GiB; no final/temp output | [`10m.json`](benchmarks/results/10m.json) |
-| 30,000,000 row-local | 1,950.86s | 101.09 MiB | exact row count/SHA-256; development worktree | [`30m-row-local.json`](benchmarks/results/30m-row-local.json) |
+| 30,000,000 row-local | 2,028.26s | 118.23 MiB | exact row count/SHA-256; clean production image | [`30m-row-local.json`](benchmarks/results/30m-row-local.json) |
 
 Input generation time is excluded from pipeline wall time. These results demonstrate full-run
 materialization in the Phase 0 path and bounded memory in the declared Phase 2 row-local path.
@@ -386,7 +386,7 @@ Exit gate:
 - cancellation and target failure do not publish a false success or final partial output;
 - native PDF text/table fixtures prove page provenance, limits, and failure reporting.
 
-**Current status:** implementation complete; clean release verification remains. Declared
+**Current status:** implementation and clean production-image verification complete. Declared
 row-local custom, AI, and custom/AI pipeline transforms now use `BatchEnvelope` units without
 populating full-run `raw_data` or `transformed_data`; AI artifacts are generated and versioned once
 per run. Every batch receives
@@ -399,16 +399,15 @@ is preserved and temporary output is discarded. Native PDF fixtures cover text, 
 provenance, file/page limits, enforced page timeout, and fail/skip reporting; OCR remains explicitly
 unimplemented.
 
-The development exit run processed 30,000,000 deterministic rows in 1,950.86 seconds with
-101.09 MiB peak process-tree RSS under a 512 MiB cap, exact input/output row and SHA-256
+The production-image exit run processed 30,000,000 deterministic rows in 2,028.26 seconds with
+118.23 MiB peak process-tree RSS under a 512 MiB cap, exact input/output row and SHA-256
 reconciliation, atomic publication, and no temporary output. Its
-[`30m-row-local.json`](benchmarks/results/30m-row-local.json) report truthfully records a dirty
-development worktree; rerun the 1M/10M/30M curve from the committed revision in a pinned production
-image before making a release workload claim. MongoDB remains intentionally rejected by the
-row-local path until it implements staging/merge publication rather than partial direct batch
-effects. PostgreSQL append is at-least-once across an ambiguous target-commit/checkpoint gap;
-deterministic keyed upsert is replay-safe. Local/global SQL remains classified as global relational
-work and is not presented as bounded row-local execution.
+[`30m-row-local.json`](benchmarks/results/30m-row-local.json) report pins source revision
+`b2d474b`, image ID `sha256:70d60d4c…`, Python 3.11.15, container limits, and disk-backed storage.
+MongoDB remains intentionally rejected by the row-local path until it implements staging/merge
+publication rather than partial direct batch effects. PostgreSQL append is at-least-once across an
+ambiguous target-commit/checkpoint gap; deterministic keyed upsert is replay-safe. Local/global SQL
+remains classified as global relational work and is not presented as bounded row-local execution.
 
 ### Phase 3 — Add durable metadata and single-node recovery
 
@@ -588,8 +587,8 @@ Exit gate:
 
 Finish the bounded data-plane gate before starting durable metadata:
 
-1. Repeat and publish the 1M/10M/30M declared row-local curve from the committed revision under a
-   pinned production image, promoting the successful development gate into release evidence.
+1. Extend the pinned production-image curve to 1M/10M and representative wide-row/custom-transform
+   workloads; the 30M narrow identity gate is complete.
 2. Keep MongoDB blocked until an equivalent tested staging/merge protocol exists, and extend the
    PostgreSQL live failure matrix to connection loss during final publication.
 3. Add a spill-capable local global-relational plan with explicit disk/memory/temp limits, while

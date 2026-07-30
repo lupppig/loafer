@@ -38,10 +38,9 @@ other transforms, and concurrent runs require their own capped benchmark. The ve
 environment provenance are in
 [`benchmarks/results/`](benchmarks/results/README.md).
 
-The declared row-local four-column identity workload has separately passed a 30M-row development
-gate at 101.09 MiB peak process-tree RSS under a 512 MiB cap, with exact row-count/SHA-256
-reconciliation and no temporary output. That result is implementation evidence, not yet a clean
-tagged production-image claim; see
+The declared row-local four-column identity workload has passed a clean production-image 30M-row
+gate at 118.23 MiB peak process-tree RSS under a 512 MiB cap, with exact row-count/SHA-256
+reconciliation and no temporary output. See
 [`30m-row-local.json`](benchmarks/results/30m-row-local.json).
 
 ## Install

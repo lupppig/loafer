@@ -194,24 +194,30 @@ def _preflight(work_directory: Path, rows: int) -> None:
 
 
 def _git_revision(repository: Path) -> str | None:
-    result = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=repository,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repository,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
     return result.stdout.strip() if result.returncode == 0 else None
 
 
 def _git_worktree_dirty(repository: Path) -> bool | None:
-    result = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=repository,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=repository,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
     return bool(result.stdout) if result.returncode == 0 else None
 
 

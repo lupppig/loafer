@@ -39,7 +39,8 @@ Notable changes to Loafer are documented here. This project follows
 - CSV encoding detection now scans in bounded chunks instead of allocating the entire source file
   during connection.
 - The Linux process-tree benchmark now tolerates sandbox workers exiting during `/proc` sampling
-  instead of aborting on the normal `ESRCH` race.
+  instead of aborting on the normal `ESRCH` race, and treats absent Git tooling in production
+  images as optional provenance rather than a benchmark failure.
 
 ### Known limitations
 
@@ -47,8 +48,7 @@ Notable changes to Loafer are documented here. This project follows
   partial batch effects. PostgreSQL append is intentionally at-least-once across an ambiguous
   target-commit/checkpoint gap; keyed upsert is the replay-safe merge mode.
 - Undeclared/materialized transforms and local SQL ETL still retain full-run state. The bounded
-  path passed the 30M-row development gate at 101.09 MiB peak process-tree RSS, but the curve still
-  requires a clean committed production-image rerun before a release workload claim.
+  path passed the clean production-image 30M-row gate at 118.23 MiB peak process-tree RSS.
 - PDF extraction supports native text and tables; OCR remains unimplemented.
 
 ## [0.4.0] - 2026-07-29

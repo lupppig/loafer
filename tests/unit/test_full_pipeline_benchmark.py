@@ -11,6 +11,8 @@ import pytest
 from benchmarks.full_pipeline import (
     _csv_data_row_count,
     _generate_input,
+    _git_revision,
+    _git_worktree_dirty,
     _process_group_rss_bytes,
     _sha256,
     _verified_throughput,
@@ -62,6 +64,22 @@ def test_process_group_rss_ignores_processes_that_exit_during_scan(
     monkeypatch.setattr(Path, "iterdir", lambda _path: iter([VanishedProcess()]))
 
     assert _process_group_rss_bytes(123) == 0
+
+
+def test_git_provenance_is_optional_when_image_has_no_git(
+    tmp_path: Path,
+) -> None:
+    def missing_git(*_args: object, **_kwargs: object) -> None:
+        raise FileNotFoundError("git")
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(
+            "benchmarks.full_pipeline.subprocess.run",
+            missing_git,
+        )
+
+        assert _git_revision(tmp_path) is None
+        assert _git_worktree_dirty(tmp_path) is None
 
 
 def test_throughput_is_only_reported_for_verified_output() -> None:
