@@ -529,6 +529,10 @@ def _print_summary_table(state: dict[str, Any], mode: str, failed_stage: str | N
     if token_usage:
         total_tokens = token_usage.get("total_tokens", 0)
         extras.append(f"Tokens: {total_tokens:,}")
+    if state.get("batches_completed"):
+        extras.append(f"Batches: {state['batches_completed']:,}")
+    if state.get("rows_rejected"):
+        extras.append(f"Rejected: {state['rows_rejected']:,}")
     console.print(f"\n[dim]{'  |  '.join(extras)}[/dim]")
 
     warnings = state.get("warnings", [])
@@ -629,6 +633,10 @@ def run(
             status = event.status.value
             state = event.snapshot.model_dump(mode="python")
             final_state = state
+            if node_name == "batch":
+                if active_animator is not None:
+                    active_animator.pulse()
+                continue
             label = _get_stage_label(node_name, state)
             row_info = _get_row_info(node_name, state)
 
@@ -720,9 +728,12 @@ def validate(
     table.add_row("Source", plan.source_type)
     table.add_row("Target", plan.target_type)
     table.add_row("Transform", plan.transform_type)
+    table.add_row("Transform class", plan.transform_class)
     table.add_row("Chunk size", str(plan.chunk_size))
     table.add_row("Streaming threshold", str(plan.streaming_threshold))
     table.add_row("Validation strict", str(plan.validation_strict))
+    table.add_row("Schema drift", plan.schema_drift_policy)
+    table.add_row("Delivery guarantee", plan.delivery_guarantee)
     table.add_row("LLM provider", plan.llm_provider)
     table.add_row("LLM model", plan.llm_model)
 

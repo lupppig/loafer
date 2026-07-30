@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -87,3 +88,38 @@ class TestCsvSourceConnector:
             rows = conn.read_all()
             assert len(rows) == 3
             assert conn.count() == 3
+
+    def test_connect_scans_encoding_with_bounded_reads(self, tmp_path: Any) -> None:
+        f = tmp_path / "data.csv"
+        f.write_text("id,name\n1,Alice\n2,Bob\n", encoding="utf-8")
+        real_open = open
+        read_sizes: list[int] = []
+        calls = 0
+
+        class TrackingFile:
+            def __init__(self, handle: Any) -> None:
+                self._handle = handle
+
+            def read(self, size: int = -1) -> str:
+                read_sizes.append(size)
+                return self._handle.read(size)
+
+            def __iter__(self) -> Any:
+                return iter(self._handle)
+
+            def __getattr__(self, name: str) -> Any:
+                return getattr(self._handle, name)
+
+        def tracked_open(*args: Any, **kwargs: Any) -> Any:
+            nonlocal calls
+            calls += 1
+            handle = real_open(*args, **kwargs)
+            return TrackingFile(handle) if calls == 1 else handle
+
+        with patch("builtins.open", side_effect=tracked_open):
+            connector = CsvSourceConnector(str(f))
+            connector.connect()
+            connector.disconnect()
+
+        assert read_sizes
+        assert all(size > 0 for size in read_sizes)

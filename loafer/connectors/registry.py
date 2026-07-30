@@ -20,6 +20,9 @@ from loafer.adapters.targets.csv_target import CsvTargetConnector as _CsvTarget
 from loafer.adapters.targets.json_target import JsonTargetConnector as _JsonTarget
 from loafer.adapters.targets.mongo import MongoTargetConnector as _MongoTarget
 from loafer.adapters.targets.postgres import PostgresTargetConnector as _PgTarget
+from loafer.adapters.targets.postgres_staging import (
+    PostgresStagingTargetConnector as _PgStagingTarget,
+)
 from loafer.exceptions import ConnectorError
 from loafer.ports.connector import SourceConnector, TargetConnector
 
@@ -106,6 +109,23 @@ def get_target_connector(config: TargetConfig) -> TargetConnector:
     return _build_target(connector_cls, config)
 
 
+def get_staged_target_connector(
+    config: TargetConfig,
+    *,
+    run_id: str,
+) -> TargetConnector:
+    """Instantiate a target that hides every batch until final publication."""
+    if config.type == "postgres":
+        return _PgStagingTarget(
+            config.url,
+            config.table,
+            config.write_mode,
+            config.key,
+            run_id,
+        )
+    return get_target_connector(config)
+
+
 def _build_source(
     cls: type[SourceConnector],
     config: SourceConfig,
@@ -152,7 +172,15 @@ def _build_source(
                 incremental_value=cursor_value,
             )
         case "pdf":
-            return cls(config.path, config.extract_tables)  # type: ignore[call-arg]
+            return cls(  # type: ignore[call-arg]
+                config.path,
+                config.extract_tables,
+                config.max_pages,
+                config.max_file_size_mb,
+                config.page_timeout_seconds,
+                config.total_timeout_seconds,
+                config.page_failure_policy,
+            )
     msg = f"source connector '{config.type}' not implemented"
     raise RegistryError(msg)
 
@@ -213,4 +241,5 @@ PdfSourceConnector = _Pdf
 CsvTargetConnector = _CsvTarget
 JsonTargetConnector = _JsonTarget
 PostgresTargetConnector = _PgTarget
+PostgresStagingTargetConnector = _PgStagingTarget
 MongoTargetConnector = _MongoTarget

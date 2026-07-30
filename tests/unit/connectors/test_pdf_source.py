@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import pytest
@@ -72,6 +73,53 @@ startxref
         pdf.write_bytes(pdf_content)
         return pdf
 
+    @pytest.fixture
+    def table_pdf_path(self, tmp_path: Path) -> Path:
+        """Create a native-text PDF containing a ruled two-column table."""
+        content = b"""0.5 w
+72 720 m 300 720 l S
+72 690 m 300 690 l S
+72 660 m 300 660 l S
+72 660 m 72 720 l S
+180 660 m 180 720 l S
+300 660 m 300 720 l S
+BT /F1 12 Tf 82 702 Td (Name) Tj ET
+BT /F1 12 Tf 190 702 Td (Value) Tj ET
+BT /F1 12 Tf 82 672 Td (Alice) Tj ET
+BT /F1 12 Tf 190 672 Td (42) Tj ET
+"""
+        objects = [
+            b"<< /Type /Catalog /Pages 2 0 R >>",
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            (
+                b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+                b"/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>"
+            ),
+            b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"endstream",
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        ]
+        payload = bytearray(b"%PDF-1.4\n")
+        offsets = [0]
+        for number, obj in enumerate(objects, start=1):
+            offsets.append(len(payload))
+            payload.extend(f"{number} 0 obj\n".encode())
+            payload.extend(obj)
+            payload.extend(b"\nendobj\n")
+        xref_offset = len(payload)
+        payload.extend(f"xref\n0 {len(objects) + 1}\n".encode())
+        payload.extend(b"0000000000 65535 f \n")
+        for offset in offsets[1:]:
+            payload.extend(f"{offset:010d} 00000 n \n".encode())
+        payload.extend(
+            (
+                f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
+                f"startxref\n{xref_offset}\n%%EOF\n"
+            ).encode()
+        )
+        path = tmp_path / "native-table.pdf"
+        path.write_bytes(payload)
+        return path
+
     def test_connect_and_disconnect(self, pdf_path: Path) -> None:
         from loafer.connectors.registry import PdfSourceConnector
 
@@ -116,6 +164,13 @@ startxref
         all_rows = [row for chunk in chunks for row in chunk]
         assert "tables" in all_rows[0]
         assert "table_count" in all_rows[0]
+        assert "table_provenance" in all_rows[0]
+        assert all_rows[0]["provenance"] == {
+            "source_path": str(pdf_path.resolve()),
+            "page_number": 1,
+            "content_type": "native_pdf",
+            "ocr_applied": False,
+        }
 
     def test_stream_excludes_tables_when_disabled(self, pdf_path: Path) -> None:
         from loafer.connectors.registry import PdfSourceConnector
@@ -127,6 +182,26 @@ startxref
 
         all_rows = [row for chunk in chunks for row in chunk]
         assert "tables" not in all_rows[0]
+
+    def test_native_table_fixture_preserves_page_and_table_provenance(
+        self,
+        table_pdf_path: Path,
+    ) -> None:
+        from loafer.connectors.registry import PdfSourceConnector
+
+        with PdfSourceConnector(str(table_pdf_path), extract_tables=True) as conn:
+            rows = conn.read_all()
+
+        assert rows[0]["tables"] == [[["Name", "Value"], ["Alice", "42"]]]
+        assert rows[0]["table_provenance"] == [
+            {
+                "source_path": str(table_pdf_path.resolve()),
+                "page_number": 1,
+                "table_index": 0,
+                "row_count": 2,
+                "column_count": 2,
+            }
+        ]
 
     def test_stream_chunking(self, pdf_path: Path) -> None:
         from loafer.connectors.registry import PdfSourceConnector
@@ -169,3 +244,65 @@ startxref
         conn = PdfSourceConnector(str(tmp_path / "missing.pdf"))
         with pytest.raises(Exception, match="failed to open PDF"):
             conn.connect()
+
+    def test_page_limit_is_enforced_before_extraction(self, pdf_path: Path) -> None:
+        from loafer.connectors.registry import PdfSourceConnector
+
+        conn = PdfSourceConnector(str(pdf_path), max_pages=2)
+
+        with pytest.raises(Exception, match=r"3 pages.*2-page limit"):
+            conn.connect()
+        assert conn._doc is None
+
+    def test_file_size_limit_is_enforced_before_parser_open(self, tmp_path: Path) -> None:
+        from loafer.connectors.registry import PdfSourceConnector
+
+        large = tmp_path / "large.pdf"
+        large.write_bytes(b"x" * (1024 * 1024 + 1))
+        conn = PdfSourceConnector(str(large), max_file_size_mb=1)
+
+        with pytest.raises(Exception, match=r"exceeding.*1MB limit"):
+            conn.connect()
+
+    def test_skip_policy_reports_page_failure(self) -> None:
+        from loafer.connectors.registry import PdfSourceConnector
+
+        class _BrokenPage:
+            def extract_text(self) -> str:
+                raise RuntimeError("broken content stream")
+
+        class _Document:
+            def __init__(self) -> None:
+                self.pages = [_BrokenPage()]
+
+        conn = PdfSourceConnector("/tmp/fake.pdf", page_failure_policy="skip")
+        conn._doc = _Document()
+
+        assert list(conn.stream(chunk_size=1)) == []
+        assert conn.diagnostics() == ["PDF page 1 extraction failed: broken content stream"]
+
+    def test_page_timeout_is_enforced_and_reported(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from loafer.connectors.registry import PdfSourceConnector
+
+        class _Page:
+            pass
+
+        class _Document:
+            def __init__(self) -> None:
+                self.pages = [_Page()]
+
+        conn = PdfSourceConnector(
+            "/tmp/fake.pdf",
+            page_timeout_seconds=0.01,
+            page_failure_policy="skip",
+        )
+        conn._doc = _Document()
+
+        def _slow_page(_page_num: int, _page: object) -> dict[str, object]:
+            time.sleep(0.1)
+            return {}
+
+        monkeypatch.setattr(conn, "_extract_page", _slow_page)
+
+        assert list(conn.stream(chunk_size=1)) == []
+        assert "page exceeded 0.01s timeout" in conn.diagnostics()[0]

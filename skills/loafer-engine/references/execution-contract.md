@@ -6,8 +6,8 @@
 run_id, stage_id, partition_id, batch_id, attempt
 source_position_start, source_position_end
 schema_version, transform_artifact_version
-rows_in, rows_out, rows_rejected
-bytes_in, bytes_out, checksum
+rows_in, rows_out, rows_rejected, rows_filtered
+bytes_in, bytes_out, input_checksum, output_checksum
 ```
 
 ## Row-local flow
@@ -23,6 +23,14 @@ read bounded batch
 
 Bound the number of batches in flight. Cancellation occurs between safe boundaries. Retry the same
 artifact and config version.
+
+Loafer's implemented local row-local profile currently uses one batch in flight and atomically
+publishes CSV/JSON files after every batch succeeds. PostgreSQL writes to a hidden run-scoped table
+and publishes in one final transaction: `replace` is replayable replacement, `error` is atomic
+create-once, `append` is at-least-once across a target-commit/checkpoint gap, and deterministic
+`upsert` is idempotent by its declared key. MongoDB is rejected until it provides an equivalent
+tested staging/merge publication protocol. The validated execution plan exposes the selected
+delivery guarantee.
 
 ## Global relational flow
 

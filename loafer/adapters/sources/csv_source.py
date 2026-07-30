@@ -18,6 +18,7 @@ from loafer.exceptions import ConfigError, ExtractionError
 from loafer.ports.connector import SourceConnector
 
 logger = logging.getLogger(__name__)
+_ENCODING_SCAN_CHARS = 1024 * 1024
 
 
 class CsvSourceConnector(SourceConnector):
@@ -51,10 +52,13 @@ class CsvSourceConnector(SourceConnector):
 
         try:
             self._file = open(self._path, encoding=self._encoding, newline="")
-            self._file.read()
+            while self._file.read(_ENCODING_SCAN_CHARS):
+                pass
             self._file.seek(0)
         except UnicodeDecodeError:
             logger.warning("UTF-8 decode failed for %s, falling back to latin-1", self._path)
+            if self._file is not None:
+                self._file.close()
             self._file = open(self._path, encoding="latin-1", newline="")
             self._actual_encoding = "latin-1"
 

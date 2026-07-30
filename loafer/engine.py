@@ -20,7 +20,12 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from loafer.llm.base import LLMProvider
-    from loafer.ports.runtime import ReviewPort, SecretResolver
+    from loafer.ports.runtime import (
+        CancellationPort,
+        CheckpointPort,
+        ReviewPort,
+        SecretResolver,
+    )
 
 _PROVIDER_ENV_VARS = {
     "gemini": "GEMINI_API_KEY",
@@ -125,6 +130,7 @@ def _build_initial_state(
         chunk_size=config.chunk_size,
         streaming_threshold=config.streaming_threshold,
         destructive_filter_threshold=config.destructive_filter_threshold,
+        execution_config=config.execution,
         raw_data=[],
         transformed_data=[],
         schema_sample={},
@@ -141,7 +147,19 @@ def _build_initial_state(
         generated_sql=None,
         run_id=run_id or uuid.uuid4().hex[:12],
         rows_extracted=0,
+        rows_transformed=0,
         rows_loaded=0,
+        rows_rejected=0,
+        rows_filtered=0,
+        batches_completed=0,
+        bytes_in=0,
+        bytes_out=0,
+        input_checksum=None,
+        output_checksum=None,
+        schema_version=None,
+        transform_artifact_version=None,
+        last_batch_envelope=None,
+        target_published=False,
         duration_ms={},
         warnings=[],
         is_streaming=False,
@@ -181,6 +199,8 @@ def execute_pipeline(
     reviewer: ReviewPort | None = None,
     secret_resolver: SecretResolver | None = None,
     provider_factory: ProviderFactory | None = None,
+    cancellation: CancellationPort | None = None,
+    checkpoints: CheckpointPort | None = None,
 ) -> PipelineState:
     """Execute a validated ETL or ELT pipeline.
 
@@ -214,6 +234,26 @@ def execute_pipeline(
     if _transform_requires_llm(config):
         factory = provider_factory or _build_llm_provider
         state["llm_provider"] = factory(config, secret_resolver)
+
+    from loafer.data_plane import stream_bounded_pipeline, uses_bounded_data_plane
+
+    if uses_bounded_data_plane(config):
+        try:
+            for _stage, _status, _state in stream_bounded_pipeline(
+                config,
+                state,
+                dry_run=dry_run,
+                cancellation=cancellation,
+                checkpoints=checkpoints,
+            ):
+                pass
+        except PipelineError:
+            raise
+        except Exception as exc:
+            raise PipelineError(f"Pipeline failed (run_id={state['run_id']}): {exc}") from exc
+        if not dry_run:
+            _persist_cursor(state)
+        return state
 
     mode = config.mode
 
@@ -259,6 +299,8 @@ def stream_pipeline(
     reviewer: ReviewPort | None = None,
     secret_resolver: SecretResolver | None = None,
     provider_factory: ProviderFactory | None = None,
+    cancellation: CancellationPort | None = None,
+    checkpoints: CheckpointPort | None = None,
 ) -> Iterator[tuple[str, str, PipelineState]]:
     """Execute a validated pipeline and yield per-stage runtime updates.
 
@@ -285,6 +327,22 @@ def stream_pipeline(
     if _transform_requires_llm(config):
         factory = provider_factory or _build_llm_provider
         state["llm_provider"] = factory(config, secret_resolver)
+
+    from loafer.data_plane import stream_bounded_pipeline, uses_bounded_data_plane
+
+    if uses_bounded_data_plane(config):
+        try:
+            yield from stream_bounded_pipeline(
+                config,
+                state,
+                dry_run=dry_run,
+                cancellation=cancellation,
+                checkpoints=checkpoints,
+            )
+        finally:
+            if not dry_run and state.get("target_published", False):
+                _persist_cursor(state)
+        return
 
     mode = config.mode
 

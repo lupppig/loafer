@@ -40,11 +40,14 @@ YAML
   → config.load_config
   → application.RunPipeline creates a credential-free ExecutionPlan
   → engine._build_initial_state
-  → engine selects ETL or ELT LangGraph
-  → extract agent resolves source adapter and samples schema
-  → validate agent applies sample-based checks
-  → ETL: transform runner → load target adapter
-  → ELT: load_raw target adapter → in-target SQL transform
+  → declared row_local ETL: bounded data plane
+      → source batch → schema/validation → prepared transform_batch → staged file target
+      → BatchEnvelope + rolling reconciliation → atomic publication → final checkpoint
+  → otherwise engine selects ETL or ELT LangGraph
+      → extract agent resolves source adapter and samples schema
+      → validate agent applies sample-based checks
+      → ETL: materialized transform runner → load target adapter
+      → ELT: load_raw target adapter → in-target SQL transform
   → engine persists the local incremental cursor after graph completion
   → application emits sanitized RunEvent / RunResult contracts
 ```
@@ -66,6 +69,7 @@ record. Persistence and client surfaces use the credential-free contracts in `lo
 | `loafer/agents/` | LangGraph stage functions |
 | `loafer/transform/` | AI, Python, SQL, and multi-step execution |
 | `loafer/graph/` | Separate ETL and ELT topology |
+| `loafer/data_plane.py` | Bounded row-local batch orchestration and atomic publication |
 | `loafer/engine.py` | In-process graph composition and execution |
 | `loafer/application/` | Plan, run, validate, and connector-listing use cases |
 | `loafer/runner.py` | Backward-compatible Python facade over the application service |
@@ -84,6 +88,8 @@ Verify before relying on it, but the repository currently contains:
 - Gemini, Claude, OpenAI, and Qwen provider adapters.
 - Cursor-based incremental extraction with a local JSON state file.
 - Postgres and Mongo upsert modes.
+- Declared row-local ETL through bounded batches with schema policies, per-batch validation,
+  quarantine, checksums, cancellation, and atomic CSV/JSON publication.
 - Python transform subprocess sandboxing on supported operating systems.
 - CLI validation, connector listing, runs, scheduling, daemon management, logs, and initialization.
 - Unit, integration, end-to-end, smoke, and opt-in benchmark tests.
@@ -99,9 +105,9 @@ Re-check the repository because this reference is a snapshot, not a substitute f
 
 ## Architectural risks
 
-- The source stream is drained by `materialize_input_rows()` into a list for AI, custom, SQL, and
-  multi-step ETL transforms. The ETL load agent then writes from `transformed_data`.
-- Sample-based validation does not validate every partition.
+- Undeclared/materialized AI, custom, SQL, and multi-step ETL still drain the source stream through
+  `materialize_input_rows()`; only explicitly declared row-local work uses the bounded data plane.
+- The legacy graph path remains sample-validated; the bounded row-local path validates every batch.
 - Local JSON watermark state is not sufficient for concurrent or distributed workers.
 - CSV and JSON targets publish atomically, but the local watermark/state file does not yet use the
   same publication protocol.

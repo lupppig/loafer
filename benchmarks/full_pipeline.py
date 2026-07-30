@@ -89,7 +89,13 @@ def _process_group_rss_bytes(process_group: int) -> int:
             # (field 5), and fields[21] is RSS pages (field 24).
             if int(fields[2]) == process_group:
                 total_pages += int(fields[21])
-        except (FileNotFoundError, IndexError, PermissionError, ValueError):
+        except (
+            FileNotFoundError,
+            ProcessLookupError,
+            IndexError,
+            PermissionError,
+            ValueError,
+        ):
             continue
 
     return total_pages * page_size
@@ -198,6 +204,17 @@ def _git_revision(repository: Path) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
+def _git_worktree_dirty(repository: Path) -> bool | None:
+    result = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=repository,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return bool(result.stdout) if result.returncode == 0 else None
+
+
 def _tail(path: Path, max_characters: int = 4000) -> str:
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -251,6 +268,9 @@ def run_benchmark(
                 "transform:",
                 "  type: custom",
                 f"  path: {json.dumps(str(transform_path))}",
+                "execution:",
+                "  transform_class: row_local",
+                "  schema_drift: fail",
                 f"chunk_size: {chunk_size}",
                 "streaming_threshold: 1",
                 "sandbox:",
@@ -314,7 +334,7 @@ def run_benchmark(
         "rows_requested": rows,
         "rows_output": output_rows,
         "chunk_size": chunk_size,
-        "transform_class": "custom_identity_current_materializing_path",
+        "transform_class": "custom_identity_row_local",
         "generation_seconds": round(generation_seconds, 6),
         "wall_seconds": round(process.wall_seconds, 6),
         "throughput_rows_per_second": _verified_throughput(
@@ -344,6 +364,7 @@ def run_benchmark(
             "machine": platform.machine(),
             "loafer_version": loafer_version,
             "git_revision": _git_revision(repository),
+            "git_worktree_dirty": _git_worktree_dirty(repository),
         },
         "process": asdict(process),
     }

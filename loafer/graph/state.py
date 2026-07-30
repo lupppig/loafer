@@ -43,6 +43,7 @@ class PipelineState(TypedDict, total=False):
     chunk_size: int
     streaming_threshold: int
     destructive_filter_threshold: float
+    execution_config: Any
 
     # Data (mutated per agent)
     raw_data: list[dict[str, Any]]
@@ -74,7 +75,19 @@ class PipelineState(TypedDict, total=False):
     # Execution metadata
     run_id: str
     rows_extracted: int
+    rows_transformed: int
     rows_loaded: int
+    rows_rejected: int
+    rows_filtered: int
+    batches_completed: int
+    bytes_in: int
+    bytes_out: int
+    input_checksum: str | None
+    output_checksum: str | None
+    schema_version: str | None
+    transform_artifact_version: str | None
+    last_batch_envelope: Any | None
+    target_published: bool
     duration_ms: dict[str, float]
     warnings: list[str]
     is_streaming: bool

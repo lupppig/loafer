@@ -22,9 +22,13 @@ LLM-generated artifacts.
 - Local scheduling, daemon management, run summaries, and logs
 - Optional Gemini, OpenAI, Claude, and Qwen providers
 - Resource-limited Python transform subprocesses on Linux and macOS
+- Declared row-local ETL with bounded batches, per-batch validation, schema policies,
+  reconciliation checksums, atomic CSV/JSON publication, and transactional PostgreSQL staging
 
-Source and target connectors process chunks, but some ETL transform paths still materialize a full
-run. Do not assume bounded memory for 30–100M-row jobs yet. See
+Bounded execution is opt-in because applying a global transform independently to chunks changes its
+meaning. Undeclared transforms and local SQL ETL still use the materialized compatibility path. Do
+not assume bounded memory for 30–100M-row jobs until the workload has passed the reproducible
+full-pipeline benchmark for its row width and transform class. See
 [Production readiness](PRODUCTION_READINESS.md) for the verified limits and release gates.
 
 The `v0.4.0` release baseline's four-column custom identity path completed 1M rows at roughly 1.28
@@ -33,6 +37,12 @@ publishing output. Treat 1M narrow rows as a measured case, not a general guaran
 other transforms, and concurrent runs require their own capped benchmark. The versioned reports and
 environment provenance are in
 [`benchmarks/results/`](benchmarks/results/README.md).
+
+The declared row-local four-column identity workload has separately passed a 30M-row development
+gate at 101.09 MiB peak process-tree RSS under a 512 MiB cap, with exact row-count/SHA-256
+reconciliation and no temporary output. That result is implementation evidence, not yet a clean
+tagged production-image claim; see
+[`30m-row-local.json`](benchmarks/results/30m-row-local.json).
 
 ## Install
 
@@ -112,6 +122,62 @@ print(result.status, result.snapshot.rows_loaded)
 not contain source rows, credentials, connectors, iterators, or live LLM provider objects. The
 legacy `loafer.runner.run_pipeline()` API remains available as a compatibility facade.
 
+## Bounded row-local execution
+
+Declare `row_local` only when every output row depends on rows in the current batch, such as maps,
+filters, normalization, or independent enrichment:
+
+```yaml
+mode: etl
+chunk_size: 5000
+
+source:
+  type: csv
+  path: ./input/orders.csv
+
+transform:
+  type: custom
+  path: ./transforms/normalize_order.py
+
+target:
+  type: json
+  path: ./output/orders.json
+  write_mode: overwrite
+
+execution:
+  transform_class: row_local
+  schema_drift: fail # fail | evolve | quarantine | coerce
+  # quarantine_path: ./output/rejected.json
+
+validation:
+  required_columns: [id, amount]
+  column_types:
+    id: string
+  max_null_rate: 0.1
+  strict: true
+  on_failure: fail # fail | quarantine
+```
+
+This path never populates full-run `raw_data` or `transformed_data`. It emits a `BatchEnvelope` for
+each batch, validates every row, keeps rolling row/byte/checksum totals, checks cancellation at safe
+boundaries, and generates an AI transform artifact once per run before reusing it for every batch.
+Rejected rows are written with batch and reason metadata when quarantine is configured.
+
+Current publication guarantees:
+
+| Target | Declared row-local behavior |
+|---|---|
+| JSON / CSV | Run-scoped temporary file; atomically renamed only after every batch succeeds |
+| PostgreSQL `replace` | Hidden run-scoped table; final table replacement occurs in one transaction and deterministic replay replaces it again |
+| PostgreSQL `error` | Hidden run-scoped table; create-once rename occurs in one transaction; retry after an ambiguous success requires reconciliation |
+| PostgreSQL `append` | Hidden run-scoped table; all rows merge in one transaction; retry after a target-commit/checkpoint gap is at-least-once and can duplicate rows |
+| PostgreSQL `upsert` | Hidden run-scoped table; keyed merge occurs in one transaction and deterministic replay is idempotent by the declared key |
+| MongoDB | Rejected at config validation until a tested staging/merge publication protocol exists |
+
+SQL is classified as `global_relational`; joins, aggregates, sorts, windows, and large
+deduplication must use ELT pushdown or a spill-capable engine rather than per-batch execution.
+`loafer validate` exposes the selected delivery guarantee in the execution plan.
+
 ## Transform options
 
 ### SQL
@@ -158,6 +224,25 @@ transform:
 
 Each step receives the previous step's output. See
 [`examples/pipelines/multi_step_transform.yaml`](examples/pipelines/multi_step_transform.yaml).
+
+## PDF extraction limits
+
+The native PDF source streams page records with file/page provenance and table provenance:
+
+```yaml
+source:
+  type: pdf
+  path: ./documents/report.pdf
+  extract_tables: true
+  max_pages: 500
+  max_file_size_mb: 100
+  page_timeout_seconds: 30
+  total_timeout_seconds: 300
+  page_failure_policy: fail # fail | skip
+```
+
+`skip` records a redacted page diagnostic while continuing with later pages. OCR is not
+implemented; `ocr_applied` remains `false` in provenance.
 
 ## CLI
 

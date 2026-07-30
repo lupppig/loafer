@@ -47,6 +47,23 @@ def test_process_group_rss_includes_current_process() -> None:
     assert _process_group_rss_bytes(os.getpgrp()) > 0
 
 
+def test_process_group_rss_ignores_processes_that_exit_during_scan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class VanishedProcess:
+        name = "123"
+
+        def __truediv__(self, _name: str) -> VanishedProcess:
+            return self
+
+        def read_text(self, *, encoding: str) -> str:
+            raise ProcessLookupError("process exited")
+
+    monkeypatch.setattr(Path, "iterdir", lambda _path: iter([VanishedProcess()]))
+
+    assert _process_group_rss_bytes(123) == 0
+
+
 def test_throughput_is_only_reported_for_verified_output() -> None:
     assert _verified_throughput(1000, 2.0, correct=True) == 500.0
     assert _verified_throughput(10_000_000, 18.0, correct=False) is None
