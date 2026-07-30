@@ -55,7 +55,7 @@ This separation is strong enough to evolve without a rewrite, but several bounda
 
 ## Verified strengths
 
-- The unit suite contains 614 passing tests with 8 skips in the current working tree.
+- The repository suite contains 673 passing tests with 50 skips at the Phase 0 closeout.
 - Clean-room wheel and production Docker-image smoke tests execute version/help, connector
   discovery, configuration validation, and a real pipeline successfully.
 - ETL and ELT are modeled as separate graphs.
@@ -185,19 +185,20 @@ the complete Linux process group, enforces RSS/time limits, and verifies output 
 SHA-256 equality. A limit-triggered result is evidence of an unsupported workload, not a benchmark
 success.
 
-Measured on 2026-07-29 with Python 3.13.5 on Linux x86-64, chunk size 1,000, a four-column
-deterministic CSV, and the current custom identity transform:
+Release baseline measured on 2026-07-30 from the clean `v0.4.0` revision
+`9007746634da06b77fea5d6246bb35c3dff2a978`. The production Dockerfile was built into image
+`sha256:0efbede1d2ef2a043a29ef1bdd12f9cbd46ff3d91793e63ae314633f82d4aafe`, running Python
+3.11.15 on Linux x86-64. The workload used chunk size 1,000, a four-column deterministic CSV, and
+the current custom identity transform:
 
-| Requested rows | Pipeline wall time | Peak process-tree RSS | Result |
-|---:|---:|---:|---|
-| 10,000 | 1.32s | 123.8 MiB | exact row count/SHA-256 |
-| 1,000,000 | 12.57s | 1,149.4 MiB | exact row count/SHA-256 |
-| 10,000,000 | 18.59s before cutoff | 2,060.0 MiB | terminated at 2 GiB; no final/temp output |
+| Requested rows | Pipeline wall time | Peak process-tree RSS | Result | Artifact |
+|---:|---:|---:|---|---|
+| 1,000,000 | 13.36s | 1,310.1 MiB | exact row count/SHA-256 | [`1m.json`](benchmarks/results/1m.json) |
+| 10,000,000 | 19.54s before cutoff | 2,056.7 MiB | terminated at 2 GiB; no final/temp output | [`10m.json`](benchmarks/results/10m.json) |
 
 Input generation time is excluded from pipeline wall time. These results demonstrate full-run
-materialization rather than a bounded-memory curve. They are working-tree evidence, not a formal
-release baseline; rerun from a committed revision in the pinned release container before publishing
-versioned benchmark artifacts.
+materialization rather than a bounded-memory curve. Environment, image, limits, and interpretation
+are recorded with the [versioned benchmark artifacts](benchmarks/results/README.md).
 
 ## High-priority production gaps
 
@@ -306,12 +307,13 @@ Exit gate:
 - adversarial SQL identifier tests pass;
 - benchmark results and current limitations are published.
 
-**Current status:** implementation complete in the current working tree. Identifier composition
-and atomic CSV/JSON publication are covered by adversarial/failure tests; 614 unit tests pass; and
-the clean-room wheel and production Docker-image smoke pipelines pass. The resource-capped 1M/10M
-matrix proves that 1M narrow identity rows complete at about 1.15 GiB while 10M exceeds a 2 GiB
-process-tree budget. Commit this state and rerun the benchmark matrix from that immutable revision
-before treating these measurements as the published release baseline.
+**Current status:** complete. Identifier composition and atomic CSV/JSON publication are covered by
+adversarial/failure tests; 673 repository tests pass with 50 skips; and the clean-room wheel and
+production Docker-image smoke pipelines pass. The resource-capped 1M/10M matrix was rerun from the
+clean, tagged `v0.4.0` revision in its production image: 1M narrow identity rows complete at about
+1.28 GiB while 10M exceeds a 2 GiB process-tree budget without publishing final or temporary
+output. The versioned reports and environment provenance are published under
+[`benchmarks/results/`](benchmarks/results/README.md).
 
 ### Phase 1 — Separate engine, application, and clients
 
@@ -535,13 +537,12 @@ Exit gate:
 
 ## What to implement next
 
-Start with Phase 0 and Phase 1 only:
+With Phase 0 complete, start Phase 1:
 
-1. Commit Phase 0, then rerun the benchmark matrix from that immutable revision.
-2. Define the serializable `ExecutionPlan`, `BatchEnvelope`, `RunEvent`, `RunResult`,
+1. Define the serializable `ExecutionPlan`, `BatchEnvelope`, `RunEvent`, `RunResult`,
    `CancellationPort`, `CheckpointPort`, and `SecretResolver` contracts.
-3. Extract one `RunPipeline` application use case from the CLI/runner.
-4. Migrate one vertical slice—CSV → row-local transform → JSON—through the new boundary while
+2. Extract one `RunPipeline` application use case from the CLI/runner.
+3. Migrate one vertical slice—CSV → row-local transform → JSON—through the new boundary while
    preserving current CLI behavior.
 
 This slice creates the seam needed for every later phase without prematurely introducing Better

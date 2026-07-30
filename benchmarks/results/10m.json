@@ -1,0 +1,43 @@
+{
+  "chunk_size": 1000,
+  "correct": false,
+  "cpu_system_seconds": 1.46,
+  "cpu_user_seconds": 17.87,
+  "environment": {
+    "git_revision": "9007746634da06b77fea5d6246bb35c3dff2a978",
+    "loafer_version": "0.4.0",
+    "machine": "x86_64",
+    "platform": "Linux-6.12.96+deb13-amd64-x86_64-with-glibc2.41",
+    "python": "3.11.15"
+  },
+  "generation_seconds": 16.163538,
+  "input_bytes": 372788914,
+  "input_sha256": "aa6c778045c9c25d137a8e9c62f4aa8764a3ed2e97f096687a23211835043e65",
+  "output_bytes": null,
+  "output_published": false,
+  "output_sha256": null,
+  "peak_process_tree_rss_bytes": 2156593152,
+  "peak_process_tree_rss_mb": 2056.688,
+  "process": {
+    "cpu_system_seconds": 1.46,
+    "cpu_user_seconds": 17.87,
+    "peak_rss_bytes": 2156593152,
+    "returncode": -15,
+    "termination_reason": "rss_limit_exceeded",
+    "wall_seconds": 19.544147717999294
+  },
+  "returncode": -15,
+  "rows_output": null,
+  "rows_requested": 10000000,
+  "rss_limit_mb": 2048,
+  "sandbox_memory_mb": 1536,
+  "schema_version": 1,
+  "status": "rss_limit_exceeded",
+  "stderr_tail": "",
+  "temporary_outputs": [],
+  "termination_reason": "rss_limit_exceeded",
+  "throughput_rows_per_second": null,
+  "timeout_seconds": 1800,
+  "transform_class": "custom_identity_current_materializing_path",
+  "wall_seconds": 19.544148
+}
