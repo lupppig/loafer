@@ -38,33 +38,39 @@ a clearly labeled product preview; it has no authenticated runtime API.
 ```text
 YAML
   → config.load_config
-  → runner._build_initial_state
-  → runner selects ETL or ELT LangGraph
+  → application.RunPipeline creates a credential-free ExecutionPlan
+  → engine._build_initial_state
+  → engine selects ETL or ELT LangGraph
   → extract agent resolves source adapter and samples schema
   → validate agent applies sample-based checks
   → ETL: transform runner → load target adapter
   → ELT: load_raw target adapter → in-target SQL transform
-  → runner persists incremental cursor after graph completion
+  → engine persists the local incremental cursor after graph completion
+  → application emits sanitized RunEvent / RunResult contracts
 ```
 
 `PipelineState` mixes configuration, data, execution metadata, live iterators, provider objects, and
-connectors. It is an in-process coordination object, not a durable workflow record.
+connectors. It is explicitly an ephemeral in-process coordination object, not a durable workflow
+record. Persistence and client surfaces use the credential-free contracts in `loafer/contracts.py`.
 
 ## Module ownership
 
 | Area | Ownership |
 |---|---|
 | `loafer/config.py` | Pydantic schema, environment substitution, auto-detection |
+| `loafer/contracts.py` | Serializable execution plans, batch metadata, events, snapshots, and results |
 | `loafer/core/` | Destructive-change policy, sandbox process, incremental state |
-| `loafer/ports/` | Connector and LLM interfaces |
+| `loafer/ports/` | Connector, LLM, cancellation, checkpoint, secret, event, and review interfaces |
 | `loafer/adapters/` | Database/file/API source and target implementations |
 | `loafer/connectors/registry.py` | Connector registration and construction |
 | `loafer/agents/` | LangGraph stage functions |
 | `loafer/transform/` | AI, Python, SQL, and multi-step execution |
 | `loafer/graph/` | Separate ETL and ELT topology |
-| `loafer/runner.py` | Composition root and invocation |
+| `loafer/engine.py` | In-process graph composition and execution |
+| `loafer/application/` | Plan, run, validate, and connector-listing use cases |
+| `loafer/runner.py` | Backward-compatible Python facade over the application service |
 | `loafer/cli.py` | Typer/Rich user experience |
-| `loafer/scheduler.py`, `daemon.py` | Local APScheduler service lifecycle |
+| `loafer/scheduler.py`, `daemon.py` | Local APScheduler lifecycle; runs call the application service |
 | `web/` | Next.js web control-plane shell, marketing site, and MDX documentation |
 
 ## Implemented surface

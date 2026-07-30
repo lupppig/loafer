@@ -17,8 +17,8 @@ from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.background import BackgroundScheduler
 
+from loafer.application import RunRequest, get_local_application
 from loafer.exceptions import SchedulerError
-from loafer.runner import run_pipeline
 
 logger = logging.getLogger("loafer.scheduler")
 
@@ -102,7 +102,7 @@ def _run_pipeline_job(config_path: str, name: str = "") -> None:
     display = f"{name} ({config_path})" if name else config_path
     logger.info("Starting scheduled run %s for %s", run_id, display)
     try:
-        run_pipeline(config_path=config_path, verbose=False)
+        get_local_application().run_pipeline.run(RunRequest(config_path=config_path, run_id=run_id))
         logger.info("Completed scheduled run %s", run_id)
     except Exception as exc:
         logger.error("Scheduled run %s failed: %s", run_id, exc)

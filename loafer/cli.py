@@ -21,11 +21,12 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.rule import Rule
 from rich.spinner import Spinner
+from rich.syntax import Syntax
 from rich.table import Table
 
+from loafer.application import RunRequest, get_local_application
 from loafer.exceptions import LLMError, PipelineError, SchedulerError
 from loafer.llm.models import DEFAULT_GEMINI_MODEL, default_model_for, provider_for_model
-from loafer.runner import list_connectors, run_pipeline_streaming, validate_config
 
 app = typer.Typer(
     name="loafer",
@@ -37,6 +38,27 @@ console = Console()
 err_console = Console(stderr=True)
 
 _config_arg = typer.Argument(..., help="Path to pipeline YAML config")
+
+
+class RichReviewPort:
+    """Render generated code and collect approval in the CLI client."""
+
+    def approve_transform(self, generated_code: str) -> bool:
+        console.print()
+        console.print(
+            Panel(
+                "[yellow]AI-generated transform code is ready for review.[/yellow]\n"
+                "Review the code below. Type 'y' to execute or 'n' to skip it.",
+                title="[bold yellow]⚠ Human Review Required[/bold yellow]",
+            )
+        )
+        console.print(Syntax(generated_code, "python", theme="monokai", line_numbers=True))
+        try:
+            answer = input("Execute this code? [y/N]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            console.print("\n[dim]No input received. Skipping AI transform.[/dim]")
+            return False
+        return answer in {"y", "yes"}
 
 
 def _resolve_version() -> str:
@@ -382,17 +404,17 @@ def _get_stage_label(node_name: str, state: Any) -> str:
     base = _STAGE_LABELS.get(node_name, node_name.capitalize())
 
     if node_name == "extract":
-        src = state.get("source_config")
-        if src and hasattr(src, "type"):
-            base = f"Extracting from {src.type.upper()}"
+        source_type = state.get("source_type")
+        if source_type:
+            base = f"Extracting from {str(source_type).upper()}"
     elif node_name == "transform":
-        tc = state.get("transform_config")
-        if tc and hasattr(tc, "type"):
-            base = f"Transforming data ({tc.type})"
+        transform_type = state.get("transform_type")
+        if transform_type:
+            base = f"Transforming data ({transform_type})"
     elif node_name in ("load", "load_raw"):
-        tgt = state.get("target_config")
-        if tgt and hasattr(tgt, "type"):
-            base = f"Loading to {tgt.type.upper()}"
+        target_type = state.get("target_type")
+        if target_type:
+            base = f"Loading to {str(target_type).upper()}"
 
     return base
 
@@ -408,7 +430,7 @@ def _get_row_info(node_name: str, state: Any) -> str:
         return f"{n} passed" if passed else "failed"
     if node_name == "transform":
         src = state.get("rows_extracted", 0)
-        dst = len(state.get("transformed_data", []))
+        dst = state.get("rows_transformed", 0)
         if src and dst and src != dst:
             return f"{src} → {dst}"
         return f"{dst} row{'s' if dst != 1 else ''}" if dst else "—"
@@ -443,16 +465,23 @@ def _add_step_breakdown_rows(table: Any, state: dict[str, Any]) -> None:
         return
 
     for i, step in enumerate(step_results):
+        step_name = step["name"] if isinstance(step, dict) else step.name
+        step_type = step["type"] if isinstance(step, dict) else step.type
+        step_success = step["success"] if isinstance(step, dict) else step.success
+        rows_in = step["rows_in"] if isinstance(step, dict) else step.rows_in
+        rows_out = step["rows_out"] if isinstance(step, dict) else step.rows_out
+        duration_ms = step["duration_ms"] if isinstance(step, dict) else step.duration_ms
+        token_usage = step.get("token_usage") if isinstance(step, dict) else step.token_usage
         connector = "└─" if i == len(step_results) - 1 else "├─"
-        icon = _STATUS_ICONS.get("done" if step.success else "failed", " ")
-        detail = f"({step.type})"
-        if step.token_usage and step.token_usage.get("total_tokens"):
-            detail = f"({step.type}, {step.token_usage['total_tokens']:,} tok)"
+        icon = _STATUS_ICONS.get("done" if step_success else "failed", " ")
+        detail = f"({step_type})"
+        if token_usage and token_usage.get("total_tokens"):
+            detail = f"({step_type}, {token_usage['total_tokens']:,} tok)"
         table.add_row(
-            f"  {connector} {step.name}",
+            f"  {connector} {step_name}",
             icon,
-            f"{step.rows_in:,} → {step.rows_out:,}",
-            f"{step.duration_ms / 1000:.1f}s  [dim]{detail}[/dim]",
+            f"{rows_in:,} → {rows_out:,}",
+            f"{duration_ms / 1000:.1f}s  [dim]{detail}[/dim]",
         )
 
 
@@ -563,41 +592,30 @@ def run(
         err_console.print(f"[red]Config file not found: {actual_config}[/red]")
         raise typer.Exit(1)
 
-    from loafer.config import load_config as _load_config
-
+    service = get_local_application(reviewer=RichReviewPort())
+    request = RunRequest(
+        config_path=str(actual_config),
+        dry_run=dry_run,
+        auto_confirm=yes,
+        full_refresh=full_refresh,
+    )
     try:
-        cfg = _load_config(actual_config)
-        pipeline_name = cfg.name or actual_config.stem
-        mode = cfg.mode
-    except Exception as exc:
+        plan = service.run_pipeline.create_plan(request)
+        pipeline_name = plan.pipeline_name
+        mode = plan.mode
+    except PipelineError as exc:
         user_msg = _format_user_error(exc)
         err_console.print(f"\n[red]{user_msg}[/red]")
         raise typer.Exit(1) from exc
 
-    # Validate LLM provider is available before starting
-    if cfg.transform.type == "ai" and not cfg.transform.bypass_ai:
-        from loafer.runner import _build_llm_provider
-
-        try:
-            _build_llm_provider(cfg)
-        except LLMError as exc:
-            user_msg = _format_user_error(exc)
-            err_console.print(f"\n[red]{user_msg}[/red]")
-            raise typer.Exit(1) from exc
-
     console.print(f"\n[bold]Running: {pipeline_name}[/bold] [{mode.upper()}]")
-    if cfg.incremental is not None:
-        from loafer.core.incremental import StateStore, state_path_for
-
+    if plan.incremental_column is not None:
         if full_refresh:
-            console.print(f"[dim]Incremental on '{cfg.incremental.column}' — full refresh[/dim]")
+            console.print(f"[dim]Incremental on '{plan.incremental_column}' — full refresh[/dim]")
         else:
-            saved = StateStore(state_path_for(actual_config)).get_cursor(
-                cfg.name or actual_config.stem
-            )
-            shown = saved if saved is not None else cfg.incremental.initial
             console.print(
-                f"[dim]Incremental on '{cfg.incremental.column}' — cursor: {shown!r}[/dim]"
+                f"[dim]Incremental on '{plan.incremental_column}' — "
+                f"cursor: {plan.cursor_value!r}[/dim]"
             )
     console.print(Rule(style="dim"))
 
@@ -606,12 +624,10 @@ def run(
     active_animator: StageAnimator | None = None
 
     try:
-        for node_name, status, state in run_pipeline_streaming(
-            config_path=actual_config,
-            dry_run=dry_run,
-            yes=yes,
-            full_refresh=full_refresh,
-        ):
+        for event in service.run_pipeline.stream(request):
+            node_name = event.stage
+            status = event.status.value
+            state = event.snapshot.model_dump(mode="python")
             final_state = state
             label = _get_stage_label(node_name, state)
             row_info = _get_row_info(node_name, state)
@@ -684,9 +700,9 @@ def validate(
         raise typer.Exit(1)
 
     try:
-        config = validate_config(config_file)
+        result = get_local_application().validate(config_file)
     except PipelineError as exc:
-        # validate_config already prefixes "Config validation failed:" — don't
+        # The application service already prefixes "Config validation failed:" — don't
         # wrap it a second time (BUG: doubled error prefix).
         err_console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1) from exc
@@ -697,17 +713,18 @@ def validate(
     table.add_column("Setting", style="cyan")
     table.add_column("Value", style="green")
 
-    if config.name:
-        table.add_row("Name", config.name)
-    table.add_row("Mode", config.mode)
-    table.add_row("Source", config.source.type)
-    table.add_row("Target", config.target.type)
-    table.add_row("Transform", config.transform.type)
-    table.add_row("Chunk size", str(config.chunk_size))
-    table.add_row("Streaming threshold", str(config.streaming_threshold))
-    table.add_row("Validation strict", str(config.validation.strict))
-    table.add_row("LLM provider", config.llm.provider)
-    table.add_row("LLM model", config.llm.model)
+    plan = result.plan
+    if plan.pipeline_name:
+        table.add_row("Name", plan.pipeline_name)
+    table.add_row("Mode", plan.mode)
+    table.add_row("Source", plan.source_type)
+    table.add_row("Target", plan.target_type)
+    table.add_row("Transform", plan.transform_type)
+    table.add_row("Chunk size", str(plan.chunk_size))
+    table.add_row("Streaming threshold", str(plan.streaming_threshold))
+    table.add_row("Validation strict", str(plan.validation_strict))
+    table.add_row("LLM provider", plan.llm_provider)
+    table.add_row("LLM model", plan.llm_model)
 
     console.print(table)
 
@@ -715,19 +732,19 @@ def validate(
 @app.command()
 def connectors() -> None:
     """List available source and target connectors."""
-    result = list_connectors()
+    result = get_local_application().list_connectors()
 
     console.print("[bold]Available Connectors[/bold]\n")
 
     source_table = Table(title="Sources")
     source_table.add_column("Type", style="cyan")
-    for source_type in result["sources"]:
+    for source_type in result.sources:
         source_table.add_row(source_type)
     console.print(source_table)
 
     target_table = Table(title="Targets")
     target_table.add_column("Type", style="cyan")
-    for target_type in result["targets"]:
+    for target_type in result.targets:
         target_table.add_row(target_type)
     console.print(target_table)
 
