@@ -6,6 +6,20 @@ Notable changes to Loafer are documented here. This project follows
 
 ## [Unreleased]
 
+### Added
+
+- A framework-independent application service with strict, JSON-roundtrippable contracts for run
+  requests, execution plans, batch envelopes, events, snapshots, and results.
+- Runtime ports and local adapters for cancellation, checkpoints, secret resolution, event
+  publication, and interactive transform review.
+
+### Changed
+
+- The CLI, scheduler, and legacy Python runner now share the same application boundary while core
+  execution orchestration remains independent of client frameworks.
+- Durable application contracts now exclude credentials, connector instances, iterators, provider
+  clients, row payloads, and other ephemeral runtime objects.
+
 ## [0.4.0] - 2026-07-29
 
 ### Added

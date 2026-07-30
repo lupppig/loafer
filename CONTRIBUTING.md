@@ -62,12 +62,19 @@ The core domain never imports from infrastructure.
 
 ## Git Hygiene
 
+- Name branches for the work using a conventional work-type prefix:
+  `feat/<scope>`, `fix/<scope>`, `docs/<scope>`, `refactor/<scope>`,
+  `test/<scope>`, or `chore/<scope>`
+- Never use an agent/tool prefix such as `agent/`, and never name branches after roadmap phases
+  such as `phase-1` or `phase-2`
 - Commits are incremental. One logical unit of work per commit
 - Commit messages are lowercase, imperative, and descriptive
 - Never start a commit message with `feat:`, `fix:`, `chore:` — just describe what it does
 - Never start a commit message with `Phase 0`, `Phase 1`, or any phase label
 - Stage only the files you actually created or modified
 - Never commit local prompt scratchpads, credentials, or generated test secrets
+- Before every commit, update the `[Unreleased]` section of `CHANGELOG.md` with the change; never
+  commit implementation work first and backfill its changelog entry later
 
 ## Testing
 

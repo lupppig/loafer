@@ -1,7 +1,11 @@
-"""PipelineState — the single source of truth for all data flowing through the system.
+"""Ephemeral in-process state for the current LangGraph execution.
 
 Every agent receives this state, operates on it, and returns an updated copy.
 LangGraph nodes must return updated state, never mutate in place.
+
+This is deliberately not a persistence contract: it may contain live
+connectors, iterators, providers, and review callbacks. Durable clients use
+the sanitized contracts in :mod:`loafer.application.contracts`.
 """
 
 from __future__ import annotations
@@ -55,6 +59,7 @@ class PipelineState(TypedDict, total=False):
 
     # LLM
     llm_provider: Any
+    reviewer: Any
     generated_code: str
     retry_count: int
     last_error: str | None

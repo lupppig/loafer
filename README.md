@@ -93,6 +93,25 @@ loafer run pipeline.yaml
 Loafer infers connector and transform types from URLs, file extensions, and configuration fields.
 Use an explicit `type` when inference would be ambiguous.
 
+## Python application interface
+
+The CLI and local scheduler use the same application service available to Python callers:
+
+```python
+from loafer.application import RunRequest, get_local_application
+
+service = get_local_application()
+result = service.run_pipeline.run(
+    RunRequest(config_path="pipeline.yaml", auto_confirm=True)
+)
+
+print(result.status, result.snapshot.rows_loaded)
+```
+
+`RunResult` and streamed `RunEvent` values are JSON-round-trippable, sanitized contracts. They do
+not contain source rows, credentials, connectors, iterators, or live LLM provider objects. The
+legacy `loafer.runner.run_pipeline()` API remains available as a compatibility facade.
+
 ## Transform options
 
 ### SQL

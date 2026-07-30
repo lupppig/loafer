@@ -69,6 +69,11 @@ _register_target("postgres", _PgTarget)
 _register_target("mongo", _MongoTarget)
 
 
+def list_registered_connectors() -> tuple[list[str], list[str]]:
+    """Return sorted source and target connector type names."""
+    return sorted(_SOURCE_REGISTRY), sorted(_TARGET_REGISTRY)
+
+
 def get_source_connector(
     config: SourceConfig,
     *,

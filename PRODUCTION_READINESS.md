@@ -336,6 +336,15 @@ Exit gate:
 - import-boundary tests prevent engine-to-client/API dependencies;
 - all durable contract types serialize and round-trip.
 
+**Current status:** complete. `ExecutionPlan`, `BatchEnvelope`, `Checkpoint`, `RunEvent`,
+`RunSnapshot`, and `RunResult` are strict JSON-round-trippable contracts; cancellation,
+checkpoint, secret, event, and generated-code review behavior is expressed through ports. The
+`RunPipeline` application use case now owns plan/run orchestration, while `loafer/engine.py` owns
+the in-process ETL/ELT graph and `runner.py` is a compatibility facade. The CLI and local scheduler
+call the same application service. A real CSV → custom transform → JSON pipeline passes through
+that interface, import tests keep client frameworks out of the engine, and the repository suite is
+green with 683 passed and 50 skipped.
+
 ### Phase 2 — Build the bounded, correct data plane
 
 **Goal:** make memory and publication behavior a property of the execution contract rather than a
@@ -537,16 +546,18 @@ Exit gate:
 
 ## What to implement next
 
-With Phase 0 complete, start Phase 1:
+With Phase 0 and Phase 1 complete, start Phase 2:
 
-1. Define the serializable `ExecutionPlan`, `BatchEnvelope`, `RunEvent`, `RunResult`,
-   `CancellationPort`, `CheckpointPort`, and `SecretResolver` contracts.
-2. Extract one `RunPipeline` application use case from the CLI/runner.
-3. Migrate one vertical slice—CSV → row-local transform → JSON—through the new boundary while
-   preserving current CLI behavior.
+1. Add a `transform_batch` execution path for declared row-local transforms.
+2. Keep bounded `BatchEnvelope` units flowing through CSV extract → validate → transform →
+   staged JSON publication without populating full-run `raw_data` or `transformed_data`.
+3. Generate and version AI transform artifacts once per run, then execute the validated artifact
+   per batch.
+4. Reconcile batch/input/output/rejected counts and checksums, and test cancellation or target
+   failure without false success or final partial output.
 
-This slice creates the seam needed for every later phase without prematurely introducing Better
-Auth, PostgreSQL metadata, NATS, or a second execution path.
+Do not add Better Auth, PostgreSQL run metadata, NATS, or distributed workers until the bounded
+single-node data-plane contract is real.
 
 ## Definition of the 100M-row claim
 

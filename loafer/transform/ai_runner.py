@@ -145,33 +145,13 @@ def _execute_code(
 
 
 def _ask_user_confirmation(generated_code: str) -> bool:
-    """Show generated code and ask user to confirm execution."""
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.syntax import Syntax
-
-    console = Console()
-
-    console.print()
-    console.print(
-        Panel(
-            "[yellow]AI-generated transform code is ready for review.[/yellow]\n"
-            "Review the code below. If it looks correct, type 'y' to execute.\n"
-            "Type 'n' to skip AI transform (custom transform will still run if configured).",
-            title="[bold yellow]⚠ Human Review Required[/bold yellow]",
-        )
-    )
-    console.print()
-
-    # Show the code with syntax highlighting
-    syntax = Syntax(generated_code, "python", theme="monokai", line_numbers=True)
-    console.print(syntax)
-    console.print()
+    """Portable fallback for direct engine use without a review adapter."""
+    print("\nAI-generated transform code:\n")
+    print(generated_code)
 
     try:
         answer = input("Execute this code? [y/N]: ").strip().lower()
     except (EOFError, KeyboardInterrupt):
-        console.print("\n[dim]No input received. Skipping AI transform.[/dim]")
         return False
 
     return answer in ("y", "yes")
@@ -232,11 +212,18 @@ class AiTransformRunner(TransformRunner):
             )
 
             # Human review if requested
-            if transform_config.review and not _ask_user_confirmation(ai_code):
-                # User rejected — skip AI, keep custom result if any
-                state["transformed_data"] = data
-                state["duration_ms"]["transform"] = (time.monotonic() - start) * 1000
-                return state
+            if transform_config.review:
+                reviewer = state.get("reviewer")
+                approved = (
+                    reviewer.approve_transform(ai_code)
+                    if reviewer is not None
+                    else _ask_user_confirmation(ai_code)
+                )
+                if not approved:
+                    # User rejected — skip AI, keep custom result if any
+                    state["transformed_data"] = data
+                    state["duration_ms"]["transform"] = (time.monotonic() - start) * 1000
+                    return state
 
             try:
                 data = self._run_ai_code(ai_code, data, state)

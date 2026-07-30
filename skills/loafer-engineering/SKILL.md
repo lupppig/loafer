@@ -38,8 +38,13 @@ boundaries.
 4. Read [references/connectors.md](references/connectors.md) before adding or changing a connector.
 5. Read [references/product-ui.md](references/product-ui.md) for web or operator workflow work.
 6. Inspect `git status --short`. Preserve unrelated and pre-existing changes.
-7. Trace the complete path affected by the request: config → composition root → graph/agent →
+7. When creating a branch, use a purpose-based work-type prefix: `feat/`, `fix/`, `docs/`,
+   `refactor/`, `test/`, or `chore/`. Never use an agent/tool prefix such as `agent/`, and never
+   use roadmap phase names such as `phase-1` or `phase-2`.
+8. Trace the complete path affected by the request: config → composition root → graph/agent →
    port → adapter → state/error/reporting → tests.
+9. Before every commit, update the `[Unreleased]` section of `CHANGELOG.md` with the implementation
+   or documentation change. Never commit first and backfill the changelog entry afterward.
 
 Treat every roadmap statement in the references as intent, not proof. Search for its implementation
 and tests first.
