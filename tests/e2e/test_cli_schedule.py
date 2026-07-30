@@ -9,11 +9,24 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from loafer.cli import app
 
 runner = CliRunner(env={"GEMINI_API_KEY": "test-key-for-cli-tests"})
+
+
+@pytest.fixture(autouse=True)
+def _isolated_scheduler_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep CLI schedule tests out of the user's persistent job store."""
+    import loafer.scheduler as scheduler
+
+    loafer_dir = tmp_path / ".loafer"
+    monkeypatch.setattr(scheduler, "_LOAFER_DIR", loafer_dir)
+    monkeypatch.setattr(scheduler, "_DB_PATH", loafer_dir / "jobs.db")
+    monkeypatch.setattr(scheduler, "_LOG_PATH", loafer_dir / "scheduler.log")
+    monkeypatch.setattr(scheduler, "_RUN_STATE_PATH", loafer_dir / "run_state.json")
 
 
 def _uid() -> str:

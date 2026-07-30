@@ -27,10 +27,12 @@ Source and target connectors process chunks, but some ETL transform paths still 
 run. Do not assume bounded memory for 30–100M-row jobs yet. See
 [Production readiness](PRODUCTION_READINESS.md) for the verified limits and release gates.
 
-The current measured four-column custom identity path completed 1M rows at roughly 1.15 GiB peak
-process-tree RSS, while a 10M run crossed a 2 GiB safety limit and was terminated without
+The `v0.4.0` release baseline's four-column custom identity path completed 1M rows at roughly 1.28
+GiB peak process-tree RSS, while a 10M run crossed a 2 GiB safety limit and was terminated without
 publishing output. Treat 1M narrow rows as a measured case, not a general guarantee; wider rows,
-other transforms, and concurrent runs require their own capped benchmark.
+other transforms, and concurrent runs require their own capped benchmark. The versioned reports and
+environment provenance are in
+[`benchmarks/results/`](benchmarks/results/README.md).
 
 ## Install
 

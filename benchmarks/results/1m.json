@@ -1,0 +1,43 @@
+{
+  "chunk_size": 1000,
+  "correct": true,
+  "cpu_system_seconds": 1.23,
+  "cpu_user_seconds": 11.96,
+  "environment": {
+    "git_revision": "9007746634da06b77fea5d6246bb35c3dff2a978",
+    "loafer_version": "0.4.0",
+    "machine": "x86_64",
+    "platform": "Linux-6.12.96+deb13-amd64-x86_64-with-glibc2.41",
+    "python": "3.11.15"
+  },
+  "generation_seconds": 1.636006,
+  "input_bytes": 36278914,
+  "input_sha256": "0cab63041b635a627520e23bcacb8ccc519f1bfb07c756211ec41900494a308c",
+  "output_bytes": 36278914,
+  "output_published": true,
+  "output_sha256": "0cab63041b635a627520e23bcacb8ccc519f1bfb07c756211ec41900494a308c",
+  "peak_process_tree_rss_bytes": 1373749248,
+  "peak_process_tree_rss_mb": 1310.109,
+  "process": {
+    "cpu_system_seconds": 1.23,
+    "cpu_user_seconds": 11.96,
+    "peak_rss_bytes": 1373749248,
+    "returncode": 0,
+    "termination_reason": null,
+    "wall_seconds": 13.36398647801252
+  },
+  "returncode": 0,
+  "rows_output": 1000000,
+  "rows_requested": 1000000,
+  "rss_limit_mb": 2048,
+  "sandbox_memory_mb": 1536,
+  "schema_version": 1,
+  "status": "succeeded",
+  "stderr_tail": "",
+  "temporary_outputs": [],
+  "termination_reason": null,
+  "throughput_rows_per_second": 74827.972,
+  "timeout_seconds": 1800,
+  "transform_class": "custom_identity_current_materializing_path",
+  "wall_seconds": 13.363986
+}
