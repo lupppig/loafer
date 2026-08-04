@@ -6,20 +6,25 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     name: Lint & Format
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
-          version: "latest"
+          version: "0.11.16"
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
 
@@ -38,17 +43,18 @@ jobs:
   test-unit:
     name: Unit Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [lint]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
-          version: "latest"
+          version: "0.11.16"
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
 
@@ -61,6 +67,7 @@ jobs:
   control-plane-postgres:
     name: Control Plane PostgreSQL Contract
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [lint]
     services:
       postgres:
@@ -77,15 +84,15 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
-          version: "latest"
+          version: "0.11.16"
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
 
@@ -100,11 +107,12 @@ jobs:
   web-auth:
     name: Web & Authentication Contracts
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22.16.0'
           cache: npm
@@ -130,21 +138,51 @@ jobs:
         working-directory: web
         run: npm run build
 
+  dependency-audit:
+    name: Python Dependency Audit (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.16"
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Audit locked production dependencies
+        run: |
+          uv export --frozen --no-dev --no-hashes --no-emit-project \
+            --output-file "${RUNNER_TEMP}/loafer-requirements.txt"
+          uvx --from pip-audit==2.10.1 pip-audit \
+            --requirement "${RUNNER_TEMP}/loafer-requirements.txt" \
+            --progress-spinner off
+
   smoke:
     name: Artifact Smoke (clean room)
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     needs: [lint]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # hatch-vcs derives the version from tags; full history lets the smoke
           # scripts resolve a real version via `git describe`.
           fetch-depth: 0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
-          version: "latest"
+          version: "0.11.16"
 
       # Build the wheel and install it into a bare python:3.11-slim container —
       # no dev extras, no repo .venv — then run a real pipeline. This is the
@@ -157,3 +195,11 @@ jobs:
       # here for speed) and run the same pipeline against the baked-in binary.
       - name: Smoke-test the Docker image
         run: bash scripts/smoke_docker.sh
+
+      - name: Scan the production image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: loafer:smoke
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"

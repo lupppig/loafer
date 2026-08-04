@@ -64,12 +64,19 @@ Or run the published CLI image:
 ```bash
 docker pull ghcr.io/lupppig/loafer:latest
 docker run --rm \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/tmp \
   -v "$(pwd):/workspace" \
   -w /workspace \
   ghcr.io/lupppig/loafer:latest run pipeline.yaml --local
 ```
 
 Mount pipeline files under `/workspace`, not `/app`; `/app` is reserved by the image.
+For services, pin `LOAFER_IMAGE` to a released digest and use the checked-in
+`docker/docker-compose.yml` platform profile. It runs PostgreSQL, explicit one-shot metadata and
+storage initialization, `loaferd`, one scheduler, and one durable worker with a non-root, read-only
+application runtime. Selective `daemon`, `scheduler`, and `worker` profiles are also available.
+The control-plane port binds to host loopback and must sit behind a trusted TLS reverse proxy.
 
 ## Metadata schema rollout
 
@@ -131,9 +138,7 @@ The CLI and local scheduler use the same application service available to Python
 from loafer.application import RunRequest, get_local_application
 
 service = get_local_application()
-result = service.run_pipeline.run(
-    RunRequest(config_path="pipeline.yaml", auto_confirm=True)
-)
+result = service.run_pipeline.run(RunRequest(config_path="pipeline.yaml", auto_confirm=True))
 
 print(result.status, result.snapshot.rows_loaded)
 ```

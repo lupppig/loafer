@@ -15,6 +15,9 @@ from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _PYPROJECT = _PROJECT_ROOT / "pyproject.toml"
+_DOCKERFILE = _PROJECT_ROOT / "docker" / "Dockerfile"
+_COMPOSE = _PROJECT_ROOT / "docker" / "docker-compose.yml"
+_SMOKE_TEST = _PROJECT_ROOT / "scripts" / "smoke_test.sh"
 
 
 def _declared_dependencies() -> list[str]:
@@ -46,6 +49,42 @@ def test_control_plane_daemon_script_is_declared() -> None:
     data = tomllib.loads(_PYPROJECT.read_text())
 
     assert data["project"]["scripts"]["loaferd"] == "loafer.control_plane.daemon:main"
+
+
+def test_production_image_uses_locked_non_root_runtime() -> None:
+    dockerfile = _DOCKERFILE.read_text()
+
+    assert "uv sync --locked --no-dev --no-editable --no-cache" in dockerfile
+    assert "uv pip install" not in dockerfile
+    assert "pip uninstall --yes setuptools wheel pip" in dockerfile
+    assert "USER 10001:10001" in dockerfile
+    assert dockerfile.count("python:3.11.15-slim-trixie@sha256:") == 2
+    assert "ghcr.io/astral-sh/uv:0.11.16@sha256:" in dockerfile
+
+
+def test_release_smoke_covers_the_control_plane_entry_point() -> None:
+    smoke_test = _SMOKE_TEST.read_text()
+
+    assert "loaferd --help" in smoke_test
+    assert '"http://127.0.0.1:19443/healthz"' in smoke_test
+    assert '"$LOAFER" metadata migrate' in smoke_test
+
+
+def test_compose_starts_services_only_after_explicit_migration() -> None:
+    compose = _COMPOSE.read_text()
+
+    assert 'command: ["metadata", "migrate"]' in compose
+    assert 'profiles: ["platform", "daemon"]' in compose
+    assert 'profiles: ["platform", "scheduler"]' in compose
+    assert 'profiles: ["platform", "worker"]' in compose
+    assert compose.count("condition: service_completed_successfully") == 5
+    assert "nocopy: true" in compose
+    assert "storage-init:" in compose
+    assert "      - CHOWN" in compose
+    assert '"127.0.0.1:${LOAFERD_PORT:-9443}:9443"' in compose
+    assert "read_only: true" in compose
+    assert "no-new-privileges:true" in compose
+    assert "/root/.loafer" not in compose
 
 
 def test_cli_module_imports_declared_packages() -> None:

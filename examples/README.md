@@ -106,7 +106,7 @@ def my_check() -> str:
     with scripted(scripted_llm.NORMALIZE_ORDERS) as provider:
         state = run_pipeline(PIPELINES / "01_ai_basic.yaml", yes=True)
     expect(state["rows_loaded"] == 9, f"rows_loaded={state['rows_loaded']}")
-    return "9 rows loaded"          # one-line summary shown in the report
+    return "9 rows loaded"  # one-line summary shown in the report
 ```
 
 Pass one canned response per expected model call; a call beyond the script

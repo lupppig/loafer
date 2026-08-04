@@ -64,3 +64,15 @@ The checked-in OpenAPI snapshot and browser response types are reproducible with
 ```bash
 uv run python scripts/generate_control_plane_contract.py
 ```
+
+## Container deployment
+
+The release image runs as UID/GID `10001:10001` and includes `loafer`, `loaferd`, the scheduler,
+and the durable worker. The checked-in `docker/docker-compose.yml` `platform` profile runs explicit
+metadata and storage initialization before starting the control plane, scheduler, and worker
+against PostgreSQL. Role-specific profiles support deploying those processes independently.
+
+The profile binds `loaferd` only to the host loopback interface. Terminate TLS in a trusted reverse
+proxy on the same host, remove inbound forwarding headers there, and supply the proxy's trusted
+`X-Forwarded-Proto` and `X-Forwarded-For` values. Better Auth and the web BFF remain separate
+deployments.
