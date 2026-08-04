@@ -1,56 +1,132 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# Full-stack: Postgres + MongoDB + Loafer
-# Usage: docker compose up -d
-# ──────────────────────────────────────────────────────────────────────────────
+name: loafer
+
+x-loafer-service: &loafer-service
+  image: ${LOAFER_IMAGE:?set LOAFER_IMAGE to an immutable Loafer version or digest}
+  env_file:
+    - ../.env
+  environment: &loafer-environment
+    LOAFER_METADATA_URL: ${LOAFER_METADATA_URL:?set LOAFER_METADATA_URL}
+    LOAFER_OBJECTS_PATH: /home/loafer/.loafer/objects
+  user: "10001:10001"
+  read_only: true
+  tmpfs:
+    - /tmp:mode=1777
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  init: true
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16.10-alpine3.22@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297
     environment:
-      POSTGRES_USER: loafer
-      POSTGRES_PASSWORD: loafer
-      POSTGRES_DB: loafer_dev
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-loafer}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-loafer}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U loafer -d loafer_dev"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
-      retries: 5
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
 
-  mongo:
-    image: mongo:6
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: loafer
-      MONGO_INITDB_ROOT_PASSWORD: loafer
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo_data:/data/db
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
-  loafer:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    env_file: ../.env
-    volumes:
-      - ../examples:/app/examples
-      - loafer_data:/root/.loafer
+  metadata-migrate:
+    <<: *loafer-service
+    command: ["metadata", "migrate"]
     depends_on:
       postgres:
         condition: service_healthy
-      mongo:
-        condition: service_healthy
+    restart: "no"
+
+  storage-init:
+    <<: *loafer-service
+    user: "0:0"
+    cap_add:
+      - CHOWN
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["mkdir -p /data/objects && chown -R 10001:10001 /data"]
+    volumes:
+      - type: volume
+        source: loafer_data
+        target: /data
+        volume:
+          nocopy: true
+    restart: "no"
+
+  loaferd:
+    <<: *loafer-service
+    profiles: ["platform", "daemon"]
+    entrypoint: ["loaferd"]
+    command: ["--behind-tls-proxy", "--host", "0.0.0.0", "--port", "9443"]
+    environment:
+      <<: *loafer-environment
+      LOAFER_AUTH_ISSUER: ${LOAFER_AUTH_ISSUER:?set LOAFER_AUTH_ISSUER}
+      LOAFER_AUTH_AUDIENCE: ${LOAFER_AUTH_AUDIENCE:?set LOAFER_AUTH_AUDIENCE}
+      LOAFER_AUTH_JWKS_URL: ${LOAFER_AUTH_JWKS_URL:?set LOAFER_AUTH_JWKS_URL}
+      LOAFER_ALLOWED_ORIGINS: ${LOAFER_ALLOWED_ORIGINS:?set LOAFER_ALLOWED_ORIGINS}
+    ports:
+      - "127.0.0.1:${LOAFERD_PORT:-9443}:9443"
+    depends_on:
+      metadata-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import json, urllib.request;
+          request = urllib.request.Request('http://127.0.0.1:9443/healthz',
+          headers={'X-Forwarded-Proto': 'https', 'X-Forwarded-For': '127.0.0.1'});
+          response = urllib.request.urlopen(request, timeout=2);
+          assert response.status == 200 and json.load(response) == {'status': 'ok'}
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  scheduler:
+    <<: *loafer-service
+    profiles: ["platform", "scheduler"]
+    command: ["start"]
+    volumes:
+      - type: volume
+        source: loafer_data
+        target: /home/loafer/.loafer
+        volume:
+          nocopy: true
+    depends_on:
+      metadata-migrate:
+        condition: service_completed_successfully
+      storage-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  worker:
+    <<: *loafer-service
+    profiles: ["platform", "worker"]
+    command: ["worker"]
+    volumes:
+      - type: volume
+        source: loafer_data
+        target: /home/loafer/.loafer
+        volume:
+          nocopy: true
+    depends_on:
+      metadata-migrate:
+        condition: service_completed_successfully
+      storage-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    stop_grace_period: 30s
 
 volumes:
   postgres_data:
-  mongo_data:
   loafer_data:
-

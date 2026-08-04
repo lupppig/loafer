@@ -38,6 +38,8 @@ rm -rf dist
 SETUPTOOLS_SCM_PRETEND_VERSION_FOR_LOAFER_ETL="${VERSION}" \
 SETUPTOOLS_SCM_PRETEND_VERSION="${VERSION}" \
     uv build --wheel
+uv export --frozen --no-dev --no-hashes --no-emit-project \
+    --output-file dist/constraints.txt >/dev/null
 
 wheel="$(ls -1 dist/*.whl 2>/dev/null | head -n1)"
 [ -n "$wheel" ] || { echo "✗ no wheel built in dist/" >&2; exit 1; }
@@ -55,7 +57,8 @@ docker run --rm \
     "${PY_IMAGE}" \
     bash -c '
         set -euo pipefail
-        pip install --no-cache-dir --quiet /artifacts/*.whl
+        pip install --no-cache-dir --quiet \
+            --constraint /artifacts/constraints.txt /artifacts/*.whl
         cp -r /harness/smoke /tmp/smoke
         cp /harness/smoke_test.sh /tmp/smoke_test.sh
         chmod +x /tmp/smoke_test.sh

@@ -1,4 +1,6 @@
 .env
+.env.*
+!.env.example
 .git
 .venv
 .mypy_cache
@@ -9,6 +11,13 @@ __pycache__
 tests/
 docker/
 assets/
+dist/
+*.db
+*.sqlite
+*.sqlite3
+web/.next/
+web/dist/
+web/node_modules/
 *.md
 !README.md
 Antigravity.md

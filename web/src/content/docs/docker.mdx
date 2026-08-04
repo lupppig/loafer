@@ -1,7 +1,8 @@
 # Docker
 Last updated: March 2025  ·  3 min read  ·  [Edit on GitHub ↗](https://github.com/lupppig/loafer/edit/main/web/src/content/docs/docker.mdx)
 
-Deploying Loafer through Docker solves dependency friction and guarantees standard reproducible execution.
+Loafer's release image installs the checked-in production lock, runs as an unprivileged user, and
+contains both the `loafer` CLI and `loaferd` control-plane entry points.
 
 ## Quick start
 
@@ -17,40 +18,43 @@ Mount your current directory into the container to enable Loafer to read your co
 
 ```bash
 docker run --rm -it \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/tmp \
   --env-file .env \
   -v $(pwd):/workspace \
   -w /workspace \
-  ghcr.io/lupppig/loafer:latest \
+  ghcr.io/lupppig/loafer:0.5.0 \
   run pipeline.yaml --local
 ```
 
 ## docker-compose
 
-Standardized deployment for running a continuous persistent scheduler locally.
+The checked-in Compose `platform` profile runs PostgreSQL, one-shot metadata and object-storage
+initialization, `loaferd`, one scheduler, and one durable worker. Copy `.env.example` to `.env`,
+replace every placeholder, and pin `LOAFER_IMAGE` to the digest printed by the release workflow.
+Edit `.env` before continuing.
 
-```yaml title="docker-compose.yml"
-version: '3.8'
-
-services:
-  loafer:
-    image: ghcr.io/lupppig/loafer:latest
-    container_name: loafer-daemon
-    env_file: .env
-    volumes:
-      - ./:/workspace
-      - loafer_data:/root/.loafer   # Crucial for persisting job SQLite definitions
-    command: ["loafer", "daemon", "start"]
-
-volumes:
-  loafer_data:
+```bash
+cp .env.example .env
+docker compose --env-file .env -f docker/docker-compose.yml config --quiet
+docker compose --env-file .env -f docker/docker-compose.yml --profile platform up -d
 ```
 
-> [!DANGER]
-> **Volumes Warning:** Failing to persist the `/root/.loafer` directory to a named volume will lead to job schedule losses upon container recreation. 
+Use the `daemon`, `scheduler`, or `worker` profile instead when deploying only that process role;
+Compose still starts PostgreSQL and the required one-shot initialization dependencies.
+
+`loaferd` binds only to `127.0.0.1:${LOAFERD_PORT:-9443}` on the host. Put a TLS reverse proxy on
+that host port, strip client-supplied forwarding headers at the edge, and forward trusted
+`X-Forwarded-Proto` and `X-Forwarded-For` values. Do not expose port 9443 directly.
+
+The profiles drop Linux capabilities, prevent privilege escalation, use a read-only root
+filesystem, persist PostgreSQL and Loafer object data, and wait for explicit initialization jobs
+before starting services. They intentionally expect Better Auth/JWKS to be deployed separately.
 
 ## Environment variables in Docker
 
-Never bake keys securely into the image. Always leverage Kubernetes secrets or Docker's standard `--env-file` flags to pass in credentials securely at runtime execution.
+Never bake keys into the image. Restrict `.env` permissions for a single-host deployment and use a
+secret manager for an orchestrated production deployment.
 
 <div className="flex w-full gap-4 mt-12">
   <a href="/docs/scheduling" className="flex-1 p-4 border border-border-default rounded-md bg-bg-surface hover:bg-bg-overlay transition-colors no-underline text-right">

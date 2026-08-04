@@ -96,6 +96,12 @@
     "excerpt": "Remote URLs must use HTTPS. Run `loaferd` with a certificate/key or behind an explicitly trusted exp..."
   },
   {
+    "title": "Container deployment",
+    "url": "/docs/control-plane#container-deployment",
+    "section": "HTTPS control plane",
+    "excerpt": "The release image runs as UID/GID `10001:10001` and includes `loafer`, `loaferd`, the scheduler, and..."
+  },
+  {
     "title": "Docker",
     "url": "/docs/docker",
     "section": "Docker",
@@ -123,13 +129,13 @@
     "title": "docker-compose",
     "url": "/docs/docker#docker-compose",
     "section": "Docker",
-    "excerpt": "Standardized deployment for running a continuous persistent scheduler locally. version: '3.8' image:..."
+    "excerpt": "The checked-in Compose `platform` profile runs PostgreSQL, one-shot metadata and object-storage init..."
   },
   {
     "title": "Environment variables in Docker",
     "url": "/docs/docker#environment-variables-in-docker",
     "section": "Docker",
-    "excerpt": "Never bake keys securely into the image. Always leverage Kubernetes secrets or Docker's standard `--..."
+    "excerpt": "Never bake keys into the image. Restrict `.env` permissions for a single-host deployment and use a s..."
   },
   {
     "title": "Installation",

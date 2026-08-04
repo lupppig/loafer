@@ -83,5 +83,66 @@ else
     fail "row count mismatch: got ${rows}, expected ${EXPECTED_ROWS} (silent data loss?)"
 fi
 
+# 6) control-plane entry point + health. This catches missing server/auth
+# dependencies and verifies the built artifact can migrate and serve its schema.
+CONTROL_DIR="${SMOKE_DIR}/control-plane"
+METADATA_URL="sqlite:///${CONTROL_DIR}/metadata.db"
+mkdir -p "${CONTROL_DIR}"
+LOAFER_METADATA_URL="${METADATA_URL}" "$LOAFER" metadata migrate >/dev/null 2>&1 \
+    || fail "metadata migration failed"
+
+command -v loaferd >/dev/null 2>&1 || fail "loaferd entry point is missing"
+loaferd --help >/dev/null 2>&1 || fail "loaferd --help failed"
+
+LOAFER_METADATA_URL="${METADATA_URL}" \
+LOAFER_AUTH_ISSUER="https://auth.example.invalid" \
+LOAFER_AUTH_AUDIENCE="https://api.example.invalid" \
+LOAFER_AUTH_JWKS_URL="https://auth.example.invalid/api/auth/jwks" \
+LOAFER_ALLOWED_ORIGINS="https://app.example.invalid" \
+    loaferd --behind-tls-proxy --host 127.0.0.1 --port 19443 \
+    >"${CONTROL_DIR}/loaferd.log" 2>&1 &
+loaferd_pid=$!
+cleanup_loaferd() {
+    kill "${loaferd_pid}" >/dev/null 2>&1 || true
+    wait "${loaferd_pid}" >/dev/null 2>&1 || true
+}
+trap cleanup_loaferd EXIT
+
+health_ok=false
+for _ in $(seq 1 50); do
+    if ! kill -0 "${loaferd_pid}" >/dev/null 2>&1; then
+        cat "${CONTROL_DIR}/loaferd.log" >&2
+        fail "loaferd exited before becoming healthy"
+    fi
+    if python3 - <<'PY' >/dev/null 2>&1
+import json
+import urllib.request
+
+request = urllib.request.Request(
+    "http://127.0.0.1:19443/healthz",
+    headers={
+        "X-Forwarded-For": "127.0.0.1",
+        "X-Forwarded-Proto": "https",
+    },
+)
+with urllib.request.urlopen(request, timeout=0.5) as response:
+    assert response.status == 200
+    assert json.load(response) == {"status": "ok"}
+PY
+    then
+        health_ok=true
+        break
+    fi
+    sleep 0.1
+done
+
+if ! $health_ok; then
+    cat "${CONTROL_DIR}/loaferd.log" >&2
+    fail "loaferd health check did not become ready"
+fi
+cleanup_loaferd
+trap - EXIT
+pass "loaferd starts with a migrated schema and serves /healthz"
+
 echo "───────────────────────────────────────────────────────────────"
 printf '\033[32mSMOKE PASSED\033[0m\n'

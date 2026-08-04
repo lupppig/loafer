@@ -76,11 +76,13 @@ Execute your pipeline by mounting your local directory into the container. This 
 
 ```bash
 docker run --rm -it \
+  --user "$(id -u):$(id -g)" \
+  -e HOME=/tmp \
   --env-file .env \
   -v $(pwd):/workspace \
   -w /workspace \
   ghcr.io/lupppig/loafer:latest \
-  run pipeline.yaml
+  run pipeline.yaml --local
 ```
 
 *   `--rm`: Automatically removes the container after the execution finishes.

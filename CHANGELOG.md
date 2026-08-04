@@ -8,6 +8,9 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Added
 
+- Release gates now audit the locked Python environment and production web dependencies, scan the
+  built container for fixed high/critical vulnerabilities, and smoke-test both the wheel and image
+  through the CLI pipeline and `loaferd` health endpoint.
 - An HTTPS-only `loaferd` control plane with a versioned `/api/v1` OpenAPI contract, generated
   browser types, typed Python/browser clients, durable commands, sequenced SSE run events, request
   auditing, security headers, origin enforcement, and rate limiting.
@@ -40,6 +43,12 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Changed
 
+- The production image now installs exactly from `uv.lock`, pins its Python and uv inputs by digest,
+  removes runtime packaging tools, and runs as a fixed non-root UID. The Compose deployment adds
+  read-only filesystems, dropped capabilities, explicit platform/process profiles, serialized
+  storage initialization, loopback-only control-plane exposure, and digest-pinned PostgreSQL.
+- Release workflows now pin third-party actions by commit, publish container SBOM/provenance, use
+  PyPI trusted publishing, and pin the deployment CLI instead of resolving mutable latest versions.
 - Metadata migrations now run only through the explicit `loafer metadata migrate` command;
   control-plane and durable-worker composition perform read-only schema-version checks instead.
 - Pre-commit hooks now auto-fix and re-stage lint changes in staged web JavaScript and TypeScript
