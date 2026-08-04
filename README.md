@@ -7,9 +7,10 @@ Define a source, transformation, and target; validate the pipeline; then run it 
 or from a scheduler. Transformations can use SQL, custom Python, multi-step pipelines, or optional
 LLM-generated artifacts.
 
-> **Project status:** Loafer currently ships as a CLI engine with a local scheduler/daemon. The
-> multi-tenant API, distributed workers, web operations dashboard, and terminal dashboard are under
-> active development. The `/studio` web route is a product preview, not a connected control plane.
+> **Project status:** Loafer ships as a CLI engine with durable single-node scheduling and worker
+> recovery. The multi-tenant API, distributed queue/workers, web operations dashboard, and terminal
+> dashboard are under active development. The `/studio` web route is a product preview, not a
+> connected control plane.
 
 ## What works today
 
@@ -20,6 +21,8 @@ LLM-generated artifacts.
 - PostgreSQL and MongoDB upserts
 - Cursor-based incremental extraction with local state
 - Local scheduling, daemon management, run summaries, and logs
+- SQLite/PostgreSQL run metadata, fenced worker leases, durable batch checkpoints, replayable
+  temporary output, and monotonic run events
 - Optional Gemini, OpenAI, Claude, and Qwen providers
 - Resource-limited Python transform subprocesses on Linux and macOS
 - Declared row-local ETL with bounded batches, per-batch validation, schema policies,
@@ -247,6 +250,8 @@ implemented; `ocr_applied` remains `false` in provenance.
 
 ```text
 loafer run <pipeline.yaml>
+loafer enqueue <pipeline.yaml> --command-key <idempotency-key>
+loafer worker [--once]
 loafer validate <pipeline.yaml>
 loafer connectors
 loafer schedule <pipeline.yaml>
@@ -259,6 +264,11 @@ loafer init
 ```
 
 Use `loafer <command> --help` for command-specific options.
+
+`loafer schedule` and the scheduler daemon only enqueue durable run commands; start `loafer worker`
+as a separate process to execute them. The embedded profile defaults to SQLite under `~/.loafer`
+and supports one scheduler and one worker. Set `LOAFER_METADATA_URL` to a PostgreSQL URL for the
+authoritative platform store and `LOAFER_OBJECTS_PATH` to choose the local artifact root.
 
 ## Self-hosted platform direction
 
@@ -275,9 +285,10 @@ The web dashboard and planned terminal dashboard will use the same API, permissi
 metrics, and logs. Workers will run independently so startups can deploy the stack on one host
 while larger installations can scale and isolate worker pools.
 
-The full stack is not shipped yet. Until the API, durable queue, tenant authorization, worker
-leases, and recovery tests exist, use the CLI/Docker path for bounded workloads and do not expose
-Studio as a production operations surface.
+The full stack is not shipped yet. Durable metadata, leases, fencing, outbox records, and
+single-node bounded-batch recovery are implemented; the authenticated API, distributed queue,
+tenant authorization, and distributed object store are not. Use the CLI/Docker path for bounded
+workloads and do not expose Studio as a production operations surface.
 
 The planned web source uses Crawlee for Python with HTTP/Parsel and Playwright execution profiles.
 It will support bounded crawling, authorized authenticated sessions, JavaScript rendering, and

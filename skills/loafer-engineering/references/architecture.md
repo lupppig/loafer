@@ -50,6 +50,15 @@ YAML
       → ELT: load_raw target adapter → in-target SQL transform
   → engine persists the local incremental cursor after graph completion
   → application emits sanitized RunEvent / RunResult contracts
+
+Durable single-node mode adds a separate path around that application use case:
+
+```text
+enqueue/scheduler → immutable pipeline version + idempotent run command + outbox
+worker claim → expiring lease + fencing token → bounded engine execution
+batch output object → transactional batch/checkpoint/event commit → attempt-local target
+worker restart → replay committed objects → skip durable source offset → final publication
+```
 ```
 
 `PipelineState` mixes configuration, data, execution metadata, live iterators, provider objects, and
@@ -92,6 +101,9 @@ Verify before relying on it, but the repository currently contains:
   quarantine, checksums, cancellation, and atomic CSV/JSON publication.
 - Python transform subprocess sandboxing on supported operating systems.
 - CLI validation, connector listing, runs, scheduling, daemon management, logs, and initialization.
+- Versioned SQLite/PostgreSQL metadata, state machines, sequenced events, leases/fencing,
+  idempotent commands, outbox records, filesystem object storage, and single-node bounded-batch
+  recovery through a separately runnable worker.
 - Unit, integration, end-to-end, smoke, and opt-in benchmark tests.
 
 ## Roadmap gaps
@@ -108,7 +120,8 @@ Re-check the repository because this reference is a snapshot, not a substitute f
 - Undeclared/materialized AI, custom, SQL, and multi-step ETL still drain the source stream through
   `materialize_input_rows()`; only explicitly declared row-local work uses the bounded data plane.
 - The legacy graph path remains sample-validated; the bounded row-local path validates every batch.
-- Local JSON watermark state is not sufficient for concurrent or distributed workers.
+- Local JSON watermark state remains on the synchronous legacy path; durable worker runs use the
+  metadata checkpoint store, while SQLite is intentionally limited to one scheduler and worker.
 - CSV and JSON targets publish atomically, but the local watermark/state file does not yet use the
   same publication protocol.
 - PostgreSQL target/ELT identifiers are safely composed, but every future SQL adapter and

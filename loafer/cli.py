@@ -9,8 +9,11 @@ All user-facing output uses rich.console.Console. Never use print().
 from __future__ import annotations
 
 import logging
+import os
 import signal
+import socket
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -89,6 +92,51 @@ def _main(
     ),
 ) -> None:
     """AI-assisted ETL and ELT pipelines from the command line."""
+
+
+@app.command("enqueue")
+def enqueue_command(
+    config: Path = _config_arg,
+    command_key: str | None = typer.Option(
+        None,
+        "--command-key",
+        help="Idempotency key; repeated use returns the same durable run.",
+    ),
+) -> None:
+    """Create a durable run for execution by a separate worker process."""
+    from loafer.application.durable import enqueue_pipeline
+
+    key = command_key or f"manual:{uuid.uuid4().hex}"
+    try:
+        run = enqueue_pipeline(config, command_key=key)
+    except Exception as exc:
+        err_console.print(f"[red]Could not enqueue pipeline:[/red] {exc}")
+        raise typer.Exit(1) from exc
+    console.print(f"[green]✓ Enqueued run[/green] {run.id}")
+
+
+@app.command("worker")
+def worker_command(
+    once: bool = typer.Option(False, "--once", help="Process at most one runnable job."),
+    worker_id: str | None = typer.Option(None, "--id", help="Stable worker identity."),
+) -> None:
+    """Run the durable data-plane worker separately from the scheduler."""
+    from loafer.application.durable import get_durable_worker
+
+    identity = worker_id or f"{socket.gethostname()}-{os.getpid()}"
+    worker = get_durable_worker(worker_id=identity)
+    try:
+        if once:
+            run_id = worker.run_once()
+            if run_id is None:
+                console.print("[dim]No runnable jobs.[/dim]")
+            else:
+                console.print(f"[green]✓ Processed run[/green] {run_id}")
+            return
+        console.print(f"[green]Worker started[/green] {identity}")
+        worker.run_forever()
+    finally:
+        worker.close()
 
 
 # Animated stage loaders
@@ -807,7 +855,10 @@ def schedule(
     console.print(f"  Name:    {pipeline_name}")
     console.print(f"  Config:  {config_file}")
     console.print(f"  Trigger: {trigger_desc}")
-    console.print("\nRun [bold]loafer start[/bold] to begin executing scheduled jobs")
+    console.print(
+        "\nRun [bold]loafer start[/bold] to enqueue due jobs and "
+        "[bold]loafer worker[/bold] in a separate process to execute them"
+    )
 
 
 @app.command()
@@ -868,7 +919,7 @@ def list_schedules() -> None:
 def start(
     detached: bool = typer.Option(False, "--detached", "-d", help="Run in background"),
 ) -> None:
-    """Start the scheduler and run scheduled jobs."""
+    """Start the scheduler that enqueues due run commands."""
     from loafer.scheduler import PipelineScheduler
 
     if detached:
@@ -883,6 +934,7 @@ def start(
 
     console.print("[green]✓ Scheduler started[/green]")
     console.print(f"  Log: {log_path}")
+    console.print("  Execution: start `loafer worker` in a separate process")
     console.print("Press Ctrl+C to stop\n")
 
     jobs = scheduler.list_schedules()

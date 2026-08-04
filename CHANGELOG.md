@@ -8,6 +8,14 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Added
 
+- Versioned SQLite/PostgreSQL metadata migrations for immutable pipeline versions, runs, stages,
+  partitions, batches, checkpoints, events, artifacts, schedules, and transactional outbox rows.
+- Explicit run, stage, and batch state machines; idempotent run/schedule/cancel commands; leases,
+  monotonic fencing tokens, heartbeats, cooperative cancellation, and classified retries.
+- Filesystem and in-memory object-storage adapters behind a shared port for logs, documents,
+  generated artifacts, and replayable temporary batch output.
+- A separately runnable durable worker plus `loafer enqueue` and `loafer worker` commands, with
+  batch-artifact replay from the last committed source position after a worker crash.
 - A framework-independent application service with strict, JSON-roundtrippable contracts for run
   requests, execution plans, batch envelopes, events, snapshots, and results.
 - Runtime ports and local adapters for cancellation, checkpoints, secret resolution, event
@@ -23,6 +31,11 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Changed
 
+- Scheduled callbacks now create durable idempotent run commands; pipeline execution happens only
+  in a separately started worker process.
+- Bounded durable runs stage each transformed batch as an immutable object and commit its metadata,
+  checkpoint, event, and outbox record under the active fencing token before attempt-local target
+  writes and final publication.
 - The CLI, scheduler, and legacy Python runner now share the same application boundary while core
   execution orchestration remains independent of client frameworks.
 - Durable application contracts now exclude credentials, connector instances, iterators, provider
@@ -44,6 +57,12 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Known limitations
 
+- SQLite metadata is restricted to the embedded profile with one scheduler and one worker; it does
+  not advertise high availability or distributed claims. PostgreSQL is the authoritative platform
+  profile. The bundled object-storage adapter is local filesystem storage, not a distributed blob
+  store.
+- Durable checkpoint replay currently applies to declared row-local, single-partition runs with a
+  stable offset-ordered source. Materialized/global transforms still restart as whole runs.
 - MongoDB row-local runs remain rejected until a tested staging/merge protocol replaces direct
   partial batch effects. PostgreSQL append is intentionally at-least-once across an ambiguous
   target-commit/checkpoint gap; keyed upsert is the replay-safe merge mode.

@@ -3,11 +3,29 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from loafer.exceptions import SchedulerError
+
+
+def test_scheduled_callback_only_enqueues_durable_command(monkeypatch: Any) -> None:
+    from loafer import scheduler as scheduler_module
+
+    captured: dict[str, str] = {}
+
+    def enqueue(config_path: str, *, command_key: str) -> Any:
+        captured.update(config_path=config_path, command_key=command_key)
+        return SimpleNamespace(id="durable-run-1")
+
+    monkeypatch.setattr(scheduler_module, "enqueue_pipeline", enqueue)
+
+    scheduler_module._run_pipeline_job("pipeline.yaml", "customers", "hourly")
+
+    assert captured["config_path"] == "pipeline.yaml"
+    assert captured["command_key"].startswith("schedule:hourly:")
 
 
 class TestPipelineScheduler:
