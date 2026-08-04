@@ -18,3 +18,10 @@ repos:
       # Format Python files in-place; ruff re-exits non-zero so
       # pre-commit re-stages the changes and asks you to commit again.
       - id: ruff-format
+  - repo: local
+    hooks:
+      - id: web-eslint
+        name: web eslint --fix
+        entry: web/node_modules/.bin/eslint --fix
+        language: system
+        files: ^web/.*\.(cjs|js|jsx|mjs|ts|tsx)$

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Pre-commit hook — auto-fix ruff lint + format on staged Python files,
-# re-stage them, and block the commit only on errors ruff cannot fix.
+# Pre-commit hook — auto-fix staged Python and web source files, re-stage
+# them, and block the commit only on errors the linters cannot fix.
 #
 # Install: bash scripts/git-hooks/install.sh
 #
 # Skipping: `git commit --no-verify` bypasses this (CI is the backstop).
 #
 # Partial-staging safety: we stash unstaged changes with --keep-index so
-# ruff only sees the indexed version of each file. If ruff's auto-fixes
+# the linters only see the indexed version of each file. If their auto-fixes
 # don't cleanly merge back into the unstaged working tree, the stash pop
 # leaves conflict markers and we surface that loudly instead of silently
 # clobbering work in progress.
@@ -25,23 +25,45 @@ else
     green() { printf '%s\n' "$*"; }
 fi
 
-# Collect staged Python files (added, copied, modified, renamed).
-mapfile -t staged_py < <(git diff --cached --name-only --diff-filter=ACMR -z \
-    | tr '\0' '\n' \
-    | grep -E '\.py$' || true)
+# Collect staged source files (added, copied, modified, renamed). Keeping the
+# original paths lets us re-stage only files that were already in the index.
+mapfile -d '' -t staged_files < <(git diff --cached --name-only --diff-filter=ACMR -z)
 
-if [[ ${#staged_py[@]} -eq 0 ]]; then
+staged_py=()
+staged_web=()
+staged_web_relative=()
+for path in "${staged_files[@]}"; do
+    case "$path" in
+        *.py)
+            staged_py+=("$path")
+            ;;
+        web/*.js|web/*.jsx|web/*.mjs|web/*.cjs|web/*.ts|web/*.tsx)
+            staged_web+=("$path")
+            staged_web_relative+=("${path#web/}")
+            ;;
+    esac
+done
+
+if [[ ${#staged_py[@]} -eq 0 && ${#staged_web[@]} -eq 0 ]]; then
     exit 0
 fi
 
-# Pick the ruff invocation: prefer `uv run` if available (matches CI),
-# else a ruff on PATH. Bail clearly if neither is present.
-if command -v uv >/dev/null 2>&1; then
-    ruff_cmd=(uv run --quiet ruff)
-elif command -v ruff >/dev/null 2>&1; then
-    ruff_cmd=(ruff)
-else
-    red "pre-commit: neither 'uv' nor 'ruff' is on PATH — install one or skip with --no-verify"
+# Resolve required linters before stashing any work.
+if [[ ${#staged_py[@]} -gt 0 ]]; then
+    if command -v uv >/dev/null 2>&1; then
+        ruff_cmd=(uv run --quiet ruff)
+    elif command -v ruff >/dev/null 2>&1; then
+        ruff_cmd=(ruff)
+    else
+        red "pre-commit: neither 'uv' nor 'ruff' is on PATH — install one or skip with --no-verify"
+        exit 1
+    fi
+fi
+
+repo_root=$(git rev-parse --show-toplevel)
+eslint_bin="$repo_root/web/node_modules/.bin/eslint"
+if [[ ${#staged_web[@]} -gt 0 && ! -x "$eslint_bin" ]]; then
+    red "pre-commit: web ESLint is unavailable — run 'npm ci' in web/ or skip with --no-verify"
     exit 1
 fi
 
@@ -75,28 +97,39 @@ restore_stash() {
 }
 trap restore_stash EXIT INT TERM
 
-echo "pre-commit: ruff check --fix on ${#staged_py[@]} file(s)…"
-if ! "${ruff_cmd[@]}" check --fix --exit-non-zero-on-fix "${staged_py[@]}"; then
-    # exit-non-zero-on-fix returns non-zero whenever ruff made edits OR
-    # found unfixable errors. Distinguish: re-run without --fix to see
-    # whether any unfixable errors remain.
-    if ! "${ruff_cmd[@]}" check "${staged_py[@]}"; then
-        red "pre-commit: ruff found errors it could not auto-fix."
+if [[ ${#staged_py[@]} -gt 0 ]]; then
+    echo "pre-commit: ruff check --fix on ${#staged_py[@]} file(s)…"
+    if ! "${ruff_cmd[@]}" check --fix --exit-non-zero-on-fix "${staged_py[@]}"; then
+        # exit-non-zero-on-fix returns non-zero whenever ruff made edits OR
+        # found unfixable errors. Distinguish those outcomes with a clean pass.
+        if ! "${ruff_cmd[@]}" check "${staged_py[@]}"; then
+            red "pre-commit: ruff found errors it could not auto-fix."
+            red "Fix them manually, then commit again."
+            exit 1
+        fi
+    fi
+
+    echo "pre-commit: ruff format on ${#staged_py[@]} file(s)…"
+    if ! "${ruff_cmd[@]}" format "${staged_py[@]}"; then
+        red "pre-commit: ruff format failed."
+        exit 1
+    fi
+
+    git add -- "${staged_py[@]}"
+    green "pre-commit: ruff fixed + formatted ${#staged_py[@]} file(s)."
+fi
+
+if [[ ${#staged_web[@]} -gt 0 ]]; then
+    echo "pre-commit: eslint --fix on ${#staged_web[@]} web file(s)…"
+    if ! (cd "$repo_root/web" && "$eslint_bin" --fix "${staged_web_relative[@]}"); then
+        red "pre-commit: ESLint found web errors it could not auto-fix."
         red "Fix them manually, then commit again."
         exit 1
     fi
-    # Otherwise: only auto-fixes happened. Fall through; we'll re-stage.
+
+    git add -- "${staged_web[@]}"
+    green "pre-commit: ESLint fixed + checked ${#staged_web[@]} web file(s)."
 fi
 
-echo "pre-commit: ruff format on ${#staged_py[@]} file(s)…"
-if ! "${ruff_cmd[@]}" format "${staged_py[@]}"; then
-    red "pre-commit: ruff format failed."
-    exit 1
-fi
-
-# Re-stage anything ruff modified. `git add` is idempotent and cheap;
-# we add each file unconditionally rather than diffing first.
-git add -- "${staged_py[@]}"
-
-green "pre-commit: ruff fixed + formatted; commit proceeding."
+green "pre-commit: staged source checks passed; commit proceeding."
 exit 0

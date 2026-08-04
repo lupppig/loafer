@@ -1,7 +1,7 @@
 # Git hooks
 
-Two ways to get the same checks the CI lint job runs (`ruff check` +
-`ruff format --check`) to run locally before a commit lands.
+Two ways to run the same Python and web lint checks locally before a
+commit lands.
 
 ## Option A — pre-commit framework (preferred)
 
@@ -28,10 +28,12 @@ This symlinks `pre-commit` and `pre-push` from this directory into
 
 ### What they do
 
-- **pre-commit** — on staged `.py` files only: runs `ruff check --fix`
-  then `ruff format`, re-stages the files, blocks the commit only if
-  ruff reports errors it can't auto-fix. Unstaged changes are stashed
-  with `--keep-index` so partial staging is preserved.
+- **pre-commit** — runs `ruff check --fix` and `ruff format` on staged
+  `.py` files, plus ESLint `--fix` on staged JavaScript/TypeScript files
+  under `web/`. It re-stages only those files and blocks the commit on
+  errors the linters cannot fix. Unstaged changes are stashed with
+  `--keep-index` so partial staging is preserved. Install web dependencies
+  with `npm ci` in `web/` before committing web source changes.
 - **pre-push** — runs `ruff check .` and `ruff format --check .` on
   the whole tree, mirroring CI. Catches commits made with
   `--no-verify` before they reach the remote.

@@ -40,6 +40,8 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Changed
 
+- Pre-commit hooks now auto-fix and re-stage lint changes in staged web JavaScript and TypeScript
+  files alongside the existing Python Ruff checks.
 - `loafer enqueue` now targets `loaferd` by default and never silently falls back to embedded
   execution; `loafer run` and embedded enqueueing require an explicit `--local` flag.
 - CI now verifies the generated control-plane contract, Better Auth security behavior and web
@@ -61,6 +63,8 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Fixed
 
+- Anchored Python packaging ignore rules so required web authentication and control-plane client
+  modules, including the generated browser contract, are tracked by Git and available in CI.
 - Cancellation, transform failures, and target failures during bounded file runs now discard
   run-scoped temporary output instead of publishing a final partial file.
 - CSV encoding detection now scans in bounded chunks instead of allocating the entire source file
