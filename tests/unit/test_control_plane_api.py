@@ -564,8 +564,47 @@ def test_control_plane_rate_limit_returns_retry_after(tmp_path: Path) -> None:
         verifier=StaticTokenVerifier({}),
     )
     client = ASGIClient(app, base_url="https://api.test")
-    assert client.get("/healthz").status_code == 200
-    limited = client.get("/healthz")
+    assert client.get("/healthz", headers={"X-Forwarded-For": "198.51.100.10"}).status_code == 200
+    limited = client.get("/healthz", headers={"X-Forwarded-For": "198.51.100.11"})
     assert limited.status_code == 429
     assert limited.headers["retry-after"] == "30"
     store.close()
+
+
+def test_trusted_proxy_rate_limit_uses_forwarded_client_address(tmp_path: Path) -> None:
+    store = SqlMetadataStore(f"sqlite:///{tmp_path / 'proxy-limited.db'}")
+    store.migrate()
+    app = create_app(
+        settings=ControlPlaneSettings(
+            issuer="https://auth.test",
+            audience="https://api.test",
+            jwks_url="https://auth.test/api/auth/jwks",
+            allowed_origins=("https://app.test",),
+            trust_proxy_headers=True,
+            rate_limit_requests=1,
+            rate_limit_window_seconds=30,
+        ),
+        store=store,
+        verifier=StaticTokenVerifier({}),
+    )
+    client = ASGIClient(app, base_url="http://proxy.internal")
+    proxy_headers = {"X-Forwarded-Proto": "https"}
+
+    try:
+        first = client.get(
+            "/healthz",
+            headers={**proxy_headers, "X-Forwarded-For": "198.51.100.10"},
+        )
+        second = client.get(
+            "/healthz",
+            headers={**proxy_headers, "X-Forwarded-For": "198.51.100.11"},
+        )
+        repeated = client.get(
+            "/healthz",
+            headers={**proxy_headers, "X-Forwarded-For": "198.51.100.10"},
+        )
+
+        assert first.status_code == second.status_code == 200
+        assert repeated.status_code == 429
+    finally:
+        store.close()

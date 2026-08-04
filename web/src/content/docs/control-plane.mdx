@@ -52,8 +52,9 @@ export LOAFER_ALLOWED_ORIGINS=https://loafer.example.com
 loaferd --host 0.0.0.0 --port 9443 --tls-cert cert.pem --tls-key key.pem
 ```
 
-Use `--behind-tls-proxy` only when the edge removes client-supplied forwarding headers. Loafer has
-no Unix-socket control protocol and never switches to embedded mode after an HTTPS failure.
+Use `--behind-tls-proxy` only when the edge removes client-supplied `X-Forwarded-Proto` and
+`X-Forwarded-For` headers. Loafer uses the trusted forwarded client address for rate limiting. It
+has no Unix-socket control protocol and never switches to embedded mode after an HTTPS failure.
 
 JWKS cache misses use the configured bounded timeout, and synchronous signature verification runs
 outside the event loop. The OpenAPI document remains available at `/api/v1/openapi.json`; the

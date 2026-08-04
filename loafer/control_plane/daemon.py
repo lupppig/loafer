@@ -19,7 +19,7 @@ def main() -> None:
     parser.add_argument(
         "--behind-tls-proxy",
         action="store_true",
-        help="Trust X-Forwarded-Proto from the configured TLS reverse proxy.",
+        help="Trust X-Forwarded-Proto and X-Forwarded-For from the TLS reverse proxy.",
     )
     args = parser.parse_args()
     direct_tls = bool(args.tls_cert and args.tls_key)

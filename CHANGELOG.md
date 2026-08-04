@@ -65,6 +65,8 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Fixed
 
+- Trusted TLS-proxy deployments now rate-limit by forwarded client address instead of collapsing
+  every tenant behind the proxy into one shared bucket.
 - Control-plane mutations and their audit records now commit in one transaction, so an audit
   failure rolls back the corresponding run, connection, command, pipeline, or schedule change.
 - Pipeline and connection creation endpoints now require `Idempotency-Key`, matching the control

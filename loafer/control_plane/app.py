@@ -146,10 +146,14 @@ def create_app(
         request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
         request.state.request_id = request_id
         scheme = request.url.scheme
+        client_identity = request.client.host if request.client else "unknown"
         if selected.trust_proxy_headers:
             forwarded = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
             if forwarded:
                 scheme = forwarded
+            forwarded_for = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
+            if forwarded_for:
+                client_identity = forwarded_for
         if selected.enforce_https and scheme != "https":
             response = _problem(request, 400, "HTTPS required", "loaferd accepts HTTPS only")
         elif (
@@ -168,7 +172,7 @@ def create_app(
                 "Bearer token required",
                 "cookie-authenticated mutations must pass through the CSRF-protected web BFF",
             )
-        elif not limiter.allow(request.client.host if request.client else "unknown"):
+        elif not limiter.allow(client_identity):
             response = _problem(
                 request, 429, "Rate limit exceeded", "retry after the rate-limit window"
             )
