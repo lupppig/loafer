@@ -30,8 +30,11 @@ React dependencies. Run workers separately from the API so they can scale, resta
 different network/secret policies. See
 [platform-architecture.md](platform-architecture.md) for the target deployment boundary.
 
-The Next.js App Router application under `web/` currently serves marketing, MDX documentation, and
-a clearly labeled product preview; it has no authenticated runtime API.
+The Next.js App Router application under `web/` serves marketing, MDX documentation, and a clearly
+labeled product preview. Its Better Auth boundary owns users, sessions, organizations,
+invitations, device authorization, automation keys, and JWT/JWKS issuance. Its server-only BFF
+validates browser credentials and forwards short-lived tokens to the same HTTPS `loaferd` API used
+by CLI and automation clients; it does not execute pipelines.
 
 ## Current execution path
 
@@ -83,6 +86,7 @@ record. Persistence and client surfaces use the credential-free contracts in `lo
 | `loafer/application/` | Plan, run, validate, and connector-listing use cases |
 | `loafer/runner.py` | Backward-compatible Python facade over the application service |
 | `loafer/cli.py` | Typer/Rich user experience |
+| `loafer/control_plane/` | HTTPS `loaferd`, tenant policy, durable commands, SSE, and typed client |
 | `loafer/scheduler.py`, `daemon.py` | Local APScheduler lifecycle; runs call the application service |
 | `web/` | Next.js web control-plane shell, marketing site, and MDX documentation |
 
@@ -104,14 +108,18 @@ Verify before relying on it, but the repository currently contains:
 - Versioned SQLite/PostgreSQL metadata, state machines, sequenced events, leases/fencing,
   idempotent commands, outbox records, filesystem object storage, and single-node bounded-batch
   recovery through a separately runnable worker.
+- Better Auth-backed identity, Loafer-owned tenant/permission metadata, an HTTPS-only `/api/v1`
+  control plane, OpenAPI plus generated browser types, typed CLI/web clients, and persisted SSE
+  event streaming.
 - Unit, integration, end-to-end, smoke, and opt-in benchmark tests.
 
 ## Roadmap gaps
 
 At the time this reference was written, searches found no whole-database inspector/orchestrator,
 dependency DAG, cross-table join model, parallel table executor, interactive explore command,
-durable distributed run store, NATS worker transport, full web crawler/browser source,
-runtime web API, tenant-aware authorization, or operator UI connected to the engine.
+NATS worker transport, full web crawler/browser source, connected operator Studio, or professional
+TUI. The authenticated runtime API and tenant-aware authorization now exist; distributed control
+command consumers and end-user application screens are the next boundaries.
 
 Re-check the repository because this reference is a snapshot, not a substitute for inspection.
 
@@ -129,4 +137,5 @@ Re-check the repository because this reference is a snapshot, not a substitute f
 - Postgres target commits individual insert batches, so a later failure leaves partial writes.
 - The graph state contains non-serializable objects, preventing straightforward durable LangGraph
   checkpointing.
-- The UI cannot safely start or observe runs until a server-side control-plane API exists.
+- The Studio remains a product preview even though the server-side BFF and control-plane clients
+  exist; Phase 6 connects its screens to real tenant-scoped resources and events.

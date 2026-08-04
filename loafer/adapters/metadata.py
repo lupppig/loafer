@@ -7,7 +7,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, event, insert, or_, select, update
+from sqlalchemy import and_, event, insert, or_, select, text, update
 from sqlalchemy.engine import Connection, Engine, RowMapping, create_engine
 from sqlalchemy.exc import IntegrityError
 
@@ -84,6 +84,7 @@ class SqlMetadataStore:
         ).hexdigest()[:32]
         now = self._clock()
         with self._engine.begin() as connection:
+            self._set_workspace_scope(connection, workspace_id)
             row = (
                 connection.execute(
                     select(schema.pipeline_versions).where(
@@ -146,6 +147,7 @@ class SqlMetadataStore:
     ) -> RunRecord:
         now = self._clock()
         with self._engine.begin() as connection:
+            self._set_workspace_scope(connection, workspace_id)
             return self._create_run(
                 connection,
                 workspace_id=workspace_id,
@@ -540,9 +542,11 @@ class SqlMetadataStore:
             )
             return _checkpoint(row, partition_id) if row is not None else None
 
-    def request_cancel(self, run_id: str) -> RunRecord:
+    def request_cancel(self, run_id: str, *, workspace_id: str | None = None) -> RunRecord:
         now = self._clock()
         with self._engine.begin() as connection:
+            if workspace_id is not None:
+                self._set_workspace_scope(connection, workspace_id)
             row = self._run_row(connection, run_id, for_update=True)
             state = RunState(row["state"])
             if state in {RunState.SUCCEEDED, RunState.FAILED, RunState.CANCELLED}:
@@ -578,6 +582,7 @@ class SqlMetadataStore:
 
     def upsert_schedule(self, schedule: ScheduleRecord) -> ScheduleRecord:
         with self._engine.begin() as connection:
+            self._set_workspace_scope(connection, schedule.workspace_id)
             existing = (
                 connection.execute(
                     select(schema.schedules).where(schema.schedules.c.id == schedule.id)
@@ -641,8 +646,12 @@ class SqlMetadataStore:
                 )
         return created
 
-    def list_events(self, run_id: str, after: int = 0) -> list[StoredEvent]:
+    def list_events(
+        self, run_id: str, after: int = 0, *, workspace_id: str | None = None
+    ) -> list[StoredEvent]:
         with self._engine.connect() as connection:
+            if workspace_id is not None:
+                self._set_workspace_scope(connection, workspace_id)
             rows = connection.execute(
                 select(schema.run_events)
                 .where(
@@ -652,6 +661,13 @@ class SqlMetadataStore:
                 .order_by(schema.run_events.c.sequence)
             ).mappings()
             return [_stored_event(row) for row in rows]
+
+    def _set_workspace_scope(self, connection: Connection, workspace_id: str) -> None:
+        if self.profile == "postgresql":
+            connection.execute(
+                text("SELECT set_config('loafer.workspace_id', :workspace_id, true)"),
+                {"workspace_id": workspace_id},
+            )
 
     def pending_outbox(self, limit: int = 100) -> list[OutboxRecord]:
         with self._engine.connect() as connection:

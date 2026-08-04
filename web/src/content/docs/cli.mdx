@@ -9,12 +9,13 @@ You can always view built-in help commands by running `loafer --help` or `loafer
 
 ## `loafer run`
 
-Executes a data pipeline. This is the primary command you will use to push data through your configurations. 
+Executes a data pipeline inside the CLI process only when `--local` is explicit. Durable remote
+execution uses `loafer enqueue`, which calls `loaferd` over HTTPS and never falls back locally.
 
 When you execute this command, Loafer builds the source and target clients, automatically generates and compiles your AI or local python transformations, and begins streaming records via the specified generator.
 
 ```bash
-loafer run [OPTIONS] [CONFIG_FILE]
+loafer run [OPTIONS] [CONFIG_FILE] --local
 ```
 
 <br />
@@ -33,6 +34,32 @@ loafer run [OPTIONS] [CONFIG_FILE]
 | `--verbose` | `-v` | bool | false | Streams heavily detailed execution logs to stdout. Displays complete Python AST derivations from AI prompts and all raw data frames. |
 | `--dry-run` | - | bool | false | Performs full compilation and evaluates the transformation pipeline against source records without committing any output to the target database or file. |
 | `--auto-approve` | `-y` | bool | false | Bypasses the human-in-the-loop prompt for AI-generated code. Required when executing AI components in CI environments. |
+| `--local` | - | bool | false | Explicitly permits embedded execution in the CLI process. |
+
+## Remote control plane
+
+```bash
+export LOAFER_AUTH_URL=https://loafer.example.com
+export LOAFER_API_URL=https://api.loafer.example.com
+export LOAFER_WORKSPACE_ID=workspace-id
+
+loafer login
+loafer enqueue pipeline.yaml --command-key deploy-2026-08-04
+```
+
+The login command uses Better Auth device authorization and the OS keyring. CLI, browser BFF, and
+automation all use the same versioned `loaferd` resources; there is no Unix socket or private CLI
+RPC protocol.
+
+Non-interactive automation may provide a short-lived audience-bound token directly instead of an
+authentication URL:
+
+```bash
+export LOAFER_ACCESS_TOKEN="$(obtain-token-from-your-identity-workflow)"
+export LOAFER_API_URL=https://api.loafer.example.com
+export LOAFER_WORKSPACE_ID=workspace-id
+loafer enqueue pipeline.yaml --command-key deployment-run-42
+```
 
 ---
 

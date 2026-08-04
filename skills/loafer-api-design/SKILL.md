@@ -8,6 +8,10 @@ description: Design, implement, review, or document Loafer's versioned multi-ten
 Build a durable application boundary for both web and CLI clients. Keep pipeline execution outside
 HTTP request processes.
 
+Expose that boundary through `loaferd` as the only remote control protocol. CLI, Web/BFF, and
+automation use the same HTTPS `/api/v1` resources and commands. Do not add Unix-socket RPC,
+client-specific orchestration endpoints, or an embedded fallback when HTTPS is unavailable.
+
 ## Start
 
 1. Use `$loafer-auth` for identity, sessions, organizations, SSO, and machine credentials.
@@ -25,6 +29,9 @@ HTTP request processes.
 - Enqueue run IDs transactionally; never execute a pipeline in an HTTP request.
 - Store secret references only and never return secret values.
 - Generate an OpenAPI contract and typed clients for the web and CLI.
+- Keep `loaferd` stateless so multiple replicas share PostgreSQL-backed command and event state.
+- Reject non-HTTPS deployment/client configuration. Trust proxy scheme headers only from an
+  explicitly configured TLS edge.
 
 ## Design tenant-safe resources
 

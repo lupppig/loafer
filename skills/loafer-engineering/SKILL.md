@@ -45,6 +45,8 @@ boundaries.
    port → adapter → state/error/reporting → tests.
 9. Before every commit, update the `[Unreleased]` section of `CHANGELOG.md` with the implementation
    or documentation change. Never commit first and backfill the changelog entry afterward.
+10. Name release tags for actual semantic releases (for example, `v0.5.0`) or a specific documented
+    purpose. Never create roadmap-phase tags such as `phase-1`, `phase-2`, or similar variants.
 
 Treat every roadmap statement in the references as intent, not proof. Search for its implementation
 and tests first.
@@ -114,6 +116,13 @@ work is a partition or batch, never the entire dataset.
 
 Treat the CLI and UI as clients of a versioned application service. Neither client owns execution
 logic, worker lifecycle, durable scheduling, or credentials.
+
+- Treat `loaferd` as the logical single point of control. CLI, Web/BFF, and automation all use its
+  HTTPS `/api/v1` contract; do not add a Unix-socket protocol or a second client-specific API.
+- Keep `loaferd` stateless and horizontally replicable. It is one control interface, not a single
+  process that execution or availability depends on.
+- Require explicit `--local` compatibility mode. Never silently fall back from an unavailable
+  remote control plane to embedded execution.
 
 - Put runtime access behind an authenticated API/service boundary. The browser must never receive
   database credentials or LLM keys.

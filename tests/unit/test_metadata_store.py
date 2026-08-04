@@ -32,7 +32,7 @@ class Clock:
 def store(tmp_path: Path) -> tuple[SqlMetadataStore, Clock]:
     clock = Clock()
     metadata = SqlMetadataStore(f"sqlite:///{tmp_path / 'metadata.db'}", clock=clock)
-    assert metadata.migrate() == 2
+    assert metadata.migrate() == 3
     try:
         yield metadata, clock
     finally:
@@ -167,7 +167,7 @@ def test_migrations_upgrade_previous_schema_rollback_and_reapply(tmp_path: Path)
         assert metadata.migrate(1) == 1
         version_id = _version(metadata)
 
-        assert metadata.migrate() == 2
+        assert metadata.migrate() == 3
         assert metadata.get_pipeline_version(version_id).pipeline_key == "customers"
         assert "loafer_outbox" in inspect(metadata.engine).get_table_names()
 
@@ -175,7 +175,7 @@ def test_migrations_upgrade_previous_schema_rollback_and_reapply(tmp_path: Path)
         assert "loafer_outbox" not in inspect(metadata.engine).get_table_names()
         assert metadata.get_pipeline_version(version_id).pipeline_key == "customers"
 
-        assert metadata.migrate() == 2
+        assert metadata.migrate() == 3
         assert "loafer_outbox" in inspect(metadata.engine).get_table_names()
     finally:
         metadata.close()

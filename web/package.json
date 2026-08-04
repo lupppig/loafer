@@ -3,24 +3,33 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "next dev --webpack",
     "build": "node scripts/build-search.js && next build --webpack && node scripts/prepare-standalone.js",
     "predev": "node scripts/build-search.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "auth:migrate": "npx auth@1.6.25 migrate --config src/lib/auth.ts",
+    "auth:bootstrap": "npx auth@1.6.25 create-admin --config src/lib/auth.ts",
+    "test:auth": "node --test tests/auth.integration.mjs",
     "start": "node .next/standalone/server.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@better-auth/api-key": "1.6.25",
     "@fontsource/geist-mono": "^5.2.7",
     "@fontsource/geist-sans": "^5.2.5",
     "@mdx-js/react": "^3.1.1",
+    "better-auth": "1.6.25",
     "clsx": "^2.1.1",
     "framer-motion": "^12.38.0",
     "fuse.js": "^7.2.0",
     "lucide-react": "^1.7.0",
     "next": "^16.2.12",
+    "pg": "8.22.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "tailwind-merge": "^3.5.0"
@@ -31,6 +40,7 @@
     "@tailwindcss/postcss": "^4.3.3",
     "@types/mdx": "^2.0.14",
     "@types/node": "^24.12.0",
+    "@types/pg": "8.20.3",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "eslint": "^9.39.5",

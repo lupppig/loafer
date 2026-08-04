@@ -45,6 +45,10 @@ If the Python API runs separately from the TypeScript auth gateway, forward only
 audience-bound signed token and validate it against pinned issuer/JWKS configuration. Never trust
 unsigned identity headers from a public proxy.
 
+All browser, CLI, and automation identities ultimately authorize the same HTTPS `/api/v1`
+`loaferd` commands. Never let an auth adapter become an alternate control plane or forward an
+unsigned workspace/role header.
+
 ## Configure Better Auth
 
 - Pin Better Auth and plugin versions in the lockfile.

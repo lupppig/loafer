@@ -8,6 +8,15 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Added
 
+- An HTTPS-only `loaferd` control plane with a versioned `/api/v1` OpenAPI contract, generated
+  browser types, typed Python/browser clients, durable commands, sequenced SSE run events, request
+  auditing, security headers, origin enforcement, and rate limiting.
+- Better Auth 1.6.25 integration for admin bootstrap, verified email/password sessions,
+  organizations and invitations, CLI device authorization, scoped expiring automation keys, and
+  short-lived audience-bound JWT/JWKS credentials through the Next.js BFF.
+- Tenant metadata for workspaces, environments, role-based permissions, connections with opaque
+  secret references, control commands, and audit events, plus PostgreSQL row-level security
+  policies as defense in depth.
 - Versioned SQLite/PostgreSQL metadata migrations for immutable pipeline versions, runs, stages,
   partitions, batches, checkpoints, events, artifacts, schedules, and transactional outbox rows.
 - Explicit run, stage, and batch state machines; idempotent run/schedule/cancel commands; leases,
@@ -31,6 +40,11 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Changed
 
+- `loafer enqueue` now targets `loaferd` by default and never silently falls back to embedded
+  execution; `loafer run` and embedded enqueueing require an explicit `--local` flag.
+- CI now verifies the generated control-plane contract, Better Auth security behavior and web
+  build under Node.js 22.13, production dependency advisories, and control-plane migrations/RLS
+  policies against PostgreSQL 16.
 - Scheduled callbacks now create durable idempotent run commands; pipeline execution happens only
   in a separately started worker process.
 - Bounded durable runs stage each transformed batch as an immutable object and commit its metadata,
@@ -57,6 +71,10 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Known limitations
 
+- Validation, backfill, and connection-test endpoints persist durable control commands, but their
+  distributed consumers arrive with the NATS/worker-pool work; the HTTP process never executes
+  these operations inline. The embedded Better Auth SQLite profile requires Node.js 22.13 or
+  newer, while PostgreSQL is the production authentication profile.
 - SQLite metadata is restricted to the embedded profile with one scheduler and one worker; it does
   not advertise high availability or distributed claims. PostgreSQL is the authoritative platform
   profile. The bundled object-storage adapter is local filesystem storage, not a distributed blob

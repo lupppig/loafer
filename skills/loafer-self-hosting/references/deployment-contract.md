@@ -4,7 +4,8 @@
 
 ```text
 edge / TLS
-  → web, Better Auth boundary, and control-plane API
+  → web and Better Auth boundary
+  → one or more stateless `loaferd` replicas exposing HTTPS `/api/v1`
        → PostgreSQL metadata
        → NATS JetStream durable transport
        → object storage
@@ -13,8 +14,10 @@ workers   → metadata, JetStream, object storage, approved sources/targets
 browser workers → the same contracts with isolated browser runtime and restricted egress
 ```
 
-Run the CLI either locally against the engine or remotely against the API through an explicit
-profile. The browser always uses the API.
+Run the CLI remotely against `loaferd` over HTTPS by default. Explicit `--local` compatibility mode
+may compose the application client in-process; it must never be selected as a fallback after a
+remote failure. The browser uses a same-origin BFF that forwards a short-lived signed token to the
+same `loaferd` API. Do not expose a Unix socket or a second client-specific RPC protocol.
 
 Embedded mode may keep Better Auth and Loafer metadata in one SQLite database with separate table
 ownership. Distributed mode uses PostgreSQL and stateless auth/control-plane replicas. Enterprise

@@ -15,6 +15,7 @@ from sqlalchemy import (
     Index,
     Integer,
     MetaData,
+    PrimaryKeyConstraint,
     String,
     Table,
     Text,
@@ -23,13 +24,14 @@ from sqlalchemy import (
     func,
     insert,
     select,
+    text,
 )
 from sqlalchemy.engine import Connection, Engine
 
 from loafer.core.run_state import BatchState, RetryCategory, RunState, StageState
 from loafer.exceptions import MetadataError
 
-LATEST_SCHEMA_VERSION = 2
+LATEST_SCHEMA_VERSION = 3
 metadata = MetaData()
 
 
@@ -231,6 +233,130 @@ outbox = Table(
     CheckConstraint("attempts >= 0", name="ck_loafer_outbox_attempts"),
 )
 
+workspaces = Table(
+    "loafer_workspaces",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("organization_id", String(128), nullable=False),
+    Column("slug", String(128), nullable=False),
+    Column("name", String(255), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint("organization_id", "slug", name="uq_loafer_workspace_slug"),
+)
+
+environments = Table(
+    "loafer_environments",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column(
+        "workspace_id",
+        String(64),
+        ForeignKey("loafer_workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("slug", String(128), nullable=False),
+    Column("name", String(255), nullable=False),
+    Column("is_production", Boolean, nullable=False, default=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint("workspace_id", "slug", name="uq_loafer_environment_slug"),
+)
+
+workspace_permissions = Table(
+    "loafer_workspace_permissions",
+    metadata,
+    Column(
+        "workspace_id",
+        String(64),
+        ForeignKey("loafer_workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("subject_id", String(128), nullable=False),
+    Column("role", String(32), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    PrimaryKeyConstraint("workspace_id", "subject_id", name="pk_loafer_workspace_permission"),
+    CheckConstraint(
+        "role IN ('owner', 'admin', 'operator', 'viewer')",
+        name="ck_loafer_workspace_role",
+    ),
+)
+
+connections = Table(
+    "loafer_connections",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column(
+        "workspace_id",
+        String(64),
+        ForeignKey("loafer_workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column(
+        "environment_id",
+        String(64),
+        ForeignKey("loafer_environments.id", ondelete="SET NULL"),
+    ),
+    Column("name", String(255), nullable=False),
+    Column("connector_type", String(64), nullable=False),
+    Column("secret_reference", String(512), nullable=False),
+    Column("metadata_json", JSON, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint("workspace_id", "name", name="uq_loafer_connection_name"),
+)
+
+control_commands = Table(
+    "loafer_control_commands",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column(
+        "workspace_id",
+        String(64),
+        ForeignKey("loafer_workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("kind", String(64), nullable=False),
+    Column("idempotency_key", String(255), nullable=False),
+    Column("resource_id", String(64)),
+    Column("payload_json", JSON, nullable=False),
+    Column("state", String(32), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint(
+        "workspace_id",
+        "kind",
+        "idempotency_key",
+        name="uq_loafer_control_command",
+    ),
+    CheckConstraint(
+        "state IN ('queued', 'accepted', 'failed')",
+        name="ck_loafer_control_command_state",
+    ),
+)
+
+audit_events = Table(
+    "loafer_audit_events",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("organization_id", String(128), nullable=False),
+    Column("workspace_id", String(64)),
+    Column("subject_id", String(128), nullable=False),
+    Column("action", String(128), nullable=False),
+    Column("resource_type", String(64), nullable=False),
+    Column("resource_id", String(128)),
+    Column("outcome", String(32), nullable=False),
+    Column("request_id", String(128), nullable=False),
+    Column("metadata_json", JSON, nullable=False),
+    Column("occurred_at", DateTime(timezone=True), nullable=False),
+)
+
+_CONTROL_PLANE_TABLES = (
+    workspaces,
+    environments,
+    workspace_permissions,
+    connections,
+    control_commands,
+    audit_events,
+)
+
 _RUNNABLE_INDEX = Index(
     "ix_loafer_runs_runnable",
     runs.c.state,
@@ -317,5 +443,68 @@ def _down_v2(connection: Connection) -> None:
     outbox.drop(connection, checkfirst=True)
 
 
-_UP: dict[int, Callable[[Connection], None]] = {1: _up_v1, 2: _up_v2}
-_DOWN: dict[int, Callable[[Connection], None]] = {1: _down_v1, 2: _down_v2}
+def _up_v3(connection: Connection) -> None:
+    for table in _CONTROL_PLANE_TABLES:
+        table.create(connection, checkfirst=True)
+    if connection.dialect.name == "postgresql":
+        for table_name in (
+            "loafer_pipeline_versions",
+            "loafer_runs",
+            "loafer_schedules",
+            "loafer_environments",
+            "loafer_workspace_permissions",
+            "loafer_connections",
+            "loafer_control_commands",
+        ):
+            connection.execute(text(f"ALTER TABLE {table_name} ENABLE ROW LEVEL SECURITY"))
+        connection.execute(
+            text(
+                """
+                CREATE POLICY loafer_workspace_scope_pipeline_versions
+                ON loafer_pipeline_versions USING (
+                    current_setting('loafer.workspace_id', true) IS NULL
+                    OR workspace_id = current_setting('loafer.workspace_id', true)
+                )
+                """
+            )
+        )
+        for table_name in (
+            "loafer_runs",
+            "loafer_schedules",
+            "loafer_environments",
+            "loafer_workspace_permissions",
+            "loafer_connections",
+            "loafer_control_commands",
+        ):
+            connection.execute(
+                text(
+                    f"""
+                    CREATE POLICY loafer_workspace_scope_{table_name.removeprefix("loafer_")}
+                    ON {table_name} USING (
+                        current_setting('loafer.workspace_id', true) IS NULL
+                        OR workspace_id = current_setting('loafer.workspace_id', true)
+                    )
+                    """
+                )
+            )
+
+
+def _down_v3(connection: Connection) -> None:
+    if connection.dialect.name == "postgresql":
+        connection.execute(
+            text(
+                "DROP POLICY IF EXISTS loafer_workspace_scope_pipeline_versions "
+                "ON loafer_pipeline_versions"
+            )
+        )
+        connection.execute(text("ALTER TABLE loafer_pipeline_versions DISABLE ROW LEVEL SECURITY"))
+        for table_name in ("loafer_runs", "loafer_schedules"):
+            policy_name = f"loafer_workspace_scope_{table_name.removeprefix('loafer_')}"
+            connection.execute(text(f"DROP POLICY IF EXISTS {policy_name} ON {table_name}"))
+            connection.execute(text(f"ALTER TABLE {table_name} DISABLE ROW LEVEL SECURITY"))
+    for table in reversed(_CONTROL_PLANE_TABLES):
+        table.drop(connection, checkfirst=True)
+
+
+_UP: dict[int, Callable[[Connection], None]] = {1: _up_v1, 2: _up_v2, 3: _up_v3}
+_DOWN: dict[int, Callable[[Connection], None]] = {1: _down_v1, 2: _down_v2, 3: _down_v3}

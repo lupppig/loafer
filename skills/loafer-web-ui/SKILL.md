@@ -76,6 +76,8 @@ source or target database credentials, or infer authoritative run state in brows
   access instead of recreating framework primitives.
 - Treat Route Handlers as a browser-facing gateway/BFF. They may host Better Auth and proxy
   authenticated control-plane requests, but must not become a second scheduler or execution engine.
+- Proxy browser commands to the same HTTPS `/api/v1` `loaferd` interface used by CLI and
+  automation. Do not call workers, metadata tables, or a browser-specific control API directly.
 - Keep secrets and privileged API credentials in server-only modules. Only expose intentionally
   public values through `NEXT_PUBLIC_*`.
 - Generate or consume typed API clients from the versioned OpenAPI contract.

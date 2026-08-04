@@ -16,6 +16,11 @@ contract used by the web UI.
 3. Decide whether the command runs locally or against a control-plane API. Do not silently switch.
 4. Preserve non-interactive behavior before adding animation or prompts.
 
+Remote mode always calls `loaferd` over the shared HTTPS `/api/v1` contract. Do not add a Unix
+socket or direct metadata/worker shortcut for the CLI. Require an explicit `--local` flag for
+embedded compatibility mode, and fail clearly if remote configuration or authentication is
+missing.
+
 ## Keep commands professional
 
 - Use stable command names, options, environment variables, help text, and exit codes.
@@ -24,6 +29,8 @@ contract used by the web UI.
 - Write machine output to stdout and diagnostics/progress to stderr.
 - Never parse human-formatted output inside another Loafer component.
 - Use typed application-client calls; do not duplicate orchestration in command handlers.
+- Obtain CLI credentials through Better Auth device authorization, keep the long-lived credential
+  in the OS keyring, and exchange it for a short-lived audience-bound `loaferd` token.
 - Redact URLs, headers, environment values, samples, generated code, and exceptions.
 - Require explicit confirmation for destructive or expensive work; fail in non-interactive mode
   unless approval was supplied.

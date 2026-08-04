@@ -15,9 +15,9 @@
 Build Loafer as a self-hosted control plane with independently scalable workers:
 
 ```text
-browser / CLI
-      ↓ authenticated versioned API
-control-plane service
+browser / Web BFF / CLI / automation
+      ↓ authenticated HTTPS `/api/v1`
+`loaferd` logical control point (stateless, horizontally replicable)
       ├── metadata database
       ├── secret references
       ├── scheduler
@@ -33,6 +33,12 @@ Do not run pipelines inside an HTTP request or a web process. Do not make the CL
 dependency of the API. Both clients call application use cases; workers call the same engine
 library through an explicit job contract.
 
+`loaferd` is the Docker-daemon-like single point of control, not a single point of failure. Every
+remote client uses the same versioned HTTPS contract. Do not introduce a Unix socket, private CLI
+RPC protocol, direct browser-to-worker path, or silent embedded fallback. The Next.js Route Handler
+may act as a same-origin authenticated BFF, but it only forwards commands to `loaferd`. Explicit
+`--local` mode may compose the same application interface without a network service.
+
 ## Package boundaries
 
 Evolve toward these dependency directions:
@@ -42,7 +48,7 @@ Evolve toward these dependency directions:
 | Engine library | config contracts, plans, transforms, connector ports, batch execution | HTTP, UI, Typer, tenant sessions |
 | Application service | pipeline/run use cases, policy, authorization hooks | connector-specific execution loops |
 | CLI | commands, local display, API/local client selection | duplicated orchestration |
-| Control-plane API | auth, validation, persistence, idempotent commands, event reads | long-running data movement |
+| `loaferd` control-plane API | auth verification, validation, persistence, idempotent commands, event reads | long-running data movement |
 | Scheduler | due-run creation and concurrency policy | pipeline execution |
 | Worker | lease, heartbeat, execution, checkpoints, event emission | user/session management |
 | Web UI | safe authoring and operations experience | credentials or executable data-plane logic |

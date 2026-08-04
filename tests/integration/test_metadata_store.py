@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
 
 from loafer.adapters.metadata import SqlMetadataStore
 from loafer.core.run_state import RunState
@@ -40,13 +40,22 @@ def test_postgres_empty_schema_and_previous_schema_upgrade(
             config={"document": {"name": "customers"}},
         )
 
-        assert store.migrate() == 2
+        assert store.migrate() == 3
         assert store.get_pipeline_version(version.id).config_digest == "a" * 64
         assert "loafer_outbox" in inspect(store.engine).get_table_names()
+        assert "loafer_workspaces" in inspect(store.engine).get_table_names()
+        with store.engine.connect() as connection:
+            policies = set(
+                connection.execute(
+                    text("SELECT policyname FROM pg_policies WHERE schemaname = current_schema()")
+                ).scalars()
+            )
+            assert "loafer_workspace_scope_runs" in policies
+            assert "loafer_workspace_scope_pipeline_versions" in policies
 
         assert store.migrate(1) == 1
         assert "loafer_outbox" not in inspect(store.engine).get_table_names()
-        assert store.migrate() == 2
+        assert store.migrate() == 3
     finally:
         store.migrate(0)
         store.close()
