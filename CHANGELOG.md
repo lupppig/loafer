@@ -45,7 +45,7 @@ Notable changes to Loafer are documented here. This project follows
 - `loafer enqueue` now targets `loaferd` by default and never silently falls back to embedded
   execution; `loafer run` and embedded enqueueing require an explicit `--local` flag.
 - CI now verifies the generated control-plane contract, Better Auth security behavior and web
-  build under Node.js 22.13, production dependency advisories, and control-plane migrations/RLS
+  build under Node.js 22.16, production dependency advisories, and control-plane migrations/RLS
   policies against PostgreSQL 16.
 - Scheduled callbacks now create durable idempotent run commands; pipeline execution happens only
   in a separately started worker process.
@@ -64,7 +64,7 @@ Notable changes to Loafer are documented here. This project follows
 ### Fixed
 
 - Better Auth integration tests now explicitly enable TypeScript stripping on the pinned Node.js
-  22.13 runtime, and artifact smoke tests opt into the required local execution mode.
+  22.16 runtime, and artifact smoke tests opt into the required local execution mode.
 - Anchored Python packaging ignore rules so required web authentication and control-plane client
   modules, including the generated browser contract, are tracked by Git and available in CI.
 - Cancellation, transform failures, and target failures during bounded file runs now discard
@@ -79,7 +79,7 @@ Notable changes to Loafer are documented here. This project follows
 
 - Validation, backfill, and connection-test endpoints persist durable control commands, but their
   distributed consumers arrive with the NATS/worker-pool work; the HTTP process never executes
-  these operations inline. The embedded Better Auth SQLite profile requires Node.js 22.13 or
+  these operations inline. The embedded Better Auth SQLite profile requires Node.js 22.16 or
   newer, while PostgreSQL is the production authentication profile.
 - SQLite metadata is restricted to the embedded profile with one scheduler and one worker; it does
   not advertise high availability or distributed claims. PostgreSQL is the authoritative platform
