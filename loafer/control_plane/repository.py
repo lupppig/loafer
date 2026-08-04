@@ -5,10 +5,11 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from contextlib import nullcontext
 from typing import Any
 
 from sqlalchemy import func, insert, select, text
-from sqlalchemy.engine import RowMapping
+from sqlalchemy.engine import Connection, RowMapping
 from sqlalchemy.exc import IntegrityError
 
 from loafer.adapters import metadata_schema as schema
@@ -25,6 +26,12 @@ class ControlPlaneRepository:
         self.store = store
         self._clock = clock
 
+    def transaction(self) -> Any:
+        return self.store.engine.begin()
+
+    def _transaction(self, connection: Connection | None) -> Any:
+        return nullcontext(connection) if connection is not None else self.transaction()
+
     def bootstrap_workspace(
         self,
         *,
@@ -32,11 +39,12 @@ class ControlPlaneRepository:
         subject_id: str,
         slug: str,
         name: str,
+        connection: Connection | None = None,
     ) -> dict[str, Any]:
         now = self._clock()
         workspace_id = uuid.uuid4().hex
         environment_id = uuid.uuid4().hex
-        with self.store.engine.begin() as connection:
+        with self._transaction(connection) as connection:
             existing = connection.execute(
                 select(func.count()).select_from(schema.workspaces)
             ).scalar_one()
@@ -102,13 +110,17 @@ class ControlPlaneRepository:
             ).scalar_one_or_none()
             return WorkspaceRole(value) if value is not None else None
 
-    def workspace_organization(self, workspace_id: str) -> str | None:
-        with self.store.engine.connect() as connection:
-            return connection.execute(
-                select(schema.workspaces.c.organization_id).where(
-                    schema.workspaces.c.id == workspace_id
-                )
-            ).scalar_one_or_none()
+    def workspace_organization(
+        self,
+        workspace_id: str,
+        *,
+        connection: Connection,
+    ) -> str | None:
+        return connection.execute(
+            select(schema.workspaces.c.organization_id).where(
+                schema.workspaces.c.id == workspace_id
+            )
+        ).scalar_one_or_none()
 
     def list_pipelines(self, workspace_id: str) -> list[dict[str, Any]]:
         with self.store.engine.connect() as connection:
@@ -126,6 +138,7 @@ class ControlPlaneRepository:
         workspace_id: str,
         pipeline_key: str,
         document: dict[str, Any],
+        connection: Connection | None = None,
     ) -> dict[str, Any]:
         safe_document = _reject_embedded_secrets(document)
         rendered = json.dumps(safe_document, sort_keys=True, separators=(",", ":"))
@@ -135,6 +148,7 @@ class ControlPlaneRepository:
             pipeline_key=pipeline_key,
             config_digest=digest,
             config={"document": safe_document},
+            connection=connection,
         )
         return {
             "id": version.id,
@@ -201,13 +215,14 @@ class ControlPlaneRepository:
         connector_type: str,
         secret_reference: str,
         metadata: dict[str, Any],
+        connection: Connection | None = None,
     ) -> dict[str, Any]:
         if not secret_reference or "://" in secret_reference:
             raise ValueError("secret_reference must be an opaque secret-manager identifier")
         safe_metadata = _reject_embedded_secrets(metadata)
         now = self._clock()
         connection_id = uuid.uuid4().hex
-        with self.store.engine.begin() as connection:
+        with self._transaction(connection) as connection:
             self._set_workspace_scope(connection, workspace_id)
             if environment_id is not None:
                 environment_workspace = connection.execute(
@@ -275,10 +290,11 @@ class ControlPlaneRepository:
         idempotency_key: str,
         resource_id: str | None,
         payload: dict[str, Any],
+        connection: Connection | None = None,
     ) -> dict[str, Any]:
         safe_payload = _reject_embedded_secrets(payload)
         now = self._clock()
-        with self.store.engine.begin() as connection:
+        with self._transaction(connection) as connection:
             self._set_workspace_scope(connection, workspace_id)
             existing = (
                 connection.execute(
@@ -345,25 +361,25 @@ class ControlPlaneRepository:
         resource_id: str | None,
         request_id: str,
         metadata: dict[str, Any] | None = None,
+        connection: Connection,
     ) -> None:
-        with self.store.engine.begin() as connection:
-            if workspace_id is not None:
-                self._set_workspace_scope(connection, workspace_id)
-            connection.execute(
-                insert(schema.audit_events).values(
-                    id=uuid.uuid4().hex,
-                    organization_id=organization_id,
-                    workspace_id=workspace_id,
-                    subject_id=subject_id,
-                    action=action,
-                    resource_type=resource_type,
-                    resource_id=resource_id,
-                    outcome="succeeded",
-                    request_id=request_id,
-                    metadata_json=_reject_embedded_secrets(metadata or {}),
-                    occurred_at=self._clock(),
-                )
+        if workspace_id is not None:
+            self._set_workspace_scope(connection, workspace_id)
+        connection.execute(
+            insert(schema.audit_events).values(
+                id=uuid.uuid4().hex,
+                organization_id=organization_id,
+                workspace_id=workspace_id,
+                subject_id=subject_id,
+                action=action,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                outcome="succeeded",
+                request_id=request_id,
+                metadata_json=_reject_embedded_secrets(metadata or {}),
+                occurred_at=self._clock(),
             )
+        )
 
     def _set_workspace_scope(self, connection: Any, workspace_id: str) -> None:
         if self.store.profile == "postgresql":

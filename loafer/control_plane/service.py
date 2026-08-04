@@ -6,6 +6,8 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy.engine import Connection
+
 from loafer.control_plane.domain import AuthContext, Permission, WorkspaceRole, role_allows
 from loafer.control_plane.repository import ControlPlaneRepository
 from loafer.core.run_state import RetryCategory, RunState
@@ -43,17 +45,25 @@ class ControlPlaneService:
         if not auth.is_platform_admin:
             raise PermissionDeniedError("platform admin role is required for bootstrap")
         try:
-            workspace = self.repository.bootstrap_workspace(
-                organization_id=organization_id,
-                subject_id=auth.subject_id,
-                slug=slug,
-                name=name,
-            )
+            with self.repository.transaction() as connection:
+                workspace = self.repository.bootstrap_workspace(
+                    organization_id=organization_id,
+                    subject_id=auth.subject_id,
+                    slug=slug,
+                    name=name,
+                    connection=connection,
+                )
+                self._audit(
+                    auth,
+                    workspace["id"],
+                    "workspace.bootstrap",
+                    "workspace",
+                    workspace["id"],
+                    request_id,
+                    connection=connection,
+                )
         except IdempotencyConflictError as exc:
             raise ConflictError(str(exc)) from exc
-        self._audit(
-            auth, workspace["id"], "workspace.bootstrap", "workspace", workspace["id"], request_id
-        )
         return workspace
 
     def list_workspaces(self, auth: AuthContext) -> list[dict[str, Any]]:
@@ -73,14 +83,22 @@ class ControlPlaneService:
         request_id: str,
     ) -> dict[str, Any]:
         self._require(auth, workspace_id, Permission.OPERATE)
-        pipeline = self.repository.register_pipeline(
-            workspace_id=workspace_id,
-            pipeline_key=pipeline_key,
-            document=document,
-        )
-        self._audit(
-            auth, workspace_id, "pipeline.register", "pipeline_version", pipeline["id"], request_id
-        )
+        with self.repository.transaction() as connection:
+            pipeline = self.repository.register_pipeline(
+                workspace_id=workspace_id,
+                pipeline_key=pipeline_key,
+                document=document,
+                connection=connection,
+            )
+            self._audit(
+                auth,
+                workspace_id,
+                "pipeline.register",
+                "pipeline_version",
+                pipeline["id"],
+                request_id,
+                connection=connection,
+            )
         return pipeline
 
     def request_validation(
@@ -93,14 +111,24 @@ class ControlPlaneService:
         request_id: str,
     ) -> dict[str, Any]:
         self._require(auth, workspace_id, Permission.OPERATE)
-        command = self._command(
-            workspace_id=workspace_id,
-            kind="pipeline.validate",
-            idempotency_key=idempotency_key,
-            resource_id=None,
-            payload={"document": document},
-        )
-        self._audit(auth, workspace_id, "pipeline.validate", "command", command["id"], request_id)
+        with self.repository.transaction() as connection:
+            command = self._command(
+                workspace_id=workspace_id,
+                kind="pipeline.validate",
+                idempotency_key=idempotency_key,
+                resource_id=None,
+                payload={"document": document},
+                connection=connection,
+            )
+            self._audit(
+                auth,
+                workspace_id,
+                "pipeline.validate",
+                "command",
+                command["id"],
+                request_id,
+                connection=connection,
+            )
         return command
 
     def list_runs(
@@ -129,15 +157,25 @@ class ControlPlaneService:
         if self.repository.get_pipeline(workspace_id, pipeline_version_id) is None:
             raise NotFoundError("pipeline version not found")
         try:
-            run = self.repository.store.create_run(
-                workspace_id=workspace_id,
-                pipeline_version_id=pipeline_version_id,
-                command_key=f"api:{idempotency_key}",
-                run_id=uuid.uuid4().hex,
-            )
+            with self.repository.transaction() as connection:
+                run = self.repository.store.create_run(
+                    workspace_id=workspace_id,
+                    pipeline_version_id=pipeline_version_id,
+                    command_key=f"api:{idempotency_key}",
+                    run_id=uuid.uuid4().hex,
+                    connection=connection,
+                )
+                self._audit(
+                    auth,
+                    workspace_id,
+                    "run.create",
+                    "run",
+                    run.id,
+                    request_id,
+                    connection=connection,
+                )
         except IdempotencyConflictError as exc:
             raise ConflictError(str(exc)) from exc
-        self._audit(auth, workspace_id, "run.create", "run", run.id, request_id)
         return run
 
     def cancel_run(
@@ -150,8 +188,21 @@ class ControlPlaneService:
     ) -> RunRecord:
         self._require(auth, workspace_id, Permission.OPERATE)
         self.get_run(auth, workspace_id, run_id)
-        run = self.repository.store.request_cancel(run_id, workspace_id=workspace_id)
-        self._audit(auth, workspace_id, "run.cancel", "run", run.id, request_id)
+        with self.repository.transaction() as connection:
+            run = self.repository.store.request_cancel(
+                run_id,
+                workspace_id=workspace_id,
+                connection=connection,
+            )
+            self._audit(
+                auth,
+                workspace_id,
+                "run.cancel",
+                "run",
+                run.id,
+                request_id,
+                connection=connection,
+            )
         return run
 
     def retry_run(
@@ -168,17 +219,27 @@ class ControlPlaneService:
         if parent.state not in {RunState.FAILED, RunState.CANCELLED, RunState.SUCCEEDED}:
             raise ConflictError("only terminal runs can be retried")
         try:
-            run = self.repository.store.create_run(
-                workspace_id=workspace_id,
-                pipeline_version_id=parent.pipeline_version_id,
-                command_key=f"retry:{idempotency_key}",
-                run_id=uuid.uuid4().hex,
-                parent_run_id=parent.id,
-                retry_category=RetryCategory.MANUAL_RERUN,
-            )
+            with self.repository.transaction() as connection:
+                run = self.repository.store.create_run(
+                    workspace_id=workspace_id,
+                    pipeline_version_id=parent.pipeline_version_id,
+                    command_key=f"retry:{idempotency_key}",
+                    run_id=uuid.uuid4().hex,
+                    parent_run_id=parent.id,
+                    retry_category=RetryCategory.MANUAL_RERUN,
+                    connection=connection,
+                )
+                self._audit(
+                    auth,
+                    workspace_id,
+                    "run.retry",
+                    "run",
+                    run.id,
+                    request_id,
+                    connection=connection,
+                )
         except IdempotencyConflictError as exc:
             raise ConflictError(str(exc)) from exc
-        self._audit(auth, workspace_id, "run.retry", "run", run.id, request_id)
         return run
 
     def backfill(
@@ -197,18 +258,28 @@ class ControlPlaneService:
             raise ValueError("window_end must be after window_start")
         if self.repository.get_pipeline(workspace_id, pipeline_version_id) is None:
             raise NotFoundError("pipeline version not found")
-        command = self._command(
-            workspace_id=workspace_id,
-            kind="run.backfill",
-            idempotency_key=idempotency_key,
-            resource_id=pipeline_version_id,
-            payload={
-                "pipeline_version_id": pipeline_version_id,
-                "window_start": window_start.isoformat(),
-                "window_end": window_end.isoformat(),
-            },
-        )
-        self._audit(auth, workspace_id, "run.backfill", "command", command["id"], request_id)
+        with self.repository.transaction() as connection:
+            command = self._command(
+                workspace_id=workspace_id,
+                kind="run.backfill",
+                idempotency_key=idempotency_key,
+                resource_id=pipeline_version_id,
+                payload={
+                    "pipeline_version_id": pipeline_version_id,
+                    "window_start": window_start.isoformat(),
+                    "window_end": window_end.isoformat(),
+                },
+                connection=connection,
+            )
+            self._audit(
+                auth,
+                workspace_id,
+                "run.backfill",
+                "command",
+                command["id"],
+                request_id,
+                connection=connection,
+            )
         return command
 
     def events(
@@ -237,18 +308,26 @@ class ControlPlaneService:
         request_id: str,
     ) -> dict[str, Any]:
         self._require(auth, workspace_id, Permission.ADMIN)
-        connection = self.repository.create_connection(
-            workspace_id=workspace_id,
-            environment_id=environment_id,
-            name=name,
-            connector_type=connector_type,
-            secret_reference=secret_reference,
-            metadata=metadata,
-        )
-        self._audit(
-            auth, workspace_id, "connection.create", "connection", connection["id"], request_id
-        )
-        return connection
+        with self.repository.transaction() as transaction:
+            connection = self.repository.create_connection(
+                workspace_id=workspace_id,
+                environment_id=environment_id,
+                name=name,
+                connector_type=connector_type,
+                secret_reference=secret_reference,
+                metadata=metadata,
+                connection=transaction,
+            )
+            self._audit(
+                auth,
+                workspace_id,
+                "connection.create",
+                "connection",
+                connection["id"],
+                request_id,
+                connection=transaction,
+            )
+            return connection
 
     def test_connection(
         self,
@@ -262,14 +341,24 @@ class ControlPlaneService:
         self._require(auth, workspace_id, Permission.OPERATE)
         if self.repository.get_connection(workspace_id, connection_id) is None:
             raise NotFoundError("connection not found")
-        command = self._command(
-            workspace_id=workspace_id,
-            kind="connection.test",
-            idempotency_key=idempotency_key,
-            resource_id=connection_id,
-            payload={"connection_id": connection_id},
-        )
-        self._audit(auth, workspace_id, "connection.test", "command", command["id"], request_id)
+        with self.repository.transaction() as connection:
+            command = self._command(
+                workspace_id=workspace_id,
+                kind="connection.test",
+                idempotency_key=idempotency_key,
+                resource_id=connection_id,
+                payload={"connection_id": connection_id},
+                connection=connection,
+            )
+            self._audit(
+                auth,
+                workspace_id,
+                "connection.test",
+                "command",
+                command["id"],
+                request_id,
+                connection=connection,
+            )
         return command
 
     def list_schedules(self, auth: AuthContext, workspace_id: str) -> list[ScheduleRecord]:
@@ -294,21 +383,31 @@ class ControlPlaneService:
         if self.repository.get_pipeline(workspace_id, pipeline_version_id) is None:
             raise NotFoundError("pipeline version not found")
         now = utc_now()
-        schedule = self.repository.store.upsert_schedule(
-            ScheduleRecord(
-                id=schedule_id,
-                workspace_id=workspace_id,
-                pipeline_version_id=pipeline_version_id,
-                trigger_kind=trigger_kind,
-                trigger_spec=trigger_spec,
-                timezone=timezone,
-                enabled=enabled,
-                next_run_at=next_run_at,
-                created_at=now,
-                updated_at=now,
+        with self.repository.transaction() as connection:
+            schedule = self.repository.store.upsert_schedule(
+                ScheduleRecord(
+                    id=schedule_id,
+                    workspace_id=workspace_id,
+                    pipeline_version_id=pipeline_version_id,
+                    trigger_kind=trigger_kind,
+                    trigger_spec=trigger_spec,
+                    timezone=timezone,
+                    enabled=enabled,
+                    next_run_at=next_run_at,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                connection=connection,
             )
-        )
-        self._audit(auth, workspace_id, "schedule.upsert", "schedule", schedule.id, request_id)
+            self._audit(
+                auth,
+                workspace_id,
+                "schedule.upsert",
+                "schedule",
+                schedule.id,
+                request_id,
+                connection=connection,
+            )
         return schedule
 
     def _require(
@@ -321,9 +420,9 @@ class ControlPlaneService:
             raise PermissionDeniedError("workspace role does not allow this operation")
         return role
 
-    def _command(self, **kwargs: Any) -> dict[str, Any]:
+    def _command(self, *, connection: Connection, **kwargs: Any) -> dict[str, Any]:
         try:
-            return self.repository.create_control_command(**kwargs)
+            return self.repository.create_control_command(connection=connection, **kwargs)
         except IdempotencyConflictError as exc:
             raise ConflictError(str(exc)) from exc
 
@@ -335,8 +434,13 @@ class ControlPlaneService:
         resource_type: str,
         resource_id: str | None,
         request_id: str,
+        *,
+        connection: Connection,
     ) -> None:
-        organization_id = self.repository.workspace_organization(workspace_id)
+        organization_id = self.repository.workspace_organization(
+            workspace_id,
+            connection=connection,
+        )
         if organization_id is None:
             raise MetadataError("workspace organization is missing")
         self.repository.audit(
@@ -347,4 +451,5 @@ class ControlPlaneService:
             resource_type=resource_type,
             resource_id=resource_id,
             request_id=request_id,
+            connection=connection,
         )

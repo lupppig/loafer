@@ -65,6 +65,8 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Fixed
 
+- Control-plane mutations and their audit records now commit in one transaction, so an audit
+  failure rolls back the corresponding run, connection, command, pipeline, or schedule change.
 - Pipeline and connection creation endpoints now require `Idempotency-Key`, matching the control
   plane's other retryable command routes.
 - Synchronous JWKS lookup and signature verification now run outside the FastAPI event loop with
