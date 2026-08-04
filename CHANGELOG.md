@@ -63,6 +63,8 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Fixed
 
+- Better Auth integration tests now explicitly enable TypeScript stripping on the pinned Node.js
+  22.13 runtime, and artifact smoke tests opt into the required local execution mode.
 - Anchored Python packaging ignore rules so required web authentication and control-plane client
   modules, including the generated browser contract, are tracked by Git and available in CI.
 - Cancellation, transform failures, and target failures during bounded file runs now discard

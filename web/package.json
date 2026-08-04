@@ -14,7 +14,7 @@
     "lint:fix": "eslint . --fix",
     "auth:migrate": "npx auth@1.6.25 migrate --config src/lib/auth.ts",
     "auth:bootstrap": "npx auth@1.6.25 create-admin --config src/lib/auth.ts",
-    "test:auth": "node --test tests/auth.integration.mjs",
+    "test:auth": "node --experimental-strip-types --test tests/auth.integration.mjs",
     "start": "node .next/standalone/server.js",
     "typecheck": "tsc --noEmit"
   },
