@@ -616,7 +616,15 @@ class SqlMetadataStore:
             )
             values = _schedule_values(schedule)
             if existing is None:
-                connection.execute(insert(schema.schedules).values(**values))
+                try:
+                    connection.execute(insert(schema.schedules).values(**values))
+                except IntegrityError as exc:
+                    diagnostic = getattr(exc.orig, "diag", None)
+                    if getattr(diagnostic, "constraint_name", None) == "loafer_schedules_pkey":
+                        raise IdempotencyConflictError(
+                            "schedule id belongs to another workspace"
+                        ) from exc
+                    raise
             else:
                 if existing["workspace_id"] != schedule.workspace_id:
                     raise IdempotencyConflictError("schedule id belongs to another workspace")

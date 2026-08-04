@@ -65,6 +65,10 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Fixed
 
+- JWKS retrieval now rejects redirects that downgrade HTTPS or change authority before any
+  redirected signing-key request is sent.
+- Schedule upserts now translate cross-workspace primary-key conflicts hidden by PostgreSQL row
+  security into `IdempotencyConflictError` instead of leaking a raw database exception.
 - The web control-plane proxy now strips stale compression metadata from decoded responses and
   bounds ordinary upstream requests while leaving long-lived event streams unbounded.
 - The web control-plane proxy now returns a clear `401` without forwarding when an authenticated

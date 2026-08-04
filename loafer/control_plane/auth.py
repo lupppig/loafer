@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import math
+import urllib.request
 from collections.abc import Mapping
 from typing import Any, Protocol
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 
 import jwt
 
@@ -20,6 +24,63 @@ class TokenVerifier(Protocol):
         """Validate a bearer token and return an immutable identity."""
 
 
+def _https_origin(url: str) -> tuple[str, str, int]:
+    parsed = urlsplit(url)
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("invalid URL authority") from exc
+    if parsed.scheme.lower() != "https" or parsed.hostname is None:
+        raise ValueError("URL must use HTTPS and include an authority")
+    return ("https", parsed.hostname.lower(), port or 443)
+
+
+class _SameOriginRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def __init__(self, jwks_url: str) -> None:
+        self._origin = _https_origin(jwks_url)
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        try:
+            redirect_origin = _https_origin(newurl)
+        except ValueError as exc:
+            raise URLError("JWKS redirect must preserve its HTTPS authority") from exc
+        if redirect_origin != self._origin:
+            raise URLError("JWKS redirect must preserve its HTTPS authority")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+class _SameOriginJWKClient(jwt.PyJWKClient):
+    """Fetch JWKS documents without allowing cross-origin redirects."""
+
+    def fetch_data(self) -> Any:
+        try:
+            request = urllib.request.Request(url=self.uri, headers=self.headers)
+            opener = urllib.request.build_opener(
+                _SameOriginRedirectHandler(self.uri),
+                urllib.request.HTTPSHandler(context=self.ssl_context),
+            )
+            with opener.open(request, timeout=self.timeout) as response:
+                jwk_set = json.load(response)
+        except (URLError, TimeoutError) as exc:
+            if isinstance(exc, HTTPError):
+                exc.close()
+            raise jwt.PyJWKClientConnectionError(
+                f'Fail to fetch data from the url, err: "{exc}"'
+            ) from exc
+
+        if self.jwk_set_cache is not None:
+            self.jwk_set_cache.put(jwk_set)
+        return jwk_set
+
+
 class BetterAuthJWTVerifier:
     """Validate short-lived audience-bound JWTs from Better Auth's JWKS."""
 
@@ -31,13 +92,15 @@ class BetterAuthJWTVerifier:
         audience: str,
         jwks_timeout_seconds: float = 5.0,
     ) -> None:
-        if not jwks_url.startswith("https://"):
-            raise ValueError("Better Auth JWKS URL must use HTTPS")
+        try:
+            _https_origin(jwks_url)
+        except ValueError as exc:
+            raise ValueError("Better Auth JWKS URL must use HTTPS") from exc
         if not issuer.startswith("https://") or not audience.startswith("https://"):
             raise ValueError("Better Auth issuer and audience must use HTTPS")
         if not math.isfinite(jwks_timeout_seconds) or jwks_timeout_seconds <= 0:
             raise ValueError("JWKS timeout must be positive and finite")
-        self._jwks = jwt.PyJWKClient(
+        self._jwks = _SameOriginJWKClient(
             jwks_url,
             cache_keys=True,
             lifespan=3600,

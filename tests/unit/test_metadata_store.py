@@ -334,6 +334,43 @@ def test_due_schedule_creates_one_idempotent_command_and_advances(
     assert [item.event_type for item in metadata.pending_outbox()] == ["run.created"]
 
 
+def test_hidden_schedule_id_conflict_is_translated(
+    store: tuple[SqlMetadataStore, Clock],
+) -> None:
+    metadata, clock = store
+    schedule = ScheduleRecord(
+        id="shared-schedule",
+        workspace_id="workspace-2",
+        pipeline_version_id="pipeline-2",
+        trigger_kind="cron",
+        trigger_spec="0 0 * * *",
+        timezone="UTC",
+        enabled=True,
+        next_run_at=clock(),
+        created_at=clock(),
+        updated_at=clock(),
+    )
+
+    class MissingResult:
+        def mappings(self) -> MissingResult:
+            return self
+
+        def one_or_none(self) -> None:
+            return None
+
+    class PrimaryKeyViolationError(Exception):
+        diag = type("Diagnostic", (), {"constraint_name": "loafer_schedules_pkey"})()
+
+    class ScopedConnection:
+        def execute(self, statement: object) -> MissingResult:
+            if getattr(statement, "is_select", False):
+                return MissingResult()
+            raise IntegrityError("insert schedule", {}, PrimaryKeyViolationError())
+
+    with pytest.raises(IdempotencyConflictError, match="another workspace"):
+        metadata.upsert_schedule(schedule, connection=ScopedConnection())  # type: ignore[arg-type]
+
+
 def test_cancel_command_is_idempotent_before_claim(
     store: tuple[SqlMetadataStore, Clock],
 ) -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
+import urllib.request
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -395,18 +396,7 @@ def test_better_auth_jwt_verifier_rejects_expiry_and_wrong_audience() -> None:
         verifier.verify(token(expiry=now + 60, audience="https://other.test"))
 
 
-def test_better_auth_jwt_verifier_configures_explicit_timeout(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, object] = {}
-
-    class CapturingJWKClient:
-        def __init__(self, uri: str, **kwargs: object) -> None:
-            captured["uri"] = uri
-            captured.update(kwargs)
-
-    monkeypatch.setattr(jwt, "PyJWKClient", CapturingJWKClient)
-
+def test_better_auth_jwt_verifier_configures_explicit_timeout() -> None:
     verifier = BetterAuthJWTVerifier(
         jwks_url="https://auth.test/api/auth/jwks",
         issuer="https://auth.test",
@@ -414,7 +404,8 @@ def test_better_auth_jwt_verifier_configures_explicit_timeout(
         jwks_timeout_seconds=4.5,
     )
 
-    assert captured["timeout"] == 4.5
+    assert verifier._jwks.uri == "https://auth.test/api/auth/jwks"  # type: ignore[attr-defined]
+    assert verifier._jwks.timeout == 4.5  # type: ignore[attr-defined]
 
     def unavailable(_token: str) -> None:
         raise jwt.PyJWKClientConnectionError("JWKS request timed out")
@@ -432,6 +423,57 @@ def test_better_auth_jwt_verifier_configures_explicit_timeout(
             audience="https://api.test",
             jwks_timeout_seconds=0,
         )
+
+
+@pytest.mark.parametrize(
+    "redirect_url",
+    [
+        "http://auth.test/api/auth/jwks",
+        "https://attacker.test/api/auth/jwks",
+    ],
+)
+def test_better_auth_jwt_verifier_rejects_cross_origin_jwks_redirects(
+    monkeypatch: pytest.MonkeyPatch,
+    redirect_url: str,
+) -> None:
+    class RedirectingOpener:
+        def __init__(self, redirect_handler: urllib.request.HTTPRedirectHandler) -> None:
+            self._redirect_handler = redirect_handler
+
+        def open(self, request: urllib.request.Request, *, timeout: float) -> object:
+            self._redirect_handler.redirect_request(
+                request,
+                None,
+                302,
+                "Found",
+                {},
+                redirect_url,
+            )
+            raise AssertionError("unsafe JWKS redirect was followed")
+
+    def redirecting_opener(*handlers: object) -> RedirectingOpener:
+        redirect_handler = next(
+            handler
+            for handler in handlers
+            if isinstance(handler, urllib.request.HTTPRedirectHandler)
+        )
+        return RedirectingOpener(redirect_handler)
+
+    monkeypatch.setattr(urllib.request, "build_opener", redirecting_opener)
+    verifier = BetterAuthJWTVerifier(
+        jwks_url="https://auth.test/api/auth/jwks",
+        issuer="https://auth.test",
+        audience="https://api.test",
+    )
+    token = jwt.encode(
+        {"sub": "user-1"},
+        "test-secret-that-is-at-least-32-bytes",
+        algorithm="HS256",
+        headers={"kid": "test-key"},
+    )
+
+    with pytest.raises(AuthenticationError, match="invalid or expired bearer token"):
+        verifier.verify(token)
 
 
 def test_synchronous_token_verification_does_not_block_event_loop(tmp_path: Path) -> None:
