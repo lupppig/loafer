@@ -27,6 +27,7 @@ from loafer.contracts import (
 from loafer.engine import ProviderFactory, stream_pipeline
 from loafer.exceptions import PipelineError
 from loafer.graph.state import PipelineState
+from loafer.ports.metadata import BatchRecoveryPort
 from loafer.ports.runtime import (
     CancellationPort,
     CheckpointPort,
@@ -208,6 +209,7 @@ class RunPipeline:
         events: EventPublisher,
         reviewer: ReviewPort,
         provider_factory: ProviderFactory | None = None,
+        recovery: BatchRecoveryPort | None = None,
     ) -> None:
         self._cancellation = cancellation
         self._checkpoints = checkpoints
@@ -215,6 +217,7 @@ class RunPipeline:
         self._events = events
         self._reviewer = reviewer
         self._provider_factory = provider_factory
+        self._recovery = recovery
 
     def create_plan(self, request: RunRequest) -> ExecutionPlan:
         """Validate a config and return its credential-free execution plan."""
@@ -296,6 +299,7 @@ class RunPipeline:
             provider_factory=self._provider_factory,
             cancellation=self._cancellation,
             checkpoints=self._checkpoints,
+            recovery=self._recovery,
         )
         sequence = 0
 

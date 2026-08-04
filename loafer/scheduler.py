@@ -1,7 +1,8 @@
-"""Pipeline scheduler — APScheduler-based cron scheduling.
+"""Pipeline scheduler — APScheduler-based durable command creation.
 
-Manages recurring pipeline runs via cron or interval triggers.
-Jobs are persisted in a SQLite store so they survive restarts.
+Manages recurring pipeline commands via cron or interval triggers. The
+scheduler never executes data work; a separate durable worker claims runs.
+Triggers are persisted in a SQLite store so they survive restarts.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from loafer.application import RunRequest, get_local_application
+from loafer.application import enqueue_pipeline
 from loafer.exceptions import SchedulerError
 
 logger = logging.getLogger("loafer.scheduler")
@@ -96,16 +97,17 @@ def _read_run_state() -> dict[str, Any]:
         return {}
 
 
-def _run_pipeline_job(config_path: str, name: str = "") -> None:
-    """Execute a pipeline run, called by the scheduler."""
-    run_id = uuid.uuid4().hex[:12]
+def _run_pipeline_job(config_path: str, name: str = "", schedule_id: str = "") -> None:
+    """Create a durable run command; worker processes execute it separately."""
+    occurrence = datetime.now(UTC).replace(microsecond=0).isoformat()
+    command_key = f"schedule:{schedule_id or config_path}:{occurrence}"
     display = f"{name} ({config_path})" if name else config_path
-    logger.info("Starting scheduled run %s for %s", run_id, display)
+    logger.info("Enqueuing scheduled run for %s", display)
     try:
-        get_local_application().run_pipeline.run(RunRequest(config_path=config_path, run_id=run_id))
-        logger.info("Completed scheduled run %s", run_id)
+        run = enqueue_pipeline(config_path, command_key=command_key)
+        logger.info("Enqueued scheduled run %s", run.id)
     except Exception as exc:
-        logger.error("Scheduled run %s failed: %s", run_id, exc)
+        logger.error("Could not enqueue scheduled run for %s: %s", display, exc)
         raise
 
 
@@ -201,7 +203,7 @@ class PipelineScheduler:
         self._scheduler.add_job(
             _run_pipeline_job,
             trigger=trigger,
-            args=[config_path, name],
+            args=[config_path, name, job_id],
             id=job_id,
             replace_existing=replace,
             misfire_grace_time=300,
@@ -331,11 +333,11 @@ class PipelineScheduler:
     def _on_job_executed(self, event: Any) -> None:
         """Log job execution events and record last-run state."""
         if event.exception:
-            logger.error("Job %s failed: %s", event.job_id, event.exception)
+            logger.error("Job %s enqueue failed: %s", event.job_id, event.exception)
             _record_run(event.job_id, "failed")
         else:
-            logger.info("Job %s completed successfully", event.job_id)
-            _record_run(event.job_id, "success")
+            logger.info("Job %s enqueued successfully", event.job_id)
+            _record_run(event.job_id, "enqueued")
 
     def export_jobs(self, path: str | Path) -> None:
         """Export scheduled jobs to a JSON file."""

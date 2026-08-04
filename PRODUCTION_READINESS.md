@@ -432,6 +432,25 @@ Exit gate:
 - migrations work from an empty database and the previous supported schema;
 - SQLite and PostgreSQL contract tests pass for the capabilities each profile advertises.
 
+**Current status:** implementation and single-node recovery verification complete for declared
+row-local, single-partition runs. Versioned migrations persist immutable pipeline versions, runs,
+stages, partitions, batches, events, artifacts, checkpoints, schedules, and outbox records behind
+one SQLAlchemy metadata interface. PostgreSQL uses row locks for concurrent claims and is the
+authoritative platform profile; SQLite is explicitly restricted to one scheduler and one worker
+without HA or NATS claims. Run, stage, and batch state machines reject impossible transitions,
+events allocate contiguous per-run sequences, run creation and schedule firing are idempotent, and
+every worker mutation requires its active lease and fencing token.
+
+The bounded data plane now stages transformed batches in object storage before atomically
+committing batch metadata, checkpoint, event, and outbox state. Worker-kill tests terminate after
+each of three batch commit boundaries and prove that a newly fenced worker replays committed
+artifacts, skips the durable source offset, and publishes the exact output. Empty-database,
+previous-schema upgrade, rollback/re-apply, constraint, cancellation, schedule, and stale-token
+contracts pass on SQLite; the migration, event, claim, and fencing contracts also pass against a
+live PostgreSQL 16 database. Recovery remains limited to stable offset-ordered, row-local,
+single-partition execution. Materialized/global transforms still restart as whole runs, and the
+bundled filesystem object adapter is not a distributed object store.
+
 ### Phase 4 — Build authentication, tenancy, and the control-plane API
 
 **Goal:** expose safe multi-tenant application use cases without running data work in HTTP

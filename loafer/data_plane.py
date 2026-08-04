@@ -33,6 +33,7 @@ from loafer.transform.batch_runner import (
 if TYPE_CHECKING:
     from loafer.graph.state import PipelineState
     from loafer.ports.connector import SourceConnector, TargetConnector
+    from loafer.ports.metadata import BatchRecoveryPort
     from loafer.ports.runtime import CancellationPort, CheckpointPort
 
 _INCREMENTAL_PUSHDOWN_SOURCES = {"postgres", "mysql", "sqlite", "rest_api"}
@@ -51,6 +52,7 @@ def stream_bounded_pipeline(
     dry_run: bool,
     cancellation: CancellationPort | None,
     checkpoints: CheckpointPort | None,
+    recovery: BatchRecoveryPort | None = None,
 ) -> Iterator[tuple[str, str, PipelineState]]:
     """Flow source batches through validation, transform, and staged publication."""
     source: SourceConnector | None = None
@@ -69,6 +71,9 @@ def stream_bounded_pipeline(
     quality_columns: dict[str, dict[str, int]] = {}
     quality_warnings: set[str] = set()
     destructive_seen: set[tuple[str, str]] = set()
+    recovered_rows_in = 0
+    recovered_bytes_in = 0
+    resume_offset = 0
 
     state["is_streaming"] = True
     state["raw_data"] = []
@@ -98,6 +103,40 @@ def stream_bounded_pipeline(
         batch_index = 0
         source_offset = 0
 
+        if recovery is not None and not dry_run:
+            commits = recovery.restore(state["run_id"], _PARTITION_ID)
+            for commit in commits:
+                recovered_rows = recovery.read_rows(commit)
+                if target is not None:
+                    _write_target(target, recovered_rows)
+                output_digest.update(recovered_rows)
+                if recovered_rows:
+                    output_schema.apply(recovered_rows, config.execution.schema_drift)
+                recovered_rows_in += commit.envelope.rows_in
+                recovered_bytes_in += commit.envelope.bytes_in
+                resume_offset = max(
+                    resume_offset,
+                    _position_offset(commit.checkpoint.source_position) + 1,
+                )
+                batch_index += 1
+                last_envelope = commit.envelope
+            if commits:
+                source_offset = resume_offset
+                state["rows_extracted"] = recovered_rows_in
+                state["rows_transformed"] = output_digest.rows
+                state["rows_loaded"] = output_digest.rows
+                state["batches_completed"] = batch_index
+                state["bytes_in"] = recovered_bytes_in
+                state["bytes_out"] = output_digest.bytes
+                state["output_checksum"] = output_digest.checksum
+                state["last_batch_envelope"] = last_envelope
+                state.setdefault("warnings", []).append(
+                    f"recovered {len(commits)} committed batch(es) from durable artifacts"
+                )
+                yield ("recovery", "done", state)
+
+        rows_to_skip = resume_offset
+
         while True:
             _raise_if_cancelled(cancellation, state["run_id"])
             read_started = time.monotonic()
@@ -109,6 +148,10 @@ def stream_bounded_pipeline(
             stage_ms["extract"] += (time.monotonic() - read_started) * 1000
 
             raw_rows = _filter_incremental_rows(config, state, raw_rows)
+            if rows_to_skip:
+                skipped = min(rows_to_skip, len(raw_rows))
+                raw_rows = raw_rows[skipped:]
+                rows_to_skip -= skipped
             if not raw_rows:
                 continue
 
@@ -190,22 +233,8 @@ def stream_bounded_pipeline(
             stage_ms["transform"] += (time.monotonic() - transform_started) * 1000
 
             _raise_if_cancelled(cancellation, state["run_id"])
-            active_stage = "load"
-            load_started = time.monotonic()
-            written = len(transformed) if dry_run else _write_target(target, transformed)
-            stage_ms["load"] += (time.monotonic() - load_started) * 1000
-
             batch_output_digest = RollingRowsDigest()
             batch_output_digest.update(transformed)
-            output_digest.update(transformed)
-            state["rows_transformed"] = output_digest.rows
-            state["rows_loaded"] = state.get("rows_loaded", 0) + written
-            state["batches_completed"] = batch_index
-            state["bytes_in"] = input_digest.bytes
-            state["bytes_out"] = output_digest.bytes
-            state["input_checksum"] = input_digest.checksum
-            state["output_checksum"] = output_digest.checksum
-            state["validation_passed"] = True
 
             source_start = source_offset
             source_offset += len(raw_rows)
@@ -230,16 +259,34 @@ def stream_bounded_pipeline(
                 output_checksum=batch_output_digest.checksum,
                 duration_ms=(time.monotonic() - batch_started) * 1000,
             )
+            if recovery is not None and not dry_run:
+                recovery.commit(last_envelope, transformed)
+
+            active_stage = "load"
+            load_started = time.monotonic()
+            written = len(transformed) if dry_run else _write_target(target, transformed)
+            stage_ms["load"] += (time.monotonic() - load_started) * 1000
+
+            output_digest.update(transformed)
+            state["rows_extracted"] = recovered_rows_in + input_digest.rows
+            state["rows_transformed"] = output_digest.rows
+            state["rows_loaded"] = state.get("rows_loaded", 0) + written
+            state["batches_completed"] = batch_index
+            state["bytes_in"] = recovered_bytes_in + input_digest.bytes
+            state["bytes_out"] = output_digest.bytes
+            state["input_checksum"] = input_digest.checksum if not recovered_rows_in else None
+            state["output_checksum"] = output_digest.checksum
+            state["validation_passed"] = True
             state["last_batch_envelope"] = last_envelope
             state["raw_data"] = []
             state["transformed_data"] = []
             yield ("batch", "done", state)
 
-        if input_digest.rows == 0:
+        if recovered_rows_in + input_digest.rows == 0:
             raise ValidationError("Source returned 0 rows — nothing to validate")
 
         state["validation_report"] = {
-            "rows_checked": input_digest.rows,
+            "rows_checked": recovered_rows_in + input_digest.rows,
             "rows_rejected": state.get("rows_rejected", 0),
             "columns": quality_columns,
             "hard_failures": [],
@@ -262,7 +309,12 @@ def stream_bounded_pipeline(
             target.finalize()
             state["target_published"] = True
 
-        if checkpoints is not None and last_envelope is not None and not dry_run:
+        if (
+            recovery is None
+            and checkpoints is not None
+            and last_envelope is not None
+            and not dry_run
+        ):
             checkpoints.save(
                 Checkpoint(
                     checkpoint_id=uuid.uuid4().hex,
@@ -294,6 +346,14 @@ def stream_bounded_pipeline(
             target.disconnect()
         if source is not None:
             source.disconnect()
+
+
+def _position_offset(position: object) -> int:
+    if isinstance(position, dict):
+        value = position.get("offset")
+        if isinstance(value, int) and value >= 0:
+            return value
+    raise PipelineError(f"unsupported durable source position: {position!r}")
 
 
 def _source_connector(config: PipelineConfig, state: PipelineState) -> SourceConnector:

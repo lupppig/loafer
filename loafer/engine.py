@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from loafer.llm.base import LLMProvider
+    from loafer.ports.metadata import BatchRecoveryPort
     from loafer.ports.runtime import (
         CancellationPort,
         CheckpointPort,
@@ -201,6 +202,7 @@ def execute_pipeline(
     provider_factory: ProviderFactory | None = None,
     cancellation: CancellationPort | None = None,
     checkpoints: CheckpointPort | None = None,
+    recovery: BatchRecoveryPort | None = None,
 ) -> PipelineState:
     """Execute a validated ETL or ELT pipeline.
 
@@ -245,6 +247,7 @@ def execute_pipeline(
                 dry_run=dry_run,
                 cancellation=cancellation,
                 checkpoints=checkpoints,
+                recovery=recovery,
             ):
                 pass
         except PipelineError:
@@ -301,6 +304,7 @@ def stream_pipeline(
     provider_factory: ProviderFactory | None = None,
     cancellation: CancellationPort | None = None,
     checkpoints: CheckpointPort | None = None,
+    recovery: BatchRecoveryPort | None = None,
 ) -> Iterator[tuple[str, str, PipelineState]]:
     """Execute a validated pipeline and yield per-stage runtime updates.
 
@@ -338,6 +342,7 @@ def stream_pipeline(
                 dry_run=dry_run,
                 cancellation=cancellation,
                 checkpoints=checkpoints,
+                recovery=recovery,
             )
         finally:
             if not dry_run and state.get("target_published", False):

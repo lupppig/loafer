@@ -58,3 +58,19 @@ class SchedulerError(LoaferError):
 
 class PipelineError(LoaferError):
     """Pipeline orchestration failure."""
+
+
+class MetadataError(LoaferError):
+    """Durable metadata operation failed."""
+
+
+class InvalidStateTransitionError(MetadataError):
+    """A durable run, stage, or batch transition is impossible."""
+
+
+class StaleFenceError(MetadataError):
+    """A worker attempted to write with an expired or superseded lease."""
+
+
+class IdempotencyConflictError(MetadataError):
+    """An idempotency key was reused for different immutable input."""
