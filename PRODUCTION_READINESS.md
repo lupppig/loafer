@@ -476,6 +476,34 @@ Exit gate:
 - no response, log, event, or OpenAPI schema exposes secret values;
 - HTTP requests enqueue/use application commands and never execute pipelines inline.
 
+**Current status:** the Phase 4 control-plane baseline is implemented. Better Auth 1.6.25 owns
+users, verified sessions, organizations, invitations, platform-admin bootstrap, device login,
+scoped expiring automation keys, and Ed25519 JWT/JWKS issuance. The Next.js BFF validates browser
+sessions and API keys before minting a 15-minute audience-bound token; `loaferd` validates that
+token over HTTPS and never accepts unsigned tenant headers or cookie-authenticated mutations.
+
+Metadata schema v3 adds Loafer-owned workspaces, environments, permissions, connections with
+opaque secret references, durable control commands, and audit events. Every resource repository
+query carries an explicit workspace predicate, guessed cross-tenant IDs return 404, role policy is
+enforced in the application service, and PostgreSQL installs workspace RLS policies as deployment
+defense in depth. The versioned API exposes pipelines, runs, logs/events, connections, schedules,
+validate, create-run, cancel, retry, backfill, and connection-test commands. Run creation only
+persists queued worker work; the HTTP process does not invoke a pipeline.
+
+The OpenAPI document and generated browser types are checked into source and regenerated in CI.
+The Python CLI and web application use typed HTTPS clients over the same `/api/v1` contract, SSE
+supports sequence IDs, reconnect, heartbeats, and gap notices, and remote CLI credentials are kept
+in the operating-system keyring. Contract tests cover the authorization matrix, guessed IDs,
+origin/cookie boundaries, token audience/expiry, rate limits, idempotency, secret redaction, and
+HTTPS-only clients. Better Auth integration tests cover disabled public signup, trusted origins,
+secure cookies, session replacement/revocation, and credential rate limiting. Metadata v3 and its
+RLS policies pass against live PostgreSQL 16.
+
+Distributed consumers for validation, backfill, and connection-test control commands remain Phase
+5 work. Those endpoints durably accept work now but do not execute it inside `loaferd`. Production
+deployments use PostgreSQL and a non-owner application role configured for RLS; the built-in
+SQLite auth/metadata profiles remain development and single-node options.
+
 ### Phase 5 — Introduce distributed workers and NATS JetStream
 
 **Goal:** scale and isolate execution without making the queue the source of truth.

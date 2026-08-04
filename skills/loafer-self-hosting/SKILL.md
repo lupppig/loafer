@@ -23,7 +23,9 @@ installation. Preserve process boundaries even when all services run on one host
   browser-worker roles.
 - Reuse one versioned engine package across CLI, API, and workers.
 - Publish multi-architecture images with OCI labels, SBOMs, provenance, and vulnerability scans.
-- Run migrations as an explicit one-shot job with compatibility checks.
+- Run `loafer metadata migrate` as an explicit one-shot job before starting or rolling out any
+  API, scheduler, or worker replicas. Application startup only verifies schema compatibility and
+  must never run DDL.
 - Keep immutable containers; store metadata, artifacts, logs, and temporary outputs externally.
 - Provide startup Compose and production Kubernetes/Helm profiles without different semantics.
 

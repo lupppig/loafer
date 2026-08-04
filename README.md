@@ -7,10 +7,10 @@ Define a source, transformation, and target; validate the pipeline; then run it 
 or from a scheduler. Transformations can use SQL, custom Python, multi-step pipelines, or optional
 LLM-generated artifacts.
 
-> **Project status:** Loafer ships as a CLI engine with durable single-node scheduling and worker
-> recovery. The multi-tenant API, distributed queue/workers, web operations dashboard, and terminal
-> dashboard are under active development. The `/studio` web route is a product preview, not a
-> connected control plane.
+> **Project status:** Loafer ships a CLI engine, durable single-node scheduling/recovery, and the
+> authenticated multi-tenant `loaferd` HTTPS control plane. Distributed queue/workers, the connected
+> web operations dashboard, and the terminal dashboard remain under active development. The
+> `/studio` route is still a product preview.
 
 ## What works today
 
@@ -23,6 +23,10 @@ LLM-generated artifacts.
 - Local scheduling, daemon management, run summaries, and logs
 - SQLite/PostgreSQL run metadata, fenced worker leases, durable batch checkpoints, replayable
   temporary output, and monotonic run events
+- Better Auth sessions, organizations, invitations, device login, scoped automation keys, and
+  short-lived JWT/JWKS exchange through the Next.js authentication boundary
+- Stateless `loaferd` `/api/v1` resources and commands with workspace roles, audit events,
+  idempotency, SSE reconnect, secret references, OpenAPI, and HTTPS-only clients
 - Optional Gemini, OpenAI, Claude, and Qwen providers
 - Resource-limited Python transform subprocesses on Linux and macOS
 - Declared row-local ETL with bounded batches, per-batch validation, schema policies,
@@ -62,10 +66,24 @@ docker pull ghcr.io/lupppig/loafer:latest
 docker run --rm \
   -v "$(pwd):/workspace" \
   -w /workspace \
-  ghcr.io/lupppig/loafer:latest run pipeline.yaml
+  ghcr.io/lupppig/loafer:latest run pipeline.yaml --local
 ```
 
 Mount pipeline files under `/workspace`, not `/app`; `/app` is reserved by the image.
+
+## Metadata schema rollout
+
+Prepare durable metadata explicitly before starting `loaferd` or a durable worker. For PostgreSQL,
+set the authoritative URL and run the migration as a one-shot deployment job:
+
+```bash
+export LOAFER_METADATA_URL="postgresql://loafer:secret@postgres/loafer"
+loafer metadata migrate
+```
+
+Run the same command without `LOAFER_METADATA_URL` to prepare the embedded SQLite profile. Service
+startup never runs DDL: it checks the installed schema version and exits with an actionable error
+when migration has not run or the database belongs to a newer Loafer release.
 
 ## Quick start
 
@@ -99,7 +117,7 @@ Run it:
 ```bash
 export DATABASE_URL="postgresql://user:password@localhost/app"
 loafer validate pipeline.yaml
-loafer run pipeline.yaml
+loafer run pipeline.yaml --local
 ```
 
 Loafer infers connector and transform types from URLs, file extensions, and configuration fields.
@@ -249,8 +267,10 @@ implemented; `ocr_applied` remains `false` in provenance.
 ## CLI
 
 ```text
-loafer run <pipeline.yaml>
+loafer login --auth-url https://loafer.example.com
 loafer enqueue <pipeline.yaml> --command-key <idempotency-key>
+loafer run <pipeline.yaml> --local
+loafer enqueue <pipeline.yaml> --local --command-key <idempotency-key>
 loafer worker [--once]
 loafer validate <pipeline.yaml>
 loafer connectors
@@ -265,6 +285,11 @@ loafer init
 
 Use `loafer <command> --help` for command-specific options.
 
+Remote `loafer enqueue` calls `loaferd` over HTTPS and requires `LOAFER_API_URL`,
+`LOAFER_AUTH_URL`, and `LOAFER_WORKSPACE_ID`. `loafer login` stores the device-session credential in
+the operating-system keyring and exchanges it for short-lived API JWTs. There is no Unix-socket
+protocol and no silent local fallback. Use `--local` explicitly for embedded compatibility mode.
+
 `loafer schedule` and the scheduler daemon only enqueue durable run commands; start `loafer worker`
 as a separate process to execute them. The embedded profile defaults to SQLite under `~/.loafer`
 and supports one scheduler and one worker. Set `LOAFER_METADATA_URL` to a PostgreSQL URL for the
@@ -275,20 +300,20 @@ authoritative platform store and `LOAFER_OBJECTS_PATH` to choose the local artif
 The production architecture separates clients, control plane, and data plane:
 
 ```text
-Next.js web/BFF ─┐
-                 ├─ Better Auth ─ control-plane API ─ PostgreSQL/outbox ─ NATS JetStream
-CLI / TUI ───────┘                                                        ├─ ETL workers
-                                                                          └─ browser workers
+Browser ─ Next.js BFF / Better Auth ─┐
+CLI / automation ─ signed JWT ───────┴─ HTTPS `/api/v1` `loaferd`
+                                              └─ PostgreSQL/outbox ─ NATS JetStream
+                                                                        ├─ ETL workers
+                                                                        └─ browser workers
 ```
 
 The web dashboard and planned terminal dashboard will use the same API, permissions, run events,
 metrics, and logs. Workers will run independently so startups can deploy the stack on one host
 while larger installations can scale and isolate worker pools.
 
-The full stack is not shipped yet. Durable metadata, leases, fencing, outbox records, and
-single-node bounded-batch recovery are implemented; the authenticated API, distributed queue,
-tenant authorization, and distributed object store are not. Use the CLI/Docker path for bounded
-workloads and do not expose Studio as a production operations surface.
+The control interface, authentication boundary, tenant authorization, and durable single-node
+state are implemented. NATS transport, distributed object storage, isolated worker pools, and the
+connected operator UI are not. Do not expose Studio as a production operations surface yet.
 
 The planned web source uses Crawlee for Python with HTTP/Parsel and Playwright execution profiles.
 It will support bounded crawling, authorized authenticated sessions, JavaScript rendering, and

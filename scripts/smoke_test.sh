@@ -71,7 +71,7 @@ pass "connectors runs"
 pass "validate runs"
 
 # 5) run end-to-end + assert real output (guards the 'exit 0 but empty' class).
-"$LOAFER" run "$CONFIG" --quiet >/dev/null 2>&1 || fail "run failed (non-zero exit)"
+"$LOAFER" run "$CONFIG" --local --quiet >/dev/null 2>&1 || fail "run failed (non-zero exit)"
 [ -f "$OUTPUT" ] || fail "run produced no output file at ${OUTPUT}"
 
 # Count rows in the JSON output without assuming jq is present.

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, event, insert, or_, select, update
+from sqlalchemy import and_, event, insert, or_, select, text, update
 from sqlalchemy.engine import Connection, Engine, RowMapping, create_engine
 from sqlalchemy.exc import IntegrityError
 
@@ -71,6 +72,16 @@ class SqlMetadataStore:
     def migrate(self, target_version: int | None = None) -> int:
         return schema.migrate(self._engine, target_version)
 
+    def current_schema_version(self) -> int:
+        return schema.current_version(self._engine)
+
+    def verify_schema(self) -> int:
+        """Fail unless the database matches this build, without running DDL."""
+        return schema.require_current_version(self._engine)
+
+    def _transaction(self, connection: Connection | None) -> Any:
+        return nullcontext(connection) if connection is not None else self._engine.begin()
+
     def register_pipeline_version(
         self,
         *,
@@ -78,12 +89,14 @@ class SqlMetadataStore:
         pipeline_key: str,
         config_digest: str,
         config: dict[str, Any],
+        connection: Connection | None = None,
     ) -> PipelineVersion:
         version_id = hashlib.sha256(
             f"{workspace_id}\0{pipeline_key}\0{config_digest}".encode()
         ).hexdigest()[:32]
         now = self._clock()
-        with self._engine.begin() as connection:
+        with self._transaction(connection) as connection:
+            self._set_workspace_scope(connection, workspace_id)
             row = (
                 connection.execute(
                     select(schema.pipeline_versions).where(
@@ -143,9 +156,11 @@ class SqlMetadataStore:
         run_id: str | None = None,
         parent_run_id: str | None = None,
         retry_category: RetryCategory | None = None,
+        connection: Connection | None = None,
     ) -> RunRecord:
         now = self._clock()
-        with self._engine.begin() as connection:
+        with self._transaction(connection) as connection:
+            self._set_workspace_scope(connection, workspace_id)
             return self._create_run(
                 connection,
                 workspace_id=workspace_id,
@@ -540,9 +555,17 @@ class SqlMetadataStore:
             )
             return _checkpoint(row, partition_id) if row is not None else None
 
-    def request_cancel(self, run_id: str) -> RunRecord:
+    def request_cancel(
+        self,
+        run_id: str,
+        *,
+        workspace_id: str | None = None,
+        connection: Connection | None = None,
+    ) -> RunRecord:
         now = self._clock()
-        with self._engine.begin() as connection:
+        with self._transaction(connection) as connection:
+            if workspace_id is not None:
+                self._set_workspace_scope(connection, workspace_id)
             row = self._run_row(connection, run_id, for_update=True)
             state = RunState(row["state"])
             if state in {RunState.SUCCEEDED, RunState.FAILED, RunState.CANCELLED}:
@@ -576,8 +599,14 @@ class SqlMetadataStore:
                 raise MetadataError(f"run not found: {run_id}")
             return bool(value)
 
-    def upsert_schedule(self, schedule: ScheduleRecord) -> ScheduleRecord:
-        with self._engine.begin() as connection:
+    def upsert_schedule(
+        self,
+        schedule: ScheduleRecord,
+        *,
+        connection: Connection | None = None,
+    ) -> ScheduleRecord:
+        with self._transaction(connection) as connection:
+            self._set_workspace_scope(connection, schedule.workspace_id)
             existing = (
                 connection.execute(
                     select(schema.schedules).where(schema.schedules.c.id == schedule.id)
@@ -587,7 +616,15 @@ class SqlMetadataStore:
             )
             values = _schedule_values(schedule)
             if existing is None:
-                connection.execute(insert(schema.schedules).values(**values))
+                try:
+                    connection.execute(insert(schema.schedules).values(**values))
+                except IntegrityError as exc:
+                    diagnostic = getattr(exc.orig, "diag", None)
+                    if getattr(diagnostic, "constraint_name", None) == "loafer_schedules_pkey":
+                        raise IdempotencyConflictError(
+                            "schedule id belongs to another workspace"
+                        ) from exc
+                    raise
             else:
                 if existing["workspace_id"] != schedule.workspace_id:
                     raise IdempotencyConflictError("schedule id belongs to another workspace")
@@ -641,8 +678,12 @@ class SqlMetadataStore:
                 )
         return created
 
-    def list_events(self, run_id: str, after: int = 0) -> list[StoredEvent]:
+    def list_events(
+        self, run_id: str, after: int = 0, *, workspace_id: str | None = None
+    ) -> list[StoredEvent]:
         with self._engine.connect() as connection:
+            if workspace_id is not None:
+                self._set_workspace_scope(connection, workspace_id)
             rows = connection.execute(
                 select(schema.run_events)
                 .where(
@@ -652,6 +693,13 @@ class SqlMetadataStore:
                 .order_by(schema.run_events.c.sequence)
             ).mappings()
             return [_stored_event(row) for row in rows]
+
+    def _set_workspace_scope(self, connection: Connection, workspace_id: str) -> None:
+        if self.profile == "postgresql":
+            connection.execute(
+                text("SELECT set_config('loafer.workspace_id', :workspace_id, true)"),
+                {"workspace_id": workspace_id},
+            )
 
     def pending_outbox(self, limit: int = 100) -> list[OutboxRecord]:
         with self._engine.connect() as connection:

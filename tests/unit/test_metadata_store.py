@@ -11,9 +11,10 @@ from loafer.adapters import metadata_schema as schema
 from loafer.adapters.metadata import SqlMetadataStore
 from loafer.adapters.object_storage import MemoryObjectStorage
 from loafer.adapters.runtime import DurableBatchRecovery
+from loafer.application.durable import get_durable_worker
 from loafer.contracts import BatchEnvelope
 from loafer.core.run_state import RunState
-from loafer.exceptions import IdempotencyConflictError, StaleFenceError
+from loafer.exceptions import IdempotencyConflictError, MetadataError, StaleFenceError
 from loafer.metadata import ScheduleRecord
 
 
@@ -32,7 +33,7 @@ class Clock:
 def store(tmp_path: Path) -> tuple[SqlMetadataStore, Clock]:
     clock = Clock()
     metadata = SqlMetadataStore(f"sqlite:///{tmp_path / 'metadata.db'}", clock=clock)
-    assert metadata.migrate() == 2
+    assert metadata.migrate() == 3
     try:
         yield metadata, clock
     finally:
@@ -167,7 +168,7 @@ def test_migrations_upgrade_previous_schema_rollback_and_reapply(tmp_path: Path)
         assert metadata.migrate(1) == 1
         version_id = _version(metadata)
 
-        assert metadata.migrate() == 2
+        assert metadata.migrate() == 3
         assert metadata.get_pipeline_version(version_id).pipeline_key == "customers"
         assert "loafer_outbox" in inspect(metadata.engine).get_table_names()
 
@@ -175,8 +176,48 @@ def test_migrations_upgrade_previous_schema_rollback_and_reapply(tmp_path: Path)
         assert "loafer_outbox" not in inspect(metadata.engine).get_table_names()
         assert metadata.get_pipeline_version(version_id).pipeline_key == "customers"
 
-        assert metadata.migrate() == 2
+        assert metadata.migrate() == 3
         assert "loafer_outbox" in inspect(metadata.engine).get_table_names()
+    finally:
+        metadata.close()
+
+
+def test_schema_verification_rejects_older_and_newer_versions_without_migrating(
+    tmp_path: Path,
+) -> None:
+    metadata = SqlMetadataStore(f"sqlite:///{tmp_path / 'version-check.db'}")
+    try:
+        metadata.migrate(1)
+        with pytest.raises(MetadataError, match=r"version 1.*expected 3"):
+            metadata.verify_schema()
+        assert metadata.current_schema_version() == 1
+
+        metadata.migrate()
+        with metadata.engine.begin() as connection:
+            connection.execute(schema.schema_migrations.insert().values(version=4))
+        with pytest.raises(MetadataError, match=r"version 4.*expected 3"):
+            metadata.verify_schema()
+        assert metadata.current_schema_version() == 4
+        with pytest.raises(MetadataError, match=r"version 4 is newer.*supports \(3\)"):
+            metadata.migrate()
+        assert metadata.current_schema_version() == 4
+    finally:
+        metadata.close()
+
+
+def test_durable_worker_composition_rejects_unmigrated_schema(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'worker.db'}"
+
+    with pytest.raises(MetadataError, match=r"version 0.*loafer metadata migrate"):
+        get_durable_worker(
+            worker_id="worker-1",
+            metadata_url=database_url,
+            object_root=tmp_path / "objects",
+        )
+
+    metadata = SqlMetadataStore(database_url)
+    try:
+        assert metadata.current_schema_version() == 0
     finally:
         metadata.close()
 
@@ -291,6 +332,43 @@ def test_due_schedule_creates_one_idempotent_command_and_advances(
     assert repeated == []
     assert first[0].command_key == f"schedule:hourly-customers:{clock().isoformat()}"
     assert [item.event_type for item in metadata.pending_outbox()] == ["run.created"]
+
+
+def test_hidden_schedule_id_conflict_is_translated(
+    store: tuple[SqlMetadataStore, Clock],
+) -> None:
+    metadata, clock = store
+    schedule = ScheduleRecord(
+        id="shared-schedule",
+        workspace_id="workspace-2",
+        pipeline_version_id="pipeline-2",
+        trigger_kind="cron",
+        trigger_spec="0 0 * * *",
+        timezone="UTC",
+        enabled=True,
+        next_run_at=clock(),
+        created_at=clock(),
+        updated_at=clock(),
+    )
+
+    class MissingResult:
+        def mappings(self) -> MissingResult:
+            return self
+
+        def one_or_none(self) -> None:
+            return None
+
+    class PrimaryKeyViolationError(Exception):
+        diag = type("Diagnostic", (), {"constraint_name": "loafer_schedules_pkey"})()
+
+    class ScopedConnection:
+        def execute(self, statement: object) -> MissingResult:
+            if getattr(statement, "is_select", False):
+                return MissingResult()
+            raise IntegrityError("insert schedule", {}, PrimaryKeyViolationError())
+
+    with pytest.raises(IdempotencyConflictError, match="another workspace"):
+        metadata.upsert_schedule(schedule, connection=ScopedConnection())  # type: ignore[arg-type]
 
 
 def test_cancel_command_is_idempotent_before_claim(

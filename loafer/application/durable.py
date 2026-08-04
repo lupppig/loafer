@@ -29,9 +29,17 @@ def default_metadata_url() -> str:
 
 
 def get_metadata_store(url: str | None = None) -> SqlMetadataStore:
-    """Build and migrate the configured authoritative metadata adapter."""
-    store = SqlMetadataStore(url or default_metadata_url())
-    store.migrate()
+    """Build the configured authoritative metadata adapter without changing its schema."""
+    return SqlMetadataStore(url or default_metadata_url())
+
+
+def _get_ready_metadata_store(url: str | None = None) -> SqlMetadataStore:
+    store = get_metadata_store(url)
+    try:
+        store.verify_schema()
+    except Exception:
+        store.close()
+        raise
     return store
 
 
@@ -76,7 +84,7 @@ def register_pipeline_config(
     document = config.model_dump(mode="json")
     rendered = json.dumps(document, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(rendered.encode()).hexdigest()
-    store = get_metadata_store(metadata_url)
+    store = _get_ready_metadata_store(metadata_url)
     try:
         return store.register_pipeline_version(
             workspace_id=workspace_id,
@@ -97,7 +105,7 @@ def enqueue_registered_version(
     metadata_url: str | None = None,
 ) -> RunRecord:
     """Create an idempotent run for an already immutable version."""
-    store = get_metadata_store(metadata_url)
+    store = _get_ready_metadata_store(metadata_url)
     try:
         return store.create_run(
             workspace_id=workspace_id,
@@ -117,7 +125,7 @@ def get_durable_worker(
 ) -> DurableWorker:
     """Compose a worker process; callers own its long-running lifecycle."""
     return DurableWorker(
-        get_metadata_store(metadata_url),
+        _get_ready_metadata_store(metadata_url),
         get_object_storage(object_root),
         worker_id=worker_id,
     )

@@ -14,7 +14,7 @@ It is built specifically for data practitioners who are tired of writing the sam
 
 ## How it's different
 
-- **No infrastructure:** Runs entirely on your local machine, a CI runner, or a Docker container. There is no control plane to manage, and your data never leaves your environment.
+- **Local or self-hosted:** Run explicitly in local mode, or use the HTTPS `loaferd` control plane with separate workers. Pipeline data stays in the worker and approved source/target systems.
 - **AI-native, but safe:** The AI mode generates transformation functions locally using the schema, not the raw data. The LLM never sees your production data.
 - **Transparent:** You can always inspect the generated Python code, edit it, and use it manually in the future.
 

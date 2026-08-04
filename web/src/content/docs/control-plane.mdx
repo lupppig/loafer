@@ -1,0 +1,66 @@
+# HTTPS control plane
+Last updated: August 2026  ·  5 min read
+
+`loaferd` is Loafer's logical single point of control. It is analogous to a Docker daemon at the
+interface level: CLI, web, and automation send commands to one versioned API, while separate
+workers perform data execution. `loaferd` is stateless and may run multiple replicas over the same
+PostgreSQL metadata store.
+
+```text
+Browser → Next.js BFF / Better Auth ┐
+CLI and automation → signed JWT ────┴→ HTTPS /api/v1 loaferd
+                                           ↓ durable commands and events
+                                      scheduler and workers
+```
+
+HTTP handlers never execute pipelines. Create-run, cancel, retry, backfill, validation,
+connection-test, and schedule operations create or update durable application commands. Workers
+claim runs separately with leases and fencing tokens.
+
+## Authentication
+
+Better Auth owns users, sessions, organizations, memberships, invitations, device authorization,
+API keys, and JWT/JWKS signing. Loafer owns workspaces, environments, permissions, connections,
+secret references, schedules, runs, and audit events.
+
+The browser uses secure same-origin cookies at `/api/auth` and the `/api/control` BFF. The BFF
+validates the session and forwards a short-lived audience-bound JWT. The CLI uses device login and
+stores its longer-lived session credential in the operating-system keyring. Automation keys are
+hashed, scoped, expiring, and rate-limited.
+
+Public signup is disabled by default. Run the pinned bootstrap command after setting the Better
+Auth database, URL, secret, trusted origins, and email-delivery endpoint:
+
+```bash
+cd web
+npm run auth:migrate
+npm run auth:bootstrap -- --email admin@example.com --name "Loafer Admin"
+```
+
+## TLS and configuration
+
+Remote URLs must use HTTPS. Run `loaferd` with a certificate/key or behind an explicitly trusted
+TLS proxy:
+
+```bash
+export LOAFER_AUTH_ISSUER=https://loafer.example.com
+export LOAFER_AUTH_AUDIENCE=https://api.loafer.example.com
+export LOAFER_AUTH_JWKS_URL=https://loafer.example.com/api/auth/jwks
+export LOAFER_AUTH_JWKS_TIMEOUT_SECONDS=5
+export LOAFER_ALLOWED_ORIGINS=https://loafer.example.com
+
+loaferd --host 0.0.0.0 --port 9443 --tls-cert cert.pem --tls-key key.pem
+```
+
+Use `--behind-tls-proxy` only when the edge removes client-supplied `X-Forwarded-Proto` and
+`X-Forwarded-For` headers. Loafer uses the trusted forwarded client address for rate limiting. It
+has no Unix-socket control protocol and never switches to embedded mode after an HTTPS failure.
+
+JWKS cache misses use the configured bounded timeout, and synchronous signature verification runs
+outside the event loop. The OpenAPI document remains available at `/api/v1/openapi.json`; the
+CDN-backed interactive documentation route is disabled to preserve the API's strict global CSP.
+The checked-in OpenAPI snapshot and browser response types are reproducible with:
+
+```bash
+uv run python scripts/generate_control_plane_contract.py
+```

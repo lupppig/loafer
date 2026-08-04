@@ -16,9 +16,13 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import click
+import httpx
+import keyring
 import typer
+import yaml
 from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
@@ -36,6 +40,8 @@ app = typer.Typer(
     help="AI-assisted ETL and ELT pipelines from the command line.",
     no_args_is_help=True,
 )
+metadata_app = typer.Typer(help="Manage the authoritative metadata schema.", no_args_is_help=True)
+app.add_typer(metadata_app, name="metadata")
 
 console = Console()
 err_console = Console(stderr=True)
@@ -94,6 +100,34 @@ def _main(
     """AI-assisted ETL and ELT pipelines from the command line."""
 
 
+@metadata_app.command("migrate")
+def metadata_migrate_command(
+    metadata_url: str | None = typer.Option(
+        None,
+        "--metadata-url",
+        envvar="LOAFER_METADATA_URL",
+        help="SQLite or PostgreSQL metadata URL; defaults to the embedded profile.",
+    ),
+) -> None:
+    """Apply checked-in metadata migrations before starting Loafer services."""
+    from loafer.application.durable import get_metadata_store
+
+    store = get_metadata_store(metadata_url)
+    try:
+        before = store.current_schema_version()
+        after = store.migrate()
+    except Exception as exc:
+        err_console.print(f"[red]Metadata migration failed:[/red] {exc}")
+        raise typer.Exit(1) from exc
+    finally:
+        store.close()
+
+    if before == after:
+        console.print(f"[green]✓ Metadata schema already at version {after}[/green]")
+    else:
+        console.print(f"[green]✓ Migrated metadata schema from version {before} to {after}[/green]")
+
+
 @app.command("enqueue")
 def enqueue_command(
     config: Path = _config_arg,
@@ -102,17 +136,145 @@ def enqueue_command(
         "--command-key",
         help="Idempotency key; repeated use returns the same durable run.",
     ),
+    local: bool = typer.Option(
+        False,
+        "--local",
+        help="Use the embedded metadata profile explicitly instead of loaferd.",
+    ),
+    api_url: str | None = typer.Option(None, "--api-url", envvar="LOAFER_API_URL"),
+    auth_url: str | None = typer.Option(None, "--auth-url", envvar="LOAFER_AUTH_URL"),
+    workspace_id: str | None = typer.Option(None, "--workspace", envvar="LOAFER_WORKSPACE_ID"),
 ) -> None:
-    """Create a durable run for execution by a separate worker process."""
+    """Create a durable run through loaferd, or explicitly use local mode."""
     from loafer.application.durable import enqueue_pipeline
 
     key = command_key or f"manual:{uuid.uuid4().hex}"
+    if not local:
+        direct_token = os.environ.get("LOAFER_ACCESS_TOKEN")
+        if not api_url or not workspace_id or (not auth_url and not direct_token):
+            err_console.print(
+                "[red]Remote mode requires LOAFER_API_URL, LOAFER_WORKSPACE_ID, and either "
+                "LOAFER_AUTH_URL or LOAFER_ACCESS_TOKEN.[/red]\n"
+                "Use [bold]--local[/bold] only for explicit embedded compatibility mode."
+            )
+            raise typer.Exit(2)
+        try:
+            document = yaml.safe_load(config.read_text(encoding="utf-8"))
+            if not isinstance(document, dict):
+                raise ValueError("pipeline config must be a YAML object")
+            from loafer.control_plane.client import HTTPSControlPlaneClient
+
+            token = _exchange_control_token(auth_url)
+            with HTTPSControlPlaneClient(api_url, token) as client:
+                version = client.register_pipeline(
+                    workspace_id,
+                    str(document.get("name") or config.stem),
+                    document,
+                )
+                run = client.create_run(
+                    workspace_id,
+                    version["id"],
+                    idempotency_key=key,
+                )
+        except Exception as exc:
+            err_console.print(f"[red]Could not enqueue pipeline through loaferd:[/red] {exc}")
+            raise typer.Exit(1) from exc
+        console.print(f"[green]✓ Enqueued run through loaferd[/green] {run['id']}")
+        return
     try:
         run = enqueue_pipeline(config, command_key=key)
     except Exception as exc:
         err_console.print(f"[red]Could not enqueue pipeline:[/red] {exc}")
         raise typer.Exit(1) from exc
     console.print(f"[green]✓ Enqueued run[/green] {run.id}")
+
+
+@app.command("login")
+def login_command(
+    auth_url: str = typer.Option(..., "--auth-url", envvar="LOAFER_AUTH_URL"),
+) -> None:
+    """Sign the CLI in with Better Auth's device-authorization flow."""
+    _require_https_url(auth_url, "authentication URL")
+    try:
+        with httpx.Client(base_url=auth_url.rstrip("/"), timeout=30) as client:
+            response = client.post(
+                "/api/auth/device/code",
+                json={"client_id": "loafer-cli", "scope": "openid profile email"},
+            )
+            response.raise_for_status()
+            device = response.json()
+            console.print(
+                f"Open [link={device['verification_uri_complete']}]"
+                f"{device['verification_uri_complete']}[/link]\n"
+                f"Enter code: [bold]{device['user_code']}[/bold]"
+            )
+            deadline = time.monotonic() + int(device["expires_in"])
+            interval = max(1, int(device["interval"]))
+            while time.monotonic() < deadline:
+                time.sleep(interval)
+                token_response = client.post(
+                    "/api/auth/device/token",
+                    json={
+                        "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                        "device_code": device["device_code"],
+                        "client_id": "loafer-cli",
+                    },
+                )
+                body = token_response.json()
+                if token_response.is_success:
+                    keyring.set_password("loafer", auth_url, body["access_token"])
+                    console.print("[green]✓ CLI authenticated[/green]")
+                    return
+                if body.get("error") == "slow_down":
+                    interval += 5
+                elif body.get("error") not in {"authorization_pending", "slow_down"}:
+                    raise RuntimeError(body.get("error_description", "device login failed"))
+    except Exception as exc:
+        err_console.print(f"[red]CLI login failed:[/red] {exc}")
+        raise typer.Exit(1) from exc
+    err_console.print("[red]Device authorization expired before approval.[/red]")
+    raise typer.Exit(1)
+
+
+@app.command("logout")
+def logout_command(
+    auth_url: str = typer.Option(..., "--auth-url", envvar="LOAFER_AUTH_URL"),
+) -> None:
+    """Remove the CLI session credential from the operating-system keyring."""
+    try:
+        keyring.delete_password("loafer", auth_url)
+    except keyring.errors.PasswordDeleteError:
+        pass
+    console.print("[green]✓ CLI credential removed[/green]")
+
+
+def _exchange_control_token(auth_url: str | None) -> str:
+    """Exchange the keyring-held device session for a short-lived loaferd JWT."""
+    direct = os.environ.get("LOAFER_ACCESS_TOKEN")
+    if direct:
+        return direct
+    if auth_url is None:
+        raise RuntimeError("LOAFER_AUTH_URL is required for CLI session exchange")
+    _require_https_url(auth_url, "authentication URL")
+    session_token = keyring.get_password("loafer", auth_url)
+    if not session_token:
+        raise RuntimeError("CLI is not authenticated; run `loafer login`")
+    response = httpx.get(
+        f"{auth_url.rstrip('/')}/api/auth/token",
+        headers={"Authorization": f"Bearer {session_token}"},
+        timeout=30,
+    )
+    response.raise_for_status()
+    token = response.json().get("token")
+    if not isinstance(token, str) or not token:
+        raise RuntimeError("authentication server did not return a control-plane token")
+    return token
+
+
+def _require_https_url(value: str, label: str) -> None:
+    parsed = urlparse(value)
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise ValueError(f"{label} must be an absolute HTTPS URL")
 
 
 @app.command("worker")
@@ -632,8 +794,20 @@ def run(
     full_refresh: bool = typer.Option(
         False, "--full-refresh", help="Ignore the saved cursor and re-extract everything"
     ),
+    local: bool = typer.Option(
+        False,
+        "--local",
+        help="Explicitly run inside the CLI process instead of using loaferd.",
+    ),
 ) -> None:
-    """Run an ETL or ELT pipeline with live progress."""
+    """Run locally only when explicit; durable remote work uses `loafer enqueue`."""
+    if not local:
+        err_console.print(
+            "[red]Inline execution is disabled by default.[/red] "
+            "Use [bold]loafer enqueue[/bold] for loaferd or pass [bold]--local[/bold] "
+            "for explicit compatibility mode."
+        )
+        raise typer.Exit(2)
     actual_config = config or config_file
     if not actual_config:
         err_console.print(

@@ -9,7 +9,7 @@
     "title": "`loafer run`",
     "url": "/docs/cli#loafer-run",
     "section": "CLI Reference",
-    "excerpt": "Executes a data pipeline. This is the primary command you will use to push data through your configu..."
+    "excerpt": "Executes a data pipeline inside the CLI process only when `--local` is explicit. Durable remote exec..."
   },
   {
     "title": "Arguments",
@@ -22,6 +22,12 @@
     "url": "/docs/cli#options",
     "section": "CLI Reference",
     "excerpt": "| Flag | Shorthand | Type | Default | Description | |---|---|---|---|---| | `--verbose` | `-v` | boo..."
+  },
+  {
+    "title": "Remote control plane",
+    "url": "/docs/cli#remote-control-plane",
+    "section": "CLI Reference",
+    "excerpt": "export LOAFER_AUTH_URL=https://loafer.example.com export LOAFER_API_URL=https://api.loafer.example.c..."
   },
   {
     "title": "`loafer schedule`",
@@ -70,6 +76,24 @@
     "url": "/docs/cli#options",
     "section": "CLI Reference",
     "excerpt": "| Flag | Shorthand | Type | Default | Description | |---|---|---|---|---| | `--strict` | - | bool |..."
+  },
+  {
+    "title": "HTTPS control plane",
+    "url": "/docs/control-plane",
+    "section": "HTTPS control plane",
+    "excerpt": "Last updated: August 2026  ·  5 min read interface level: CLI, web, and automation send commands to..."
+  },
+  {
+    "title": "Authentication",
+    "url": "/docs/control-plane#authentication",
+    "section": "HTTPS control plane",
+    "excerpt": "Better Auth owns users, sessions, organizations, memberships, invitations, device authorization, API..."
+  },
+  {
+    "title": "TLS and configuration",
+    "url": "/docs/control-plane#tls-and-configuration",
+    "section": "HTTPS control plane",
+    "excerpt": "Remote URLs must use HTTPS. Run `loaferd` with a certificate/key or behind an explicitly trusted exp..."
   },
   {
     "title": "Docker",
@@ -189,7 +213,7 @@
     "title": "How it's different",
     "url": "/docs/introduction#how-it-s-different",
     "section": "Introduction",
-    "excerpt": "- **No infrastructure:** Runs entirely on your local machine, a CI runner, or a Docker container. Th..."
+    "excerpt": "- **Local or self-hosted:** Run explicitly in local mode, or use the HTTPS `loaferd` control plane w..."
   },
   {
     "title": "Core concepts",

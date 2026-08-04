@@ -42,6 +42,12 @@ def test_click_is_declared() -> None:
     )
 
 
+def test_control_plane_daemon_script_is_declared() -> None:
+    data = tomllib.loads(_PYPROJECT.read_text())
+
+    assert data["project"]["scripts"]["loaferd"] == "loafer.control_plane.daemon:main"
+
+
 def test_cli_module_imports_declared_packages() -> None:
     """Every direct ``import``/``from`` in cli.py resolves to a declared dep.
 

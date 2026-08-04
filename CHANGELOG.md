@@ -8,6 +8,15 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Added
 
+- An HTTPS-only `loaferd` control plane with a versioned `/api/v1` OpenAPI contract, generated
+  browser types, typed Python/browser clients, durable commands, sequenced SSE run events, request
+  auditing, security headers, origin enforcement, and rate limiting.
+- Better Auth 1.6.25 integration for admin bootstrap, verified email/password sessions,
+  organizations and invitations, CLI device authorization, scoped expiring automation keys, and
+  short-lived audience-bound JWT/JWKS credentials through the Next.js BFF.
+- Tenant metadata for workspaces, environments, role-based permissions, connections with opaque
+  secret references, control commands, and audit events, plus PostgreSQL row-level security
+  policies as defense in depth.
 - Versioned SQLite/PostgreSQL metadata migrations for immutable pipeline versions, runs, stages,
   partitions, batches, checkpoints, events, artifacts, schedules, and transactional outbox rows.
 - Explicit run, stage, and batch state machines; idempotent run/schedule/cancel commands; leases,
@@ -31,6 +40,15 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Changed
 
+- Metadata migrations now run only through the explicit `loafer metadata migrate` command;
+  control-plane and durable-worker composition perform read-only schema-version checks instead.
+- Pre-commit hooks now auto-fix and re-stage lint changes in staged web JavaScript and TypeScript
+  files alongside the existing Python Ruff checks.
+- `loafer enqueue` now targets `loaferd` by default and never silently falls back to embedded
+  execution; `loafer run` and embedded enqueueing require an explicit `--local` flag.
+- CI now verifies the generated control-plane contract, Better Auth security behavior and web
+  build under Node.js 22.16, production dependency advisories, and control-plane migrations/RLS
+  policies against PostgreSQL 16.
 - Scheduled callbacks now create durable idempotent run commands; pipeline execution happens only
   in a separately started worker process.
 - Bounded durable runs stage each transformed batch as an immutable object and commit its metadata,
@@ -47,6 +65,30 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Fixed
 
+- JWKS retrieval now rejects redirects that downgrade HTTPS or change authority before any
+  redirected signing-key request is sent.
+- Schedule upserts now translate cross-workspace primary-key conflicts hidden by PostgreSQL row
+  security into `IdempotencyConflictError` instead of leaking a raw database exception.
+- The web control-plane proxy now strips stale compression metadata from decoded responses and
+  bounds ordinary upstream requests while leaving long-lived event streams unbounded.
+- The web control-plane proxy now returns a clear `401` without forwarding when an authenticated
+  session cannot provide a control-plane access token.
+- Trusted TLS-proxy deployments now rate-limit by forwarded client address instead of collapsing
+  every tenant behind the proxy into one shared bucket.
+- Control-plane mutations and their audit records now commit in one transaction, so an audit
+  failure rolls back the corresponding run, connection, command, pipeline, or schedule change.
+- Pipeline and connection creation endpoints now require `Idempotency-Key`, matching the control
+  plane's other retryable command routes.
+- Synchronous JWKS lookup and signature verification now run outside the FastAPI event loop with
+  an explicit configurable timeout for authentication-server cache misses and failures.
+- Disabled the CDN-backed Swagger UI route that could not render under the control plane's strict
+  global CSP; the runtime and checked-in OpenAPI contracts remain available.
+- PostgreSQL metadata migrations now take an advisory transaction lock, preventing accidentally
+  concurrent one-shot migration jobs from racing on schema DDL and version records.
+- Better Auth integration tests now explicitly enable TypeScript stripping on the pinned Node.js
+  22.16 runtime, and artifact smoke tests opt into the required local execution mode.
+- Anchored Python packaging ignore rules so required web authentication and control-plane client
+  modules, including the generated browser contract, are tracked by Git and available in CI.
 - Cancellation, transform failures, and target failures during bounded file runs now discard
   run-scoped temporary output instead of publishing a final partial file.
 - CSV encoding detection now scans in bounded chunks instead of allocating the entire source file
@@ -57,6 +99,10 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Known limitations
 
+- Validation, backfill, and connection-test endpoints persist durable control commands, but their
+  distributed consumers arrive with the NATS/worker-pool work; the HTTP process never executes
+  these operations inline. The embedded Better Auth SQLite profile requires Node.js 22.16 or
+  newer, while PostgreSQL is the production authentication profile.
 - SQLite metadata is restricted to the embedded profile with one scheduler and one worker; it does
   not advertise high availability or distributed claims. PostgreSQL is the authoritative platform
   profile. The bundled object-storage adapter is local filesystem storage, not a distributed blob

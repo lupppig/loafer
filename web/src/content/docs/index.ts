@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react'
 import CliReference from './cli.mdx'
+import ControlPlane from './control-plane.mdx'
 import DockerDocs from './docker.mdx'
 import Installation from './installation.mdx'
 import Introduction from './introduction.mdx'
@@ -57,6 +58,11 @@ export const docs = {
     title: 'CLI reference',
     description: 'Reference for Loafer command-line workflows.',
     component: CliReference,
+  },
+  'control-plane': {
+    title: 'HTTPS control plane',
+    description: 'Configure loaferd, Better Auth, HTTPS clients, and worker isolation.',
+    component: ControlPlane,
   },
   scheduling: {
     title: 'Scheduling',

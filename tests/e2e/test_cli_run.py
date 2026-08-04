@@ -10,6 +10,8 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
+from loafer.adapters import metadata_schema as schema
+from loafer.adapters.metadata import SqlMetadataStore
 from loafer.cli import app
 
 runner = CliRunner(env={"GEMINI_API_KEY": "test-key-for-cli-tests"})
@@ -17,6 +19,12 @@ runner = CliRunner(env={"GEMINI_API_KEY": "test-key-for-cli-tests"})
 
 class TestCliRun:
     """CLI run command tests."""
+
+    def test_run_requires_explicit_local_mode(self) -> None:
+        result = runner.invoke(app, ["run", "/nonexistent/path.yaml"])
+
+        assert result.exit_code == 2
+        assert "--local" in result.output
 
     def test_valid_config_exits_zero(self, tmp_path: Path) -> None:
         """Valid config file → exit code 0, output contains success message."""
@@ -51,13 +59,13 @@ chunk_size: 10
 streaming_threshold: 1000
 """)
 
-        result = runner.invoke(app, ["run", str(config_path)])
+        result = runner.invoke(app, ["run", str(config_path), "--local"])
 
         assert result.exit_code == 0
 
     def test_missing_config_file_exits_one(self) -> None:
         """Missing config file → exit code 1, error mentions the path."""
-        result = runner.invoke(app, ["run", "/nonexistent/path.yaml"])
+        result = runner.invoke(app, ["run", "/nonexistent/path.yaml", "--local"])
 
         assert result.exit_code == 1
         assert "not found" in result.output.lower() or "no such file" in result.output.lower()
@@ -75,7 +83,7 @@ target:
   path: /tmp/out.csv
 """)
 
-        result = runner.invoke(app, ["run", str(config_path)])
+        result = runner.invoke(app, ["run", str(config_path), "--local"])
 
         assert result.exit_code == 1
 
@@ -111,7 +119,7 @@ chunk_size: 10
 streaming_threshold: 1000
 """)
 
-        result = runner.invoke(app, ["run", str(config_path), "--dry-run"])
+        result = runner.invoke(app, ["run", str(config_path), "--dry-run", "--local"])
 
         assert result.exit_code == 0
         assert "skipped" in result.output.lower() or "dry" in result.output.lower()
@@ -149,7 +157,7 @@ chunk_size: 10
 streaming_threshold: 1000
 """)
 
-        result = runner.invoke(app, ["run", str(config_path), "--verbose"])
+        result = runner.invoke(app, ["run", str(config_path), "--verbose", "--local"])
 
         assert result.exit_code == 0
 
@@ -185,10 +193,21 @@ chunk_size: 10
 streaming_threshold: 1000
 """)
 
-        result = runner.invoke(app, ["run", str(config_path)])
+        result = runner.invoke(app, ["run", str(config_path), "--local"])
 
         assert result.exit_code == 0
         assert "Pipeline Summary" in result.output or "Pipeline Complete" in result.output
+
+
+class TestCliEnqueue:
+    """Remote-first enqueue boundary tests."""
+
+    def test_enqueue_never_falls_back_without_remote_configuration(self) -> None:
+        result = runner.invoke(app, ["enqueue", "/nonexistent/path.yaml"])
+
+        assert result.exit_code == 2
+        assert "LOAFER_API_URL" in result.output
+        assert "--local" in result.output
 
 
 class TestCliValidate:
@@ -310,3 +329,24 @@ class TestCliConnectors:
         assert result.exit_code == 0
         assert "csv" in result.output.lower()
         assert "json" in result.output.lower()
+
+
+class TestCliMetadata:
+    """Explicit metadata schema lifecycle commands."""
+
+    def test_migrate_applies_schema_and_is_idempotent(self, tmp_path: Path) -> None:
+        database_url = f"sqlite:///{tmp_path / 'metadata.db'}"
+
+        first = runner.invoke(app, ["metadata", "migrate", "--metadata-url", database_url])
+        repeated = runner.invoke(app, ["metadata", "migrate", "--metadata-url", database_url])
+
+        assert first.exit_code == 0, first.output
+        assert "Migrated metadata schema from version 0 to 3" in first.output
+        assert repeated.exit_code == 0, repeated.output
+        assert "already at version 3" in repeated.output
+
+        store = SqlMetadataStore(database_url)
+        try:
+            assert schema.current_version(store.engine) == schema.LATEST_SCHEMA_VERSION
+        finally:
+            store.close()
