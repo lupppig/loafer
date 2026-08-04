@@ -65,6 +65,8 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Fixed
 
+- The web control-plane proxy now strips stale compression metadata from decoded responses and
+  bounds ordinary upstream requests while leaving long-lived event streams unbounded.
 - The web control-plane proxy now returns a clear `401` without forwarding when an authenticated
   session cannot provide a control-plane access token.
 - Trusted TLS-proxy deployments now rate-limit by forwarded client address instead of collapsing

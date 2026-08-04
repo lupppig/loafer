@@ -67,9 +67,12 @@ async function proxy(request: Request, context: { params: Promise<{ path: string
     body: request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.arrayBuffer(),
     cache: 'no-store',
     redirect: 'error',
+    signal: path.at(-1) === 'stream' ? undefined : AbortSignal.timeout(30_000),
   })
   const outgoing = new Headers(response.headers)
   outgoing.delete('set-cookie')
+  outgoing.delete('content-encoding')
+  outgoing.delete('content-length')
   outgoing.set('Cache-Control', 'no-store')
   return new Response(response.body, {
     status: response.status,
