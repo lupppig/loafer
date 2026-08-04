@@ -65,6 +65,8 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Fixed
 
+- The web control-plane proxy now returns a clear `401` without forwarding when an authenticated
+  session cannot provide a control-plane access token.
 - Trusted TLS-proxy deployments now rate-limit by forwarded client address instead of collapsing
   every tenant behind the proxy into one shared bucket.
 - Control-plane mutations and their audit records now commit in one transaction, so an audit

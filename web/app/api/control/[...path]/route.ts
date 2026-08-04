@@ -31,7 +31,18 @@ async function proxy(request: Request, context: { params: Promise<{ path: string
     )
   }
 
-  const { token } = await auth.api.getToken({ headers: request.headers })
+  const token = (await auth.api.getToken({ headers: request.headers }))?.token
+  if (!token) {
+    return Response.json(
+      {
+        title: 'Authentication required',
+        status: 401,
+        detail: 'The session does not include a control-plane access token.',
+      },
+      { status: 401 },
+    )
+  }
+
   const { path } = await context.params
   if (path.some((segment) => !segment || segment === '.' || segment === '..' || /[\\/]/.test(segment))) {
     return Response.json(
