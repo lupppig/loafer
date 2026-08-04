@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from typing import Any, Protocol
 
@@ -22,12 +23,26 @@ class TokenVerifier(Protocol):
 class BetterAuthJWTVerifier:
     """Validate short-lived audience-bound JWTs from Better Auth's JWKS."""
 
-    def __init__(self, *, jwks_url: str, issuer: str, audience: str) -> None:
+    def __init__(
+        self,
+        *,
+        jwks_url: str,
+        issuer: str,
+        audience: str,
+        jwks_timeout_seconds: float = 5.0,
+    ) -> None:
         if not jwks_url.startswith("https://"):
             raise ValueError("Better Auth JWKS URL must use HTTPS")
         if not issuer.startswith("https://") or not audience.startswith("https://"):
             raise ValueError("Better Auth issuer and audience must use HTTPS")
-        self._jwks = jwt.PyJWKClient(jwks_url, cache_keys=True, lifespan=3600)
+        if not math.isfinite(jwks_timeout_seconds) or jwks_timeout_seconds <= 0:
+            raise ValueError("JWKS timeout must be positive and finite")
+        self._jwks = jwt.PyJWKClient(
+            jwks_url,
+            cache_keys=True,
+            lifespan=3600,
+            timeout=jwks_timeout_seconds,
+        )
         self._issuer = issuer
         self._audience = audience
 

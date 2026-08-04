@@ -46,6 +46,7 @@ TLS proxy:
 export LOAFER_AUTH_ISSUER=https://loafer.example.com
 export LOAFER_AUTH_AUDIENCE=https://api.loafer.example.com
 export LOAFER_AUTH_JWKS_URL=https://loafer.example.com/api/auth/jwks
+export LOAFER_AUTH_JWKS_TIMEOUT_SECONDS=5
 export LOAFER_ALLOWED_ORIGINS=https://loafer.example.com
 
 loaferd --host 0.0.0.0 --port 9443 --tls-cert cert.pem --tls-key key.pem
@@ -54,8 +55,10 @@ loaferd --host 0.0.0.0 --port 9443 --tls-cert cert.pem --tls-key key.pem
 Use `--behind-tls-proxy` only when the edge removes client-supplied forwarding headers. Loafer has
 no Unix-socket control protocol and never switches to embedded mode after an HTTPS failure.
 
-The OpenAPI document is available at `/api/v1/openapi.json`; interactive documentation is at
-`/api/v1/docs`. The checked-in OpenAPI snapshot and browser response types are reproducible with:
+JWKS cache misses use the configured bounded timeout, and synchronous signature verification runs
+outside the event loop. The OpenAPI document remains available at `/api/v1/openapi.json`; the
+CDN-backed interactive documentation route is disabled to preserve the API's strict global CSP.
+The checked-in OpenAPI snapshot and browser response types are reproducible with:
 
 ```bash
 uv run python scripts/generate_control_plane_contract.py

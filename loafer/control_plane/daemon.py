@@ -35,6 +35,7 @@ def main() -> None:
             audience=settings.audience,
             jwks_url=settings.jwks_url,
             allowed_origins=settings.allowed_origins,
+            jwks_timeout_seconds=settings.jwks_timeout_seconds,
             enforce_https=True,
             trust_proxy_headers=True,
             rate_limit_requests=settings.rate_limit_requests,

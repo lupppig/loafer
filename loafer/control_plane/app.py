@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import math
 import os
 import time
 import uuid
@@ -59,6 +60,7 @@ class ControlPlaneSettings:
     audience: str
     jwks_url: str
     allowed_origins: tuple[str, ...]
+    jwks_timeout_seconds: float = 5.0
     enforce_https: bool = True
     trust_proxy_headers: bool = False
     rate_limit_requests: int = 120
@@ -86,6 +88,7 @@ class ControlPlaneSettings:
             audience=audience,
             jwks_url=jwks_url,
             allowed_origins=origins,
+            jwks_timeout_seconds=float(os.environ.get("LOAFER_AUTH_JWKS_TIMEOUT_SECONDS", "5")),
             trust_proxy_headers=os.environ.get("LOAFER_TRUST_PROXY_HEADERS") == "1",
         )
 
@@ -111,6 +114,7 @@ def create_app(
         jwks_url=selected.jwks_url,
         issuer=selected.issuer,
         audience=selected.audience,
+        jwks_timeout_seconds=selected.jwks_timeout_seconds,
     )
     service = ControlPlaneService(ControlPlaneRepository(metadata))
     bearer = HTTPBearer(auto_error=False)
@@ -123,7 +127,7 @@ def create_app(
             "HTTPS command and resource API. HTTP processes never execute pipeline data work."
         ),
         openapi_url="/api/v1/openapi.json",
-        docs_url="/api/v1/docs",
+        docs_url=None,
         redoc_url=None,
     )
     app.state.metadata_store = metadata
@@ -185,7 +189,7 @@ def create_app(
     ) -> AuthContext:
         if credentials is None or credentials.scheme.lower() != "bearer":
             raise AuthenticationError("a bearer token is required")
-        return token_verifier.verify(credentials.credentials)
+        return await asyncio.to_thread(token_verifier.verify, credentials.credentials)
 
     auth_dependency = Annotated[AuthContext, Depends(authenticate)]
 
@@ -266,6 +270,7 @@ def create_app(
         payload: PipelineCreateRequest,
         request: Request,
         auth: auth_dependency,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> Any:
         return service.register_pipeline(
             auth,
@@ -460,6 +465,7 @@ def create_app(
         payload: ConnectionCreateRequest,
         request: Request,
         auth: auth_dependency,
+        idempotency_key: Annotated[str, Header(alias="Idempotency-Key")],
     ) -> Any:
         return service.create_connection(
             auth,
@@ -565,6 +571,8 @@ def _validate_settings(settings: ControlPlaneSettings) -> None:
                 raise ValueError(f"{name} must use HTTPS")
     if not settings.allowed_origins:
         raise ValueError("at least one trusted origin is required")
+    if not math.isfinite(settings.jwks_timeout_seconds) or settings.jwks_timeout_seconds <= 0:
+        raise ValueError("JWKS timeout must be positive and finite")
 
 
 def _problem(request: Request, status_code: int, title: str, detail: str) -> JSONResponse:

@@ -65,6 +65,12 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Fixed
 
+- Pipeline and connection creation endpoints now require `Idempotency-Key`, matching the control
+  plane's other retryable command routes.
+- Synchronous JWKS lookup and signature verification now run outside the FastAPI event loop with
+  an explicit configurable timeout for authentication-server cache misses and failures.
+- Disabled the CDN-backed Swagger UI route that could not render under the control plane's strict
+  global CSP; the runtime and checked-in OpenAPI contracts remain available.
 - PostgreSQL metadata migrations now take an advisory transaction lock, preventing accidentally
   concurrent one-shot migration jobs from racing on schema DDL and version records.
 - Better Auth integration tests now explicitly enable TypeScript stripping on the pinned Node.js

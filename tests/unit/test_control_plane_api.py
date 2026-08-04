@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -159,7 +160,7 @@ def test_bootstrap_requires_platform_admin(api: tuple[ASGIClient, SqlMetadataSto
 def _pipeline(client: ASGIClient, workspace_id: str) -> str:
     response = client.post(
         f"/api/v1/workspaces/{workspace_id}/pipelines",
-        headers=_headers(),
+        headers=_headers(**{"Idempotency-Key": "register-pipeline"}),
         json={"pipeline_key": "orders", "document": {"name": "orders", "mode": "etl"}},
     )
     assert response.status_code == 201, response.text
@@ -193,6 +194,50 @@ def test_https_auth_origin_and_cookie_boundaries(api: tuple[ASGIClient, SqlMetad
 
     insecure = ASGIClient(client.app, base_url="http://api.test")
     assert insecure.get("/healthz").status_code == 400
+
+
+def test_openapi_contract_remains_available_without_cdn_swagger_ui(
+    api: tuple[ASGIClient, SqlMetadataStore],
+) -> None:
+    client, _store = api
+
+    docs = client.get("/api/v1/docs")
+    assert docs.status_code == 404
+    assert docs.headers["content-security-policy"] == "default-src 'none'; frame-ancestors 'none'"
+
+    contract = client.get("/api/v1/openapi.json")
+    assert contract.status_code == 200
+    assert contract.headers["content-type"].startswith("application/json")
+    assert contract.headers["content-security-policy"] == (
+        "default-src 'none'; frame-ancestors 'none'"
+    )
+    assert contract.json()["info"]["title"] == "Loafer Control Plane"
+
+
+def test_resource_creation_requires_idempotency_key(
+    api: tuple[ASGIClient, SqlMetadataStore],
+) -> None:
+    client, _store = api
+    workspace_id = _bootstrap(client)
+
+    requests = (
+        (
+            f"/api/v1/workspaces/{workspace_id}/pipelines",
+            {"pipeline_key": "orders", "document": {"name": "orders"}},
+        ),
+        (
+            f"/api/v1/workspaces/{workspace_id}/connections",
+            {
+                "name": "warehouse",
+                "connector_type": "postgres",
+                "secret_reference": "vault:loafer/workspaces/primary/warehouse",
+            },
+        ),
+    )
+
+    for path, payload in requests:
+        response = client.post(path, headers=_headers(), json=payload)
+        assert response.status_code == 422
 
 
 def test_cross_tenant_guessed_ids_and_role_matrix(api: tuple[ASGIClient, SqlMetadataStore]) -> None:
@@ -280,7 +325,7 @@ def test_secret_values_are_rejected_and_never_serialized(
 
     embedded = client.post(
         f"/api/v1/workspaces/{workspace_id}/pipelines",
-        headers=_headers(),
+        headers=_headers(**{"Idempotency-Key": "unsafe-pipeline"}),
         json={
             "pipeline_key": "unsafe",
             "document": {"source": {"password": "do-not-store"}},
@@ -291,7 +336,7 @@ def test_secret_values_are_rejected_and_never_serialized(
 
     connection = client.post(
         f"/api/v1/workspaces/{workspace_id}/connections",
-        headers=_headers(),
+        headers=_headers(**{"Idempotency-Key": "create-warehouse"}),
         json={
             "name": "warehouse",
             "connector_type": "postgres",
@@ -348,6 +393,99 @@ def test_better_auth_jwt_verifier_rejects_expiry_and_wrong_audience() -> None:
         verifier.verify(token(expiry=now - 60))
     with pytest.raises(AuthenticationError):
         verifier.verify(token(expiry=now + 60, audience="https://other.test"))
+
+
+def test_better_auth_jwt_verifier_configures_explicit_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class CapturingJWKClient:
+        def __init__(self, uri: str, **kwargs: object) -> None:
+            captured["uri"] = uri
+            captured.update(kwargs)
+
+    monkeypatch.setattr(jwt, "PyJWKClient", CapturingJWKClient)
+
+    verifier = BetterAuthJWTVerifier(
+        jwks_url="https://auth.test/api/auth/jwks",
+        issuer="https://auth.test",
+        audience="https://api.test",
+        jwks_timeout_seconds=4.5,
+    )
+
+    assert captured["timeout"] == 4.5
+
+    def unavailable(_token: str) -> None:
+        raise jwt.PyJWKClientConnectionError("JWKS request timed out")
+
+    verifier._jwks = SimpleNamespace(  # type: ignore[attr-defined]
+        get_signing_key_from_jwt=unavailable
+    )
+    with pytest.raises(AuthenticationError, match="invalid or expired bearer token"):
+        verifier.verify("token")
+
+    with pytest.raises(ValueError, match="timeout must be positive"):
+        BetterAuthJWTVerifier(
+            jwks_url="https://auth.test/api/auth/jwks",
+            issuer="https://auth.test",
+            audience="https://api.test",
+            jwks_timeout_seconds=0,
+        )
+
+
+def test_synchronous_token_verification_does_not_block_event_loop(tmp_path: Path) -> None:
+    release_verifier = threading.Event()
+
+    class BlockingVerifier:
+        thread_id: int | None = None
+
+        def verify(self, _token: str) -> AuthContext:
+            self.thread_id = threading.get_ident()
+            if not release_verifier.wait(timeout=0.5):
+                raise AssertionError("token verification blocked the event loop")
+            return AuthContext("operator", global_roles=frozenset({"admin"}))
+
+    verifier = BlockingVerifier()
+    store = SqlMetadataStore(f"sqlite:///{tmp_path / 'threadpool.db'}")
+    store.migrate()
+    app = create_app(
+        settings=ControlPlaneSettings(
+            issuer="https://auth.test",
+            audience="https://api.test",
+            jwks_url="https://auth.test/api/auth/jwks",
+            allowed_origins=("https://app.test",),
+        ),
+        store=store,
+        verifier=verifier,
+    )
+
+    async def exercise() -> tuple[int, int]:
+        event_loop_thread = threading.get_ident()
+
+        async def release_from_event_loop() -> None:
+            await asyncio.sleep(0.02)
+            release_verifier.set()
+
+        release_task = asyncio.create_task(release_from_event_loop())
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="https://api.test",
+        ) as client:
+            response = await client.get(
+                "/api/v1/workspaces",
+                headers={"Authorization": "Bearer token"},
+            )
+        await release_task
+        return response.status_code, event_loop_thread
+
+    try:
+        response_status, event_loop_thread = asyncio.run(exercise())
+        assert response_status == 200
+        assert verifier.thread_id is not None
+        assert verifier.thread_id != event_loop_thread
+    finally:
+        store.close()
 
 
 def test_sse_formats_sequence_reconnect_gap_and_heartbeat() -> None:

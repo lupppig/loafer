@@ -67,11 +67,17 @@ class HTTPSControlPlaneClient:
         return self._request("GET", f"/api/v1/workspaces/{workspace_id}/pipelines")
 
     def register_pipeline(
-        self, workspace_id: str, pipeline_key: str, document: dict[str, Any]
+        self,
+        workspace_id: str,
+        pipeline_key: str,
+        document: dict[str, Any],
+        *,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         return self._request(
             "POST",
             f"/api/v1/workspaces/{workspace_id}/pipelines",
+            headers={"Idempotency-Key": idempotency_key or uuid.uuid4().hex},
             json={"pipeline_key": pipeline_key, "document": document},
         )
 
