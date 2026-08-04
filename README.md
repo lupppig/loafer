@@ -71,6 +71,20 @@ docker run --rm \
 
 Mount pipeline files under `/workspace`, not `/app`; `/app` is reserved by the image.
 
+## Metadata schema rollout
+
+Prepare durable metadata explicitly before starting `loaferd` or a durable worker. For PostgreSQL,
+set the authoritative URL and run the migration as a one-shot deployment job:
+
+```bash
+export LOAFER_METADATA_URL="postgresql://loafer:secret@postgres/loafer"
+loafer metadata migrate
+```
+
+Run the same command without `LOAFER_METADATA_URL` to prepare the embedded SQLite profile. Service
+startup never runs DDL: it checks the installed schema version and exits with an actionable error
+when migration has not run or the database belongs to a newer Loafer release.
+
 ## Quick start
 
 Create `pipeline.yaml`:

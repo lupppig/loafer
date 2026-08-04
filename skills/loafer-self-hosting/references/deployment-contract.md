@@ -24,6 +24,18 @@ ownership. Distributed mode uses PostgreSQL and stateless auth/control-plane rep
 deployments may federate Better Auth with Keycloak, Authentik, Entra ID, Okta, or another OIDC
 provider.
 
+## Schema rollout
+
+Run `loafer metadata migrate` as a one-shot deployment job against `LOAFER_METADATA_URL` before
+starting new `loaferd`, scheduler, or worker replicas. The migrator serializes PostgreSQL schema
+changes with an advisory transaction lock. `loaferd` and durable-worker composition perform a
+read-only exact-version check and fail before accepting work when the database is older or newer
+than the binary.
+
+For rolling upgrades, migrations must remain compatible with the currently serving release until
+old replicas have drained. Destructive contract steps belong in a later release after every reader
+and writer has moved to the expanded schema.
+
 ## Profiles
 
 | Profile | Shape | Intended use |

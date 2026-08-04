@@ -48,6 +48,7 @@ def main() -> None:
 def _openapi_schema() -> dict[str, Any]:
     store = SqlMetadataStore("sqlite://")
     try:
+        store.migrate()
         app = create_app(
             settings=ControlPlaneSettings(
                 issuer="https://auth.example.invalid",

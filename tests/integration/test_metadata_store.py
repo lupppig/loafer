@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from threading import Barrier
 
 import pytest
 from sqlalchemy import inspect, text
@@ -59,6 +61,30 @@ def test_postgres_empty_schema_and_previous_schema_upgrade(
     finally:
         store.migrate(0)
         store.close()
+
+
+def test_postgres_concurrent_migration_jobs_are_serialized(postgres_url: str) -> None:
+    setup = SqlMetadataStore(postgres_url)
+    setup.migrate(0)
+    setup.close()
+    barrier = Barrier(2)
+
+    def migrate_once() -> int:
+        store = SqlMetadataStore(postgres_url)
+        try:
+            barrier.wait()
+            return store.migrate()
+        finally:
+            store.close()
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            versions = list(executor.map(lambda _index: migrate_once(), range(2)))
+        assert versions == [3, 3]
+    finally:
+        cleanup = SqlMetadataStore(postgres_url)
+        cleanup.migrate(0)
+        cleanup.close()
 
 
 def test_postgres_claims_are_fenced_and_events_are_monotonic(

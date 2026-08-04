@@ -40,6 +40,8 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Changed
 
+- Metadata migrations now run only through the explicit `loafer metadata migrate` command;
+  control-plane and durable-worker composition perform read-only schema-version checks instead.
 - Pre-commit hooks now auto-fix and re-stage lint changes in staged web JavaScript and TypeScript
   files alongside the existing Python Ruff checks.
 - `loafer enqueue` now targets `loaferd` by default and never silently falls back to embedded
@@ -63,6 +65,8 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Fixed
 
+- PostgreSQL metadata migrations now take an advisory transaction lock, preventing accidentally
+  concurrent one-shot migration jobs from racing on schema DDL and version records.
 - Better Auth integration tests now explicitly enable TypeScript stripping on the pinned Node.js
   22.16 runtime, and artifact smoke tests opt into the required local execution mode.
 - Anchored Python packaging ignore rules so required web authentication and control-plane client

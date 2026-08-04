@@ -24,6 +24,7 @@ from loafer.control_plane.auth import (
 )
 from loafer.control_plane.client import HTTPSControlPlaneClient
 from loafer.control_plane.domain import AuthContext
+from loafer.exceptions import MetadataError
 from loafer.metadata import StoredEvent
 
 
@@ -52,6 +53,7 @@ class ASGIClient:
 @pytest.fixture()
 def api(tmp_path: Path) -> tuple[ASGIClient, SqlMetadataStore]:
     store = SqlMetadataStore(f"sqlite:///{tmp_path / 'control.db'}")
+    store.migrate()
     app = create_app(
         settings=ControlPlaneSettings(
             issuer="https://auth.test",
@@ -76,6 +78,54 @@ def api(tmp_path: Path) -> tuple[ASGIClient, SqlMetadataStore]:
 
 def _headers(token: str = "owner-token", **extra: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}", **extra}
+
+
+def test_create_app_rejects_unmigrated_schema_without_modifying_it(tmp_path: Path) -> None:
+    store = SqlMetadataStore(f"sqlite:///{tmp_path / 'unmigrated.db'}")
+    try:
+        with pytest.raises(
+            MetadataError,
+            match=r"metadata schema version 0.*expected 3.*loafer metadata migrate",
+        ):
+            create_app(
+                settings=ControlPlaneSettings(
+                    issuer="https://auth.test",
+                    audience="https://api.test",
+                    jwks_url="https://auth.test/api/auth/jwks",
+                    allowed_origins=("https://app.test",),
+                ),
+                store=store,
+                verifier=StaticTokenVerifier({}),
+            )
+        assert schema.current_version(store.engine) == 0
+    finally:
+        store.close()
+
+
+def test_create_app_verifies_current_schema_without_running_migrations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = SqlMetadataStore(f"sqlite:///{tmp_path / 'current.db'}")
+    store.migrate()
+
+    def unexpected_migration(_target_version: int | None = None) -> int:
+        raise AssertionError("application factories must not run schema migrations")
+
+    monkeypatch.setattr(store, "migrate", unexpected_migration)
+    try:
+        app = create_app(
+            settings=ControlPlaneSettings(
+                issuer="https://auth.test",
+                audience="https://api.test",
+                jwks_url="https://auth.test/api/auth/jwks",
+                allowed_origins=("https://app.test",),
+            ),
+            store=store,
+            verifier=StaticTokenVerifier({}),
+        )
+        assert app.state.metadata_store is store
+    finally:
+        store.close()
 
 
 def _bootstrap(client: ASGIClient) -> str:
@@ -362,6 +412,7 @@ def test_sse_formats_sequence_reconnect_gap_and_heartbeat() -> None:
 
 def test_control_plane_rate_limit_returns_retry_after(tmp_path: Path) -> None:
     store = SqlMetadataStore(f"sqlite:///{tmp_path / 'limited.db'}")
+    store.migrate()
     app = create_app(
         settings=ControlPlaneSettings(
             issuer="https://auth.test",

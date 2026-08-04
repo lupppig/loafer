@@ -26,6 +26,12 @@ class MetadataStore(Protocol):
     def migrate(self, target_version: int | None = None) -> int:
         """Move the metadata schema to a supported version and return it."""
 
+    def current_schema_version(self) -> int:
+        """Return the installed metadata schema version without modifying it."""
+
+    def verify_schema(self) -> int:
+        """Require the schema version supported by this build without modifying it."""
+
     def register_pipeline_version(
         self,
         *,

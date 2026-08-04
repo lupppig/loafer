@@ -10,6 +10,8 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
+from loafer.adapters import metadata_schema as schema
+from loafer.adapters.metadata import SqlMetadataStore
 from loafer.cli import app
 
 runner = CliRunner(env={"GEMINI_API_KEY": "test-key-for-cli-tests"})
@@ -327,3 +329,24 @@ class TestCliConnectors:
         assert result.exit_code == 0
         assert "csv" in result.output.lower()
         assert "json" in result.output.lower()
+
+
+class TestCliMetadata:
+    """Explicit metadata schema lifecycle commands."""
+
+    def test_migrate_applies_schema_and_is_idempotent(self, tmp_path: Path) -> None:
+        database_url = f"sqlite:///{tmp_path / 'metadata.db'}"
+
+        first = runner.invoke(app, ["metadata", "migrate", "--metadata-url", database_url])
+        repeated = runner.invoke(app, ["metadata", "migrate", "--metadata-url", database_url])
+
+        assert first.exit_code == 0, first.output
+        assert "Migrated metadata schema from version 0 to 3" in first.output
+        assert repeated.exit_code == 0, repeated.output
+        assert "already at version 3" in repeated.output
+
+        store = SqlMetadataStore(database_url)
+        try:
+            assert schema.current_version(store.engine) == schema.LATEST_SCHEMA_VERSION
+        finally:
+            store.close()

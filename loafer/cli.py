@@ -40,6 +40,8 @@ app = typer.Typer(
     help="AI-assisted ETL and ELT pipelines from the command line.",
     no_args_is_help=True,
 )
+metadata_app = typer.Typer(help="Manage the authoritative metadata schema.", no_args_is_help=True)
+app.add_typer(metadata_app, name="metadata")
 
 console = Console()
 err_console = Console(stderr=True)
@@ -96,6 +98,34 @@ def _main(
     ),
 ) -> None:
     """AI-assisted ETL and ELT pipelines from the command line."""
+
+
+@metadata_app.command("migrate")
+def metadata_migrate_command(
+    metadata_url: str | None = typer.Option(
+        None,
+        "--metadata-url",
+        envvar="LOAFER_METADATA_URL",
+        help="SQLite or PostgreSQL metadata URL; defaults to the embedded profile.",
+    ),
+) -> None:
+    """Apply checked-in metadata migrations before starting Loafer services."""
+    from loafer.application.durable import get_metadata_store
+
+    store = get_metadata_store(metadata_url)
+    try:
+        before = store.current_schema_version()
+        after = store.migrate()
+    except Exception as exc:
+        err_console.print(f"[red]Metadata migration failed:[/red] {exc}")
+        raise typer.Exit(1) from exc
+    finally:
+        store.close()
+
+    if before == after:
+        console.print(f"[green]✓ Metadata schema already at version {after}[/green]")
+    else:
+        console.print(f"[green]✓ Migrated metadata schema from version {before} to {after}[/green]")
 
 
 @app.command("enqueue")

@@ -11,9 +11,10 @@ from loafer.adapters import metadata_schema as schema
 from loafer.adapters.metadata import SqlMetadataStore
 from loafer.adapters.object_storage import MemoryObjectStorage
 from loafer.adapters.runtime import DurableBatchRecovery
+from loafer.application.durable import get_durable_worker
 from loafer.contracts import BatchEnvelope
 from loafer.core.run_state import RunState
-from loafer.exceptions import IdempotencyConflictError, StaleFenceError
+from loafer.exceptions import IdempotencyConflictError, MetadataError, StaleFenceError
 from loafer.metadata import ScheduleRecord
 
 
@@ -177,6 +178,46 @@ def test_migrations_upgrade_previous_schema_rollback_and_reapply(tmp_path: Path)
 
         assert metadata.migrate() == 3
         assert "loafer_outbox" in inspect(metadata.engine).get_table_names()
+    finally:
+        metadata.close()
+
+
+def test_schema_verification_rejects_older_and_newer_versions_without_migrating(
+    tmp_path: Path,
+) -> None:
+    metadata = SqlMetadataStore(f"sqlite:///{tmp_path / 'version-check.db'}")
+    try:
+        metadata.migrate(1)
+        with pytest.raises(MetadataError, match=r"version 1.*expected 3"):
+            metadata.verify_schema()
+        assert metadata.current_schema_version() == 1
+
+        metadata.migrate()
+        with metadata.engine.begin() as connection:
+            connection.execute(schema.schema_migrations.insert().values(version=4))
+        with pytest.raises(MetadataError, match=r"version 4.*expected 3"):
+            metadata.verify_schema()
+        assert metadata.current_schema_version() == 4
+        with pytest.raises(MetadataError, match=r"version 4 is newer.*supports \(3\)"):
+            metadata.migrate()
+        assert metadata.current_schema_version() == 4
+    finally:
+        metadata.close()
+
+
+def test_durable_worker_composition_rejects_unmigrated_schema(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'worker.db'}"
+
+    with pytest.raises(MetadataError, match=r"version 0.*loafer metadata migrate"):
+        get_durable_worker(
+            worker_id="worker-1",
+            metadata_url=database_url,
+            object_root=tmp_path / "objects",
+        )
+
+    metadata = SqlMetadataStore(database_url)
+    try:
+        assert metadata.current_schema_version() == 0
     finally:
         metadata.close()
 

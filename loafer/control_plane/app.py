@@ -101,7 +101,12 @@ def create_app(
     _validate_settings(selected)
     owned_store = store is None
     metadata = store or get_metadata_store()
-    metadata.migrate()
+    try:
+        metadata.verify_schema()
+    except Exception:
+        if owned_store:
+            metadata.close()
+        raise
     token_verifier = verifier or BetterAuthJWTVerifier(
         jwks_url=selected.jwks_url,
         issuer=selected.issuer,

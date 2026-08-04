@@ -71,6 +71,13 @@ class SqlMetadataStore:
     def migrate(self, target_version: int | None = None) -> int:
         return schema.migrate(self._engine, target_version)
 
+    def current_schema_version(self) -> int:
+        return schema.current_version(self._engine)
+
+    def verify_schema(self) -> int:
+        """Fail unless the database matches this build, without running DDL."""
+        return schema.require_current_version(self._engine)
+
     def register_pipeline_version(
         self,
         *,

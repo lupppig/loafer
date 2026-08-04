@@ -32,6 +32,7 @@ from loafer.core.run_state import BatchState, RetryCategory, RunState, StageStat
 from loafer.exceptions import MetadataError
 
 LATEST_SCHEMA_VERSION = 3
+_POSTGRES_MIGRATION_LOCK_ID = int.from_bytes(b"loafer", byteorder="big")
 metadata = MetaData()
 
 
@@ -395,10 +396,20 @@ def migrate(engine: Engine, target_version: int | None = None) -> int:
         raise MetadataError(f"unsupported metadata schema version: {target}")
 
     with engine.begin() as connection:
+        if connection.dialect.name == "postgresql":
+            connection.execute(
+                text("SELECT pg_advisory_xact_lock(:lock_id)"),
+                {"lock_id": _POSTGRES_MIGRATION_LOCK_ID},
+            )
         schema_migrations.create(connection, checkfirst=True)
         current = (
             connection.execute(select(func.max(schema_migrations.c.version))).scalar_one() or 0
         )
+        if current > LATEST_SCHEMA_VERSION:
+            raise MetadataError(
+                f"metadata schema version {current} is newer than this Loafer build supports "
+                f"({LATEST_SCHEMA_VERSION}); deploy a compatible Loafer version"
+            )
         while current < target:
             current += 1
             _UP[current](connection)
@@ -417,6 +428,18 @@ def current_version(engine: Engine) -> int:
         if not engine.dialect.has_table(connection, schema_migrations.name):
             return 0
         return connection.execute(select(func.max(schema_migrations.c.version))).scalar_one() or 0
+
+
+def require_current_version(engine: Engine) -> int:
+    """Return the current schema version or fail without modifying the database."""
+    current = current_version(engine)
+    if current != LATEST_SCHEMA_VERSION:
+        raise MetadataError(
+            f"metadata schema version {current} is incompatible with this Loafer build; "
+            f"expected {LATEST_SCHEMA_VERSION}. Run `loafer metadata migrate` before "
+            "starting Loafer services."
+        )
+    return current
 
 
 def _up_v1(connection: Connection) -> None:
