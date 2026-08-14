@@ -26,6 +26,7 @@ from loafer.exceptions import QueueError
 
 _DEDUPE_WINDOW_SECONDS = 600
 _CONNECT_TIMEOUT_SECONDS = 10.0
+_LOOP_STOP_TIMEOUT_SECONDS = 5.0
 
 
 def _nats_modules() -> tuple[Any, Any, Any]:
@@ -65,9 +66,21 @@ class _LoopThread:
             future.cancel()
             raise
 
+    def is_closed(self) -> bool:
+        """Return whether the owned loop has already been torn down."""
+        return self._loop.is_closed()
+
     def close(self) -> None:
+        """Stop the loop and drain its tasks, tolerating repeated calls."""
+        if self._loop.is_closed():
+            return
         self._loop.call_soon_threadsafe(self._loop.stop)
-        self._thread.join(timeout=5)
+        self._thread.join(timeout=_LOOP_STOP_TIMEOUT_SECONDS)
+        if self._thread.is_alive():
+            # The loop is still running, so driving it from this thread would
+            # race the loop thread and raise instead of closing. Leave it to
+            # the daemon thread, which cannot outlive the process.
+            return
         pending = asyncio.all_tasks(self._loop)
         for task in pending:
             task.cancel()
@@ -89,20 +102,32 @@ class JetStreamTransport:
         self._servers = [servers] if isinstance(servers, str) else list(servers)
         self._timeout = connect_timeout
         self._loop = _LoopThread()
+        self._connection: Any = None
         try:
             self._connection = self._loop.run(self._connect(), connect_timeout)
             self._js = self._connection.jetstream()
             self._loop.run(self._ensure_stream(), connect_timeout)
-        except QueueError:
-            raise
         except Exception as exc:
+            # Stream setup can fail after the socket is already open. Closing
+            # the loop alone would strand the connection and the client's
+            # reader and ping tasks on a loop nobody drives again.
+            self._close_connection()
             self._loop.close()
+            if isinstance(exc, QueueError):
+                raise
             raise QueueError(f"could not connect to NATS JetStream: {exc}") from exc
 
     async def _connect(self) -> Any:
         return await self._nats.connect(servers=self._servers)
 
     async def _ensure_stream(self) -> None:
+        """Create the job stream, or reconcile the subjects of an existing one.
+
+        Creating only when absent would freeze the stream at whatever
+        configuration the first deployment wrote, so a later ``WorkerRole``
+        would publish to a subject the stream does not capture and its jobs
+        would vanish silently.
+        """
         config = self._api.StreamConfig(
             name=stream_name(),
             subjects=list(stream_subjects()),
@@ -110,9 +135,12 @@ class JetStreamTransport:
             duplicate_window=_DEDUPE_WINDOW_SECONDS,
         )
         try:
-            await self._js.stream_info(stream_name())
+            existing = await self._js.stream_info(stream_name())
         except self._errors.NotFoundError:
             await self._js.add_stream(config)
+            return
+        if set(existing.config.subjects or ()) != set(config.subjects or ()):
+            await self._js.update_stream(config)
 
     def publisher(self) -> JetStreamPublisher:
         """Return a publisher bound to this connection."""
@@ -134,12 +162,28 @@ class JetStreamTransport:
         )
 
     def close(self) -> None:
-        """Drain the connection and stop the owned event loop."""
+        """Drain the connection and stop the owned event loop, at most once."""
+        connection, self._connection = self._connection, None
+        if connection is not None:
+            try:
+                self._loop.run(connection.drain(), self._timeout)
+            except Exception:
+                self._close(connection)
+        self._loop.close()
+
+    def _close_connection(self) -> None:
+        connection, self._connection = self._connection, None
+        self._close(connection)
+
+    def _close(self, connection: Any) -> None:
+        # Building the coroutine before checking the loop would leave it
+        # un-awaited, so a second close would warn instead of being a no-op.
+        if connection is None or self._loop.is_closed():
+            return
         try:
-            self._loop.run(self._connection.drain(), self._timeout)
+            self._loop.run(connection.close(), self._timeout)
         except Exception:
             pass
-        self._loop.close()
 
     def _run(self, coroutine: Coroutine[Any, Any, Any], timeout: float) -> Any:
         return self._loop.run(coroutine, timeout)
@@ -180,6 +224,9 @@ class JetStreamDeliveredJob:
 
     envelope: JobEnvelope
     delivery_count: int
+    payload: bytes = field(repr=False)
+    """Raw bytes as they arrived, so tests can assert what reached the wire."""
+
     _transport: JetStreamTransport = field(repr=False)
     _message: Any = field(repr=False)
 
@@ -221,6 +268,15 @@ class JetStreamConsumer:
             filter_subject=role.subject,
         )
         try:
+            # Durable consumers outlive the process that created them, so
+            # subscribing alone would leave an existing loafer-<role> pinned to
+            # the ack_wait and max_ack_pending it was first created with. The
+            # server treats a durable create as an update, which is what makes
+            # a backpressure change take effect on redeploy.
+            transport._run(
+                transport._js.add_consumer(stream_name(), config=config),
+                _CONNECT_TIMEOUT_SECONDS,
+            )
             self._subscription = transport._run(
                 transport._js.pull_subscribe(
                     role.subject,
@@ -244,7 +300,12 @@ class JetStreamConsumer:
             # list. Treat any fetch failure as "no work": the next poll retries,
             # and nothing has been acknowledged.
             return []
-        return [self._deliver(message) for message in messages]
+        delivered: list[JetStreamDeliveredJob] = []
+        for message in messages:
+            job = self._deliver(message)
+            if job is not None:
+                delivered.append(job)
+        return delivered
 
     def close(self) -> None:
         try:
@@ -252,16 +313,25 @@ class JetStreamConsumer:
         except Exception:
             pass
 
-    def _deliver(self, message: Any) -> JetStreamDeliveredJob:
+    def _deliver(self, message: Any) -> JetStreamDeliveredJob | None:
+        """Build one delivery, discarding a payload that can never be parsed.
+
+        A malformed payload will not become parseable on redelivery, so it is
+        terminated and skipped rather than raised: raising would discard the
+        valid jobs already fetched in the same batch and strand them until
+        their ack window expired.
+        """
         try:
             envelope = JobEnvelope.model_validate_json(message.data)
-        except Exception as exc:
-            # A payload this consumer cannot parse will never become parseable.
-            # Terminate it rather than letting it cycle forever.
-            self._transport._run(message.term(), _CONNECT_TIMEOUT_SECONDS)
-            raise QueueError(f"unparseable job payload on {self._role.subject}: {exc}") from exc
+        except Exception:
+            try:
+                self._transport._run(message.term(), _CONNECT_TIMEOUT_SECONDS)
+            except Exception:
+                pass
+            return None
         return JetStreamDeliveredJob(
             envelope=envelope,
+            payload=bytes(message.data),
             delivery_count=int(message.metadata.num_delivered),
             _transport=self._transport,
             _message=message,

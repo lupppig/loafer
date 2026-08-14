@@ -934,7 +934,8 @@ class SqlMetadataStore:
             if environment_id is not None:
                 environment_limit = connection.execute(
                     select(schema.environments.c.max_concurrent_runs).where(
-                        schema.environments.c.id == environment_id
+                        schema.environments.c.id == environment_id,
+                        schema.environments.c.workspace_id == workspace_id,
                     )
                 ).scalar_one_or_none()
                 if environment_limit is not None:

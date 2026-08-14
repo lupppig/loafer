@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from collections.abc import Iterator
@@ -10,7 +11,8 @@ import pytest
 
 from loafer.adapters.queue.jetstream import JetStreamTransport
 from loafer.contracts import JobEnvelope
-from loafer.core.roles import WorkerRole
+from loafer.core.roles import WorkerRole, stream_name, stream_subjects
+from loafer.exceptions import QueueError
 
 pytestmark = pytest.mark.integration
 
@@ -131,13 +133,93 @@ def test_roles_consume_from_isolated_subjects(
         browser.close()
 
 
-def test_published_payloads_carry_identifiers_only(transport: JetStreamTransport) -> None:
-    envelope = _envelope()
+def test_consumer_redeploy_reconciles_an_existing_durable(nats_url: str) -> None:
+    """A durable outlives the process, so backpressure changes must reach it."""
+    connection = JetStreamTransport(nats_url)
+    try:
+        first = connection.consumer(WorkerRole.ETL, max_ack_pending=8, ack_wait_seconds=2.0)
+        first.close()
+        second = connection.consumer(WorkerRole.ETL, max_ack_pending=32, ack_wait_seconds=9.0)
+        try:
+            info = connection._run(
+                connection._js.consumer_info(stream_name(), WorkerRole.ETL.durable_name),
+                10,
+            )
+            assert info.config.ack_wait == 9.0
+            assert info.config.max_ack_pending == 32
+        finally:
+            second.close()
+    finally:
+        connection.close()
 
-    assert set(envelope.model_dump(mode="json")) == {
+
+def test_stream_subject_drift_is_reconciled_on_connect(nats_url: str) -> None:
+    """A role added after first deployment must become routable."""
+    connection = JetStreamTransport(nats_url)
+    try:
+        api = connection._api
+        connection._run(
+            connection._js.update_stream(
+                api.StreamConfig(
+                    name=stream_name(),
+                    subjects=[WorkerRole.ETL.subject],
+                    retention=api.RetentionPolicy.WORK_QUEUE,
+                    duplicate_window=600,
+                )
+            ),
+            10,
+        )
+    finally:
+        connection.close()
+
+    reconnected = JetStreamTransport(nats_url)
+    try:
+        info = reconnected._run(reconnected._js.stream_info(stream_name()), 10)
+        assert set(info.config.subjects) == set(stream_subjects())
+    finally:
+        reconnected.close()
+
+
+def test_close_is_idempotent(nats_url: str) -> None:
+    connection = JetStreamTransport(nats_url)
+
+    connection.close()
+    connection.close()
+
+    assert connection._loop.is_closed()
+
+
+def test_failure_after_connect_is_wrapped_and_tears_down(
+    nats_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def explode(_self: JetStreamTransport) -> None:
+        raise RuntimeError("stream setup exploded")
+
+    monkeypatch.setattr(JetStreamTransport, "_ensure_stream", explode)
+
+    with pytest.raises(QueueError, match="stream setup exploded"):
+        JetStreamTransport(nats_url)
+
+
+def test_published_payloads_carry_identifiers_only(
+    transport: JetStreamTransport,
+    etl: object,
+) -> None:
+    """Assert on the bytes that actually reached the stream, not on the model.
+
+    The model-level key set is already covered by the unit suite. What only a
+    live broker can show is that nothing else was serialized on the way out.
+    """
+    transport.publisher().publish(_envelope(), dedupe_key=uuid.uuid4().hex)
+
+    delivered = etl.fetch(10, 2.0)  # type: ignore[attr-defined]
+
+    assert json.loads(delivered[0].payload).keys() == {
         "contract_version",
         "run_id",
         "workspace_id",
         "role",
         "attempt",
     }
+    delivered[0].ack()

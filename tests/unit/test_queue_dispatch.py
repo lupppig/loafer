@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from loafer.adapters import metadata_schema as schema
 from loafer.adapters.metadata import SqlMetadataStore
 from loafer.adapters.queue.direct import DirectQueueConsumer, DirectQueuePublisher
 from loafer.adapters.queue.memory import (
@@ -249,6 +250,40 @@ def test_running_count_and_limits_are_scoped_to_tenant_and_environment(
     assert metadata.running_count("workspace-1", environment_id="env-2") == 0
     assert metadata.running_count("workspace-2") == 0
     assert metadata.concurrency_limit("workspace-1") is None
+
+
+def test_concurrency_limit_ignores_an_environment_from_another_tenant(
+    store: tuple[SqlMetadataStore, Clock],
+) -> None:
+    metadata, clock = store
+    with metadata.engine.begin() as connection:
+        for workspace_id, limit in (("workspace-1", 8), ("workspace-2", 2)):
+            connection.execute(
+                schema.workspaces.insert().values(
+                    id=workspace_id,
+                    organization_id="org-1",
+                    slug=workspace_id,
+                    name=workspace_id,
+                    created_at=clock(),
+                    max_concurrent_runs=limit,
+                )
+            )
+        connection.execute(
+            schema.environments.insert().values(
+                id="env-of-workspace-2",
+                workspace_id="workspace-2",
+                slug="prod",
+                name="Production",
+                is_production=True,
+                created_at=clock(),
+                max_concurrent_runs=1,
+            )
+        )
+
+    borrowed = metadata.concurrency_limit("workspace-1", environment_id="env-of-workspace-2")
+
+    assert borrowed == 8
+    assert metadata.concurrency_limit("workspace-2", environment_id="env-of-workspace-2") == 1
 
 
 def test_quarantine_ends_the_run_and_records_why(
