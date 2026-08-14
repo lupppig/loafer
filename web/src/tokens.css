@@ -1,55 +1,88 @@
+/*
+ * Loafer brand tokens.
+ *
+ * Direction: skills/loafer-web-ui/references/visual-direction.md
+ * "a data foundry and routing yard: a precise place where raw inputs arrive,
+ *  move through visible machinery, and leave as trusted outputs."
+ *
+ * Graphite and ink grounds, steel rules, warm paper text, one safety-orange
+ * signal. Corners stay near-square: this is stamped plate and blueprint, not
+ * a rounded SaaS card.
+ */
+
 :root {
-  --bg-base:      #080808;
-  --bg-surface:   #0f0f0f;
-  --bg-elevated:  #161616;
-  --bg-overlay:   #1c1c1c;
+  /* Graphite grounds. Faint cool-green bias so the neutrals read as metal
+     rather than as the default zinc every developer tool ships. */
+  --ink-base:     #0d0f0e;
+  --ink-surface:  #131615;
+  --ink-raised:   #1a1e1d;
+  --ink-overlay:  #232827;
 
-  --border-subtle:  #1f1f1f;
-  --border-default: #2a2a2a;
-  --border-strong:  #3a3a3a;
+  /* Steel rules. */
+  --steel-subtle: #222726;
+  --steel:        #333a38;
+  --steel-strong: #646d69;
 
-  --indigo-500: #6366f1;
-  --indigo-400: #818cf8;
-  --indigo-900: #1e1b4b;
-  --indigo-950: #17103a;
+  /* Warm paper, so type sits on the page like ink rather than glowing. */
+  --paper:        #ece9e1;
+  --paper-dim:    #a6ada7;
+  --paper-mute:   #828b86;
 
-  --green-500:  #22c55e;
-  --green-900:  #14532d;
-  
-  --amber-500:  #f59e0b;
-  --amber-900:  #78350f;
-  
-  --red-500:    #ef4444;
-  --red-900:    #7f1d1d;
-  
-  --blue-500:   #3b82f6;
-  --blue-900:   #1e3a8a;
+  /* The single accent. Safety orange, slightly desaturated to sit on
+     graphite without vibrating. */
+  --signal:       #d95f2a;
+  --signal-bright:#ef7a44;
+  --signal-deep:  #45180a;
 
-  --text-primary:   #f0f0f0;
-  --text-secondary: #a1a1aa;
-  --text-muted:     #52525b;
-  --text-code:      #e2e8f0;
+  /* Semantic run states. These are not accents; they only ever encode the
+     state of a pipeline stage, and never appear without a text label. */
+  --state-ok:     #58a06d;
+  --state-warn:   #c8922e;
+  --state-fail:   #cf6450;
 }
 
 @theme {
-  --color-bg-base: var(--bg-base);
-  --color-bg-surface: var(--bg-surface);
-  --color-bg-elevated: var(--bg-elevated);
-  --color-bg-overlay: var(--bg-overlay);
+  --color-ink-base: var(--ink-base);
+  --color-ink-surface: var(--ink-surface);
+  --color-ink-raised: var(--ink-raised);
+  --color-ink-overlay: var(--ink-overlay);
 
-  --color-border-subtle: var(--border-subtle);
-  --color-border-default: var(--border-default);
-  --color-border-strong: var(--border-strong);
+  --color-steel-subtle: var(--steel-subtle);
+  --color-steel: var(--steel);
+  --color-steel-strong: var(--steel-strong);
 
-  --color-text-primary: var(--text-primary);
-  --color-text-secondary: var(--text-secondary);
-  --color-text-muted: var(--text-muted);
-  --color-text-code: var(--text-code);
+  --color-paper: var(--paper);
+  --color-paper-dim: var(--paper-dim);
+  --color-paper-mute: var(--paper-mute);
 
-  --font-sans: "Geist", "Inter", sans-serif;
-  --font-mono: "Geist Mono", monospace;
+  --color-signal: var(--signal);
+  --color-signal-bright: var(--signal-bright);
+  --color-signal-deep: var(--signal-deep);
 
-  --radius-sm: 4px;
-  --radius-md: 8px;
+  --color-state-ok: var(--state-ok);
+  --color-state-warn: var(--state-warn);
+  --color-state-fail: var(--state-fail);
+
+  /* Compatibility aliases. The docs, changelog, and studio surfaces were
+     built against the previous names; they inherit the new palette without
+     needing to be rewritten in this change. */
+  --color-bg-base: var(--ink-base);
+  --color-bg-surface: var(--ink-surface);
+  --color-bg-elevated: var(--ink-raised);
+  --color-bg-overlay: var(--ink-overlay);
+  --color-border-subtle: var(--steel-subtle);
+  --color-border-default: var(--steel);
+  --color-border-strong: var(--steel-strong);
+  --color-text-primary: var(--paper);
+  --color-text-secondary: var(--paper-dim);
+  --color-text-muted: var(--paper-mute);
+  --color-text-code: var(--paper);
+
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, monospace;
+
+  /* One radius system, near-square throughout. */
+  --radius-sm: 2px;
+  --radius-md: 3px;
   --radius-full: 9999px;
 }

@@ -20,7 +20,7 @@ export function NavLink({ className, activeClassName, href, ...props }: NavLinkP
       {...props}
       href={href}
       className={cn(
-        'text-[13px] text-text-secondary transition-colors hover:text-text-primary hover:underline underline-offset-4 decoration-border-strong rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-indigo-500',
+        'text-[13px] text-text-secondary transition-colors hover:text-text-primary hover:underline underline-offset-4 decoration-border-strong rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-signal',
         isActive && cn('text-text-primary', activeClassName),
         className,
       )}

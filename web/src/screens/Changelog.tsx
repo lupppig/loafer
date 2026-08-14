@@ -113,9 +113,9 @@ const categories: Category[] = [
     key: 'new',
     label: 'New',
     icon: <Sparkles className="w-3.5 h-3.5" />,
-    accentClass: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/25',
-    borderClass: 'border-l-indigo-500/40',
-    dotClass: 'bg-indigo-500',
+    accentClass: 'text-signal bg-signal/10 border-signal/25',
+    borderClass: 'border-l-signal/40',
+    dotClass: 'bg-signal',
   },
   {
     key: 'improved',
@@ -139,7 +139,7 @@ function RichText({ html }: { html: string }) {
   return (
     <span
       dangerouslySetInnerHTML={{ __html: html }}
-      className="[&>code]:font-mono [&>code]:text-[12px] [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded [&>code]:bg-bg-elevated [&>code]:border [&>code]:border-border-subtle [&>code]:text-indigo-300"
+      className="[&>code]:font-mono [&>code]:text-[12px] [&>code]:px-1.5 [&>code]:py-0.5 [&>code]:rounded [&>code]:bg-bg-elevated [&>code]:border [&>code]:border-border-subtle [&>code]:text-signal"
     />
   );
 }
@@ -150,8 +150,8 @@ export function Changelog() {
         {/* Header */}
         <div className="mb-16">
           <div className="flex items-center gap-3 mb-4">
-            <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
-              <Package className="w-4.5 h-4.5 text-indigo-400" />
+            <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-signal/10 border border-signal/20">
+              <Package className="w-4.5 h-4.5 text-signal" />
             </div>
             <h1 className="text-[32px] font-bold font-sans text-text-primary tracking-tight">
               Changelog
@@ -171,7 +171,7 @@ export function Changelog() {
             {releases.map((release, i) => (
               <div key={i} className="relative pl-10 pb-16 last:pb-0 group">
                 {/* Timeline dot */}
-                <div className="absolute left-0 top-[6px] w-[15px] h-[15px] rounded-full border-2 border-border-strong bg-bg-base group-first:border-indigo-500 group-first:shadow-[0_0_8px_rgba(99,102,241,0.3)] transition-colors z-10" />
+                <div className="absolute left-0 top-[6px] w-[15px] h-[15px] rounded-full border-2 border-border-strong bg-bg-base group-first:border-signal group-first:shadow-[0_0_8px_rgba(99,102,241,0.3)] transition-colors z-10" />
 
                 {/* Version header */}
                 <div className="flex items-center gap-3 mb-1">
@@ -179,7 +179,7 @@ export function Changelog() {
                     {release.version}
                   </h2>
                   {i === 0 && (
-                    <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400 border border-indigo-500/25">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-signal/15 text-signal border border-signal/25">
                       Latest
                     </span>
                   )}

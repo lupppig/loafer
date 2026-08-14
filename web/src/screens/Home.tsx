@@ -1,27 +1,21 @@
 import { Hero } from '../components/home/Hero'
-import { DemoVideo } from '../components/home/DemoVideo';
-import { WhoItsFor } from '../components/home/WhoItsFor';
-import { HowItWorks } from '../components/home/HowItWorks';
-import { TransformModes } from '../components/home/TransformModes';
-import { WhyNotScriptIt } from '../components/home/WhyNotScriptIt';
-import { Connectors } from '../components/home/Connectors';
-import { Scheduling } from '../components/home/Scheduling';
-import { DeployOptions } from '../components/home/DeployOptions';
-import { OpenSource } from '../components/home/OpenSource';
+import { RunEvidence } from '../components/home/RunEvidence'
+import { Authoring } from '../components/home/Authoring'
+import { SourcesTargets } from '../components/home/SourcesTargets'
+import { Operations } from '../components/home/Operations'
+import { SelfHosting } from '../components/home/SelfHosting'
+import { ProjectStatus } from '../components/home/ProjectStatus'
 
 export function Home() {
   return (
-      <div className="flex flex-col w-full">
-        <Hero />
-        <DemoVideo />
-        <WhoItsFor />
-        <HowItWorks />
-        <TransformModes />
-        <WhyNotScriptIt />
-        <Connectors />
-        <Scheduling />
-        <DeployOptions />
-        <OpenSource />
-      </div>
-  );
+    <div className="flex w-full flex-col">
+      <Hero />
+      <RunEvidence />
+      <Authoring />
+      <SourcesTargets />
+      <Operations />
+      <SelfHosting />
+      <ProjectStatus />
+    </div>
+  )
 }

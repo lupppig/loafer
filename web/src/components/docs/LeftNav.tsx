@@ -56,7 +56,7 @@ export function LeftNav({ onSearchClick, isMobileOpen, onClose }: { onSearchClic
       <div className="p-4 pt-6 flex items-center gap-2">
         <button
           onClick={onSearchClick}
-          className="flex-1 flex items-center justify-between h-8 px-3 bg-bg-surface border border-border-default rounded-md text-[13px] text-text-muted hover:text-text-secondary hover:border-border-strong transition-colors outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 shadow-sm group"
+          className="flex-1 flex items-center justify-between h-8 px-3 bg-bg-surface border border-border-default rounded-md text-[13px] text-text-muted hover:text-text-secondary hover:border-border-strong transition-colors outline-none focus-visible:ring-2 focus-visible:ring-signal shadow-sm group"
         >
           <span className="flex items-center gap-2">
             <Search className="w-3.5 h-3.5 group-hover:text-text-primary transition-colors" />
@@ -88,9 +88,9 @@ export function LeftNav({ onSearchClick, isMobileOpen, onClose }: { onSearchClic
                   href={item.path}
                   onClick={() => onClose?.()}
                   className={cn(
-                    "h-7 flex items-center px-2 text-[13px] rounded-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-indigo-500",
+                    "h-7 flex items-center px-2 text-[13px] rounded-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-signal",
                     pathname === item.path
-                      ? "text-text-primary bg-indigo-950 font-medium border-l-2 border-indigo-500 pl-1.5" 
+                      ? "text-text-primary bg-signal-deep font-medium border-l-2 border-signal pl-1.5" 
                       : "text-text-secondary hover:bg-bg-overlay hover:text-text-primary border-l-2 border-transparent pl-2"
                   )}
                 >
@@ -110,7 +110,7 @@ export function LeftNav({ onSearchClick, isMobileOpen, onClose }: { onSearchClic
               href="https://github.com/lupppig/loafer" 
               target="_blank" 
               rel="noopener noreferrer"
-              className="h-7 flex items-center justify-between px-2 text-[13px] text-text-secondary rounded-sm hover:bg-bg-overlay hover:text-text-primary transition-colors group outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 border-l-2 border-transparent"
+              className="h-7 flex items-center justify-between px-2 text-[13px] text-text-secondary rounded-sm hover:bg-bg-overlay hover:text-text-primary transition-colors group outline-none focus-visible:ring-2 focus-visible:ring-signal border-l-2 border-transparent"
             >
               GitHub
               <ArrowUpRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity text-text-muted" />
@@ -118,7 +118,7 @@ export function LeftNav({ onSearchClick, isMobileOpen, onClose }: { onSearchClic
             <Link
               href="/changelog"
               onClick={() => onClose?.()}
-              className="h-7 flex items-center justify-between px-2 text-[13px] text-text-secondary rounded-sm hover:bg-bg-overlay hover:text-text-primary transition-colors group outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 border-l-2 border-transparent"
+              className="h-7 flex items-center justify-between px-2 text-[13px] text-text-secondary rounded-sm hover:bg-bg-overlay hover:text-text-primary transition-colors group outline-none focus-visible:ring-2 focus-visible:ring-signal border-l-2 border-transparent"
             >
               Changelog
               <ArrowUpRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity text-text-muted" />
