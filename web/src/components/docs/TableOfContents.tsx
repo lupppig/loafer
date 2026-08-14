@@ -67,10 +67,10 @@ export function TableOfContents() {
             key={i}
             href={`#${h.id}`}
             className={cn(
-              "text-[12px] hover:text-text-primary transition-colors py-1 block pr-2 -ml-[1px] border-l outline-none focus-visible:ring-1 focus-visible:ring-indigo-500 rounded-r-sm",
+              "text-[12px] hover:text-text-primary transition-colors py-1 block pr-2 -ml-[1px] border-l outline-none focus-visible:ring-1 focus-visible:ring-signal rounded-r-sm",
               h.level === 3 ? "pl-5" : "pl-3",
               activeId === h.id 
-                ? "text-text-primary border-indigo-500 font-medium bg-indigo-500/5 hover:bg-indigo-500/10" 
+                ? "text-text-primary border-signal font-medium bg-signal/5 hover:bg-signal/10" 
                 : "text-text-muted border-transparent hover:border-border-strong"
             )}
             onClick={(e) => {

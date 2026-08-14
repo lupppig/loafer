@@ -4,11 +4,11 @@ import '../src/index.css'
 
 export const metadata: Metadata = {
   title: {
-    default: 'Loafer | Your data pipeline in plain English',
+    default: 'Loafer | Self-hosted ETL and ELT with verifiable runs',
     template: '%s | Loafer',
   },
   description:
-    'Open-source ETL/ELT tooling for authoring, running, and observing reliable data pipelines.',
+    'Open-source ETL and ELT engine. Declare a pipeline in YAML, run it on your own infrastructure, and reconcile what landed against what was read.',
   icons: {
     icon: '/favicon.svg',
   },

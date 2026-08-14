@@ -58,7 +58,7 @@ export function CodeBlock(props: PreProps) {
         <button
           type="button"
           onClick={onCopy}
-          className="absolute top-2 right-2 p-1.5 rounded-md bg-bg-surface/80 backdrop-blur-sm border border-border-default opacity-0 group-hover:opacity-100 transition-all hover:bg-bg-elevated hover:border-border-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 shadow-sm z-10"
+          className="absolute top-2 right-2 p-1.5 rounded-md bg-bg-surface/80 backdrop-blur-sm border border-border-default opacity-0 group-hover:opacity-100 transition-all hover:bg-bg-elevated hover:border-border-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-signal shadow-sm z-10"
           title="Copy to clipboard"
         >
           {copied ? (
@@ -69,7 +69,7 @@ export function CodeBlock(props: PreProps) {
         </button>
       )}
       {isOutput && (
-        <div className="absolute top-2 right-3 text-[10px] font-bold text-indigo-400 opacity-60 uppercase tracking-widest select-none pointer-events-none">
+        <div className="absolute top-2 right-3 text-[10px] font-bold text-signal opacity-60 uppercase tracking-widest select-none pointer-events-none">
           Output
         </div>
       )}
@@ -81,7 +81,7 @@ export function MdxLink(props: ElementProps<'a'>) {
   const isExternal = props.href?.startsWith('http');
   return (
     <a
-      className="text-indigo-400 no-underline hover:underline decoration-indigo-400/50 underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-[2px]"
+      className="text-signal no-underline hover:underline decoration-signal/50 underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-signal rounded-[2px]"
       target={isExternal ? '_blank' : undefined}
       rel={isExternal ? 'noopener noreferrer' : undefined}
       {...props}

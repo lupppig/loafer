@@ -2,33 +2,112 @@
 @import "./tokens.css";
 @import "./typography.css";
 
-/* Base sensible resets */
 @layer base {
   *, ::before, ::after {
-    border-color: var(--border-default);
+    border-color: var(--steel);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--signal);
+    outline-offset: 2px;
+    border-radius: 2px;
   }
 }
 
-/* Code Block Syntax Highlighting (rehype-pretty-code) */
+/*
+ * Materials
+ * ---------
+ * Blueprint rule and metal grain, per the visual direction. Both are drawn as
+ * backgrounds on non-scrolling elements so they never force GPU repaints
+ * during scroll.
+ */
+
+.material-grid {
+  background-image:
+    linear-gradient(to right, var(--steel-subtle) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--steel-subtle) 1px, transparent 1px);
+  background-size: 88px 88px;
+}
+
+.material-rule {
+  background-image: linear-gradient(to right, var(--steel) 1px, transparent 1px);
+  background-size: 88px 100%;
+}
+
+/* Registration marks: the small crosshairs on a drafting plate. */
+.material-registration::before,
+.material-registration::after {
+  content: "";
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-color: var(--steel-strong);
+  pointer-events: none;
+}
+
+.material-registration::before {
+  top: -1px;
+  left: -1px;
+  border-top: 1px solid;
+  border-left: 1px solid;
+}
+
+.material-registration::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom: 1px solid;
+  border-right: 1px solid;
+}
+
+/*
+ * Scroll reveal
+ * -------------
+ * CSS scroll-driven animation, so the reveal costs no JavaScript and no scroll
+ * listener. Browsers without `animation-timeline` simply render the content in
+ * its final state, which is the correct fallback.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .reveal {
+      animation: reveal-in linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 46%;
+    }
+  }
+}
+
+@keyframes reveal-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/*
+ * Code blocks (rehype-pretty-code)
+ */
 figure[data-rehype-pretty-code-figure] {
-  background-color: var(--bg-elevated) !important;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
+  background-color: var(--ink-surface) !important;
+  border: 1px solid var(--steel-subtle);
+  border-radius: var(--radius-sm);
   margin: 1.5rem 0;
   overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   position: relative;
 }
 
 figure[data-rehype-pretty-code-figure] figcaption {
   padding: 0.6rem 1rem;
-  border-bottom: 1px solid var(--border-subtle);
-  color: var(--text-muted);
+  border-bottom: 1px solid var(--steel-subtle);
+  color: var(--paper-mute);
   font-family: var(--font-mono);
   font-size: 11px;
-  background-color: var(--bg-surface);
+  background-color: var(--ink-raised);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.14em;
 }
 
 figure[data-rehype-pretty-code-figure] pre {
@@ -53,18 +132,16 @@ figure[data-rehype-pretty-code-figure] code > [data-line]::before {
   width: 1.5rem;
   margin-right: 1rem;
   text-align: right;
-  color: var(--text-muted);
+  color: var(--paper-mute);
 }
 
-/* Hide line numbers for small terminal output if needed */
 .no-line-numbers code > [data-line]::before {
   display: none !important;
 }
 
-/* Custom Sleek Scrollbars */
 figure[data-rehype-pretty-code-figure] pre {
   scrollbar-width: thin;
-  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-color: var(--steel-strong) transparent;
 }
 figure[data-rehype-pretty-code-figure] pre::-webkit-scrollbar {
   height: 6px;
@@ -74,9 +151,9 @@ figure[data-rehype-pretty-code-figure] pre::-webkit-scrollbar-track {
   background: transparent;
 }
 figure[data-rehype-pretty-code-figure] pre::-webkit-scrollbar-thumb {
-  background-color: var(--border-strong);
-  border-radius: 4px;
+  background-color: var(--steel-strong);
+  border-radius: 2px;
 }
 figure[data-rehype-pretty-code-figure] pre::-webkit-scrollbar-thumb:hover {
-  background-color: var(--text-muted);
+  background-color: var(--paper-mute);
 }

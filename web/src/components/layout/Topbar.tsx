@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowUpRight, Star, Menu, X, PanelsTopLeft } from 'lucide-react';
 import { NavLink } from './NavLink';
@@ -11,16 +11,24 @@ export function Topbar() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  const sentinel = useRef<HTMLDivElement>(null);
+
+  // A sentinel plus IntersectionObserver, rather than a scroll listener: the
+  // callback fires twice per page instead of on every frame.
   useEffect(() => {
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 20);
-    };
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
+    const node = sentinel.current;
+    if (!node) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setScrolled(!entry.isIntersecting),
+      { rootMargin: '-20px 0px 0px 0px' },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
   }, []);
 
   return (
     <>
+      <div ref={sentinel} aria-hidden="true" className="absolute top-0 h-px w-full" />
       <header
         className={cn(
           'fixed top-0 inset-x-0 z-50 h-[52px] flex items-center justify-center transition-all duration-200 border-b',
@@ -32,7 +40,7 @@ export function Topbar() {
         <div className="w-full max-w-7xl px-6 flex items-center justify-between">
           <Link 
             href="/"
-            className="font-sans font-semibold text-base text-text-primary flex items-center outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-sm transition-opacity hover:opacity-80"
+            className="font-sans font-semibold text-base text-text-primary flex items-center outline-none focus-visible:ring-2 focus-visible:ring-signal rounded-sm transition-opacity hover:opacity-80"
           >
             loafer
           </Link>
@@ -56,12 +64,11 @@ export function Topbar() {
               href="https://github.com/lupppig/loafer"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-sm"
+              className="flex items-center outline-none focus-visible:ring-2 focus-visible:ring-signal rounded-sm"
             >
               <Button variant="outline" size="sm" className="h-7 px-2.5 text-xs gap-1.5 border-border-default" tabIndex={-1}>
                 <Star className="w-3.5 h-3.5" />
                 <span>Star on GitHub</span>
-                <span className="text-text-muted ml-0.5">1.2k</span>
               </Button>
             </a>
           </nav>
@@ -69,7 +76,7 @@ export function Topbar() {
           <div className="flex md:hidden items-center gap-2">
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 -mr-2 text-text-secondary hover:text-text-primary transition-colors outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-sm"
+              className="p-2 -mr-2 text-text-secondary hover:text-text-primary transition-colors outline-none focus-visible:ring-2 focus-visible:ring-signal rounded-sm"
               aria-label="Toggle menu"
             >
               {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
@@ -86,17 +93,17 @@ export function Topbar() {
         )}
       >
         <nav className="flex flex-col items-center justify-center h-full gap-8 px-6 text-center">
-          <Link onClick={() => setMobileMenuOpen(false)} href="/docs" className="text-2xl font-semibold text-text-primary hover:text-indigo-400 transition-colors">Docs</Link>
-          <Link onClick={() => setMobileMenuOpen(false)} href="/studio" className="flex items-center gap-3 text-2xl font-semibold text-text-primary hover:text-indigo-400 transition-colors">
+          <Link onClick={() => setMobileMenuOpen(false)} href="/docs" className="text-2xl font-semibold text-text-primary hover:text-signal transition-colors">Docs</Link>
+          <Link onClick={() => setMobileMenuOpen(false)} href="/studio" className="flex items-center gap-3 text-2xl font-semibold text-text-primary hover:text-signal transition-colors">
             Studio preview
             <PanelsTopLeft className="w-5 h-5 opacity-50" />
           </Link>
-          <Link onClick={() => setMobileMenuOpen(false)} href="/changelog" className="text-2xl font-semibold text-text-primary hover:text-indigo-400 transition-colors">Changelog</Link>
+          <Link onClick={() => setMobileMenuOpen(false)} href="/changelog" className="text-2xl font-semibold text-text-primary hover:text-signal transition-colors">Changelog</Link>
           <a 
             href="https://github.com/lupppig/loafer" 
             target="_blank" 
             rel="noopener noreferrer"
-            className="flex items-center gap-3 text-2xl font-semibold text-text-primary hover:text-indigo-400 transition-colors"
+            className="flex items-center gap-3 text-2xl font-semibold text-text-primary hover:text-signal transition-colors"
           >
             GitHub
             <ArrowUpRight className="w-5 h-5 opacity-50" />

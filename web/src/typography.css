@@ -1,12 +1,15 @@
 @import "@fontsource/geist-sans/400.css";
+@import "@fontsource/geist-sans/500.css";
 @import "@fontsource/geist-sans/600.css";
 @import "@fontsource/geist-sans/700.css";
+@import "@fontsource/geist-sans/800.css";
 @import "@fontsource/geist-mono/400.css";
+@import "@fontsource/geist-mono/500.css";
 
 body {
   font-family: var(--font-sans);
-  background-color: var(--bg-base);
-  color: var(--text-primary);
+  background-color: var(--ink-base);
+  color: var(--paper);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -16,6 +19,23 @@ code, kbd, pre, samp {
 }
 
 ::selection {
-  background-color: rgba(99, 102, 241, 0.3); /* indigo-500 with opacity */
-  color: var(--text-primary);
+  background-color: var(--signal);
+  color: #ffffff;
+}
+
+/* Technical labels: stamped, not decorative. Used for stage names, units,
+   and column headers where the mono voice carries meaning. */
+.stamp {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--paper-mute);
+}
+
+/* Measured quantities always align and always use tabular figures. */
+.figure {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
