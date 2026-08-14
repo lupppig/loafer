@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from loafer.contracts import BatchEnvelope, Checkpoint
+from loafer.core.roles import WorkerRole
 from loafer.core.run_state import RetryCategory, RunState
 
 
@@ -113,3 +114,6 @@ class OutboxRecord:
     available_at: datetime
     published_at: datetime | None
     attempts: int
+    role: str = WorkerRole.ETL.value
+    claimed_until: datetime | None = None
+    last_error: str | None = None

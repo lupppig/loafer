@@ -23,15 +23,17 @@ from sqlalchemy import (
     delete,
     func,
     insert,
+    inspect,
     select,
     text,
 )
 from sqlalchemy.engine import Connection, Engine
 
+from loafer.core.roles import WorkerRole
 from loafer.core.run_state import BatchState, RetryCategory, RunState, StageState
 from loafer.exceptions import MetadataError
 
-LATEST_SCHEMA_VERSION = 3
+LATEST_SCHEMA_VERSION = 4
 _POSTGRES_MIGRATION_LOCK_ID = int.from_bytes(b"loafer", byteorder="big")
 metadata = MetaData()
 
@@ -90,6 +92,9 @@ runs = Table(
     Column("finished_at", DateTime(timezone=True)),
     Column("parent_run_id", String(64), ForeignKey("loafer_runs.id", ondelete="SET NULL")),
     Column("error_json", JSON),
+    Column("role", String(32), nullable=False, server_default="etl"),
+    Column("environment_id", String(64)),
+    Column("quarantined", Boolean, nullable=False, server_default=text("false")),
     UniqueConstraint("workspace_id", "command_key", name="uq_loafer_run_command"),
     CheckConstraint(f"state IN ({_values(RunState)})", name="ck_loafer_run_state"),
     CheckConstraint(
@@ -231,6 +236,9 @@ outbox = Table(
     Column("available_at", DateTime(timezone=True), nullable=False),
     Column("published_at", DateTime(timezone=True)),
     Column("attempts", Integer, nullable=False, default=0),
+    Column("role", String(32), nullable=False, server_default="etl"),
+    Column("claimed_until", DateTime(timezone=True)),
+    Column("last_error", Text),
     CheckConstraint("attempts >= 0", name="ck_loafer_outbox_attempts"),
 )
 
@@ -242,6 +250,7 @@ workspaces = Table(
     Column("slug", String(128), nullable=False),
     Column("name", String(255), nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("max_concurrent_runs", Integer),
     UniqueConstraint("organization_id", "slug", name="uq_loafer_workspace_slug"),
 )
 
@@ -259,6 +268,7 @@ environments = Table(
     Column("name", String(255), nullable=False),
     Column("is_production", Boolean, nullable=False, default=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("max_concurrent_runs", Integer),
     UniqueConstraint("workspace_id", "slug", name="uq_loafer_environment_slug"),
 )
 
@@ -374,6 +384,37 @@ _OUTBOX_INDEX = Index(
     "ix_loafer_outbox_pending",
     outbox.c.published_at,
     outbox.c.available_at,
+)
+_TENANT_ACTIVE_INDEX = Index(
+    "ix_loafer_runs_tenant_active",
+    runs.c.workspace_id,
+    runs.c.state,
+)
+_SCHEDULE_DUE_INDEX = Index(
+    "ix_loafer_schedules_due",
+    schedules.c.enabled,
+    schedules.c.next_run_at,
+)
+_OUTBOX_CLAIM_INDEX = Index(
+    "ix_loafer_outbox_claimable",
+    outbox.c.published_at,
+    outbox.c.claimed_until,
+)
+
+_V4_INDEXES = (_TENANT_ACTIVE_INDEX, _SCHEDULE_DUE_INDEX, _OUTBOX_CLAIM_INDEX)
+
+# Columns v4 introduces on tables that earlier versions already created. A
+# fresh database gets them from the table definitions above at v1/v2/v3, so
+# every ALTER here is applied only when the column is genuinely absent.
+_V4_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("loafer_runs", "role", "VARCHAR(32) NOT NULL DEFAULT 'etl'"),
+    ("loafer_runs", "environment_id", "VARCHAR(64)"),
+    ("loafer_runs", "quarantined", "BOOLEAN NOT NULL DEFAULT false"),
+    ("loafer_outbox", "role", "VARCHAR(32) NOT NULL DEFAULT 'etl'"),
+    ("loafer_outbox", "claimed_until", "TIMESTAMP WITH TIME ZONE"),
+    ("loafer_outbox", "last_error", "TEXT"),
+    ("loafer_workspaces", "max_concurrent_runs", "INTEGER"),
+    ("loafer_environments", "max_concurrent_runs", "INTEGER"),
 )
 
 _V1_TABLES = (
@@ -529,5 +570,47 @@ def _down_v3(connection: Connection) -> None:
         table.drop(connection, checkfirst=True)
 
 
-_UP: dict[int, Callable[[Connection], None]] = {1: _up_v1, 2: _up_v2, 3: _up_v3}
-_DOWN: dict[int, Callable[[Connection], None]] = {1: _down_v1, 2: _down_v2, 3: _down_v3}
+def _column_names(connection: Connection, table_name: str) -> set[str]:
+    return {column["name"] for column in inspect(connection).get_columns(table_name)}
+
+
+def _up_v4(connection: Connection) -> None:
+    for table_name, column_name, definition in _V4_COLUMNS:
+        if column_name in _column_names(connection, table_name):
+            continue
+        connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}"))
+    for index in _V4_INDEXES:
+        index.create(connection, checkfirst=True)
+    if connection.dialect.name == "postgresql":
+        # SQLite cannot add a constraint to an existing table, so the role
+        # domain is enforced in the authoritative store only. The embedded
+        # profile relies on WorkerRole at the adapter boundary, the same way
+        # its tenant scoping relies on explicit predicates rather than RLS.
+        connection.execute(
+            text(
+                f"ALTER TABLE loafer_runs ADD CONSTRAINT ck_loafer_run_role "
+                f"CHECK (role IN ({_values(WorkerRole)}))"
+            )
+        )
+
+
+def _down_v4(connection: Connection) -> None:
+    if connection.dialect.name == "postgresql":
+        connection.execute(
+            text("ALTER TABLE loafer_runs DROP CONSTRAINT IF EXISTS ck_loafer_run_role")
+        )
+    for index in reversed(_V4_INDEXES):
+        index.drop(connection, checkfirst=True)
+    for table_name, column_name, _definition in reversed(_V4_COLUMNS):
+        if column_name not in _column_names(connection, table_name):
+            continue
+        connection.execute(text(f"ALTER TABLE {table_name} DROP COLUMN {column_name}"))
+
+
+_UP: dict[int, Callable[[Connection], None]] = {1: _up_v1, 2: _up_v2, 3: _up_v3, 4: _up_v4}
+_DOWN: dict[int, Callable[[Connection], None]] = {
+    1: _down_v1,
+    2: _down_v2,
+    3: _down_v3,
+    4: _down_v4,
+}

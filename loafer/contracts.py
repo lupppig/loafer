@@ -9,6 +9,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
+from loafer.core.roles import WorkerRole
+
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
@@ -101,6 +103,22 @@ class BatchEnvelope(ContractModel):
     input_checksum: str | None = None
     output_checksum: str | None = None
     duration_ms: float = Field(default=0.0, ge=0)
+
+
+class JobEnvelope(ContractModel):
+    """Opaque dispatch identity for one durable run.
+
+    This is the entire payload a worker receives over the job transport. It
+    carries identifiers only: configuration, credentials, and rows are read
+    from authoritative metadata and object storage under the worker's own
+    lease, so a compromised or persisted transport never leaks them.
+    """
+
+    contract_version: Literal[1] = 1
+    run_id: str
+    workspace_id: str
+    role: WorkerRole = WorkerRole.ETL
+    attempt: int = Field(default=0, ge=0)
 
 
 class Checkpoint(ContractModel):

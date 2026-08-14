@@ -33,7 +33,7 @@ class Clock:
 def store(tmp_path: Path) -> tuple[SqlMetadataStore, Clock]:
     clock = Clock()
     metadata = SqlMetadataStore(f"sqlite:///{tmp_path / 'metadata.db'}", clock=clock)
-    assert metadata.migrate() == 3
+    assert metadata.migrate() == schema.LATEST_SCHEMA_VERSION
     try:
         yield metadata, clock
     finally:
@@ -168,18 +168,48 @@ def test_migrations_upgrade_previous_schema_rollback_and_reapply(tmp_path: Path)
         assert metadata.migrate(1) == 1
         version_id = _version(metadata)
 
-        assert metadata.migrate() == 3
+        assert metadata.migrate() == schema.LATEST_SCHEMA_VERSION
         assert metadata.get_pipeline_version(version_id).pipeline_key == "customers"
         assert "loafer_outbox" in inspect(metadata.engine).get_table_names()
+        assert "role" in _columns(metadata, "loafer_runs")
 
         assert metadata.migrate(1) == 1
         assert "loafer_outbox" not in inspect(metadata.engine).get_table_names()
         assert metadata.get_pipeline_version(version_id).pipeline_key == "customers"
 
-        assert metadata.migrate() == 3
+        assert metadata.migrate() == schema.LATEST_SCHEMA_VERSION
         assert "loafer_outbox" in inspect(metadata.engine).get_table_names()
+        assert "role" in _columns(metadata, "loafer_runs")
     finally:
         metadata.close()
+
+
+def test_v4_columns_and_indexes_round_trip(tmp_path: Path) -> None:
+    metadata = SqlMetadataStore(f"sqlite:///{tmp_path / 'v4.db'}")
+    try:
+        metadata.migrate()
+        assert {"role", "environment_id", "quarantined"} <= _columns(metadata, "loafer_runs")
+        assert {"role", "claimed_until", "last_error"} <= _columns(metadata, "loafer_outbox")
+        assert "max_concurrent_runs" in _columns(metadata, "loafer_workspaces")
+        assert "max_concurrent_runs" in _columns(metadata, "loafer_environments")
+        assert "ix_loafer_runs_tenant_active" in _indexes(metadata, "loafer_runs")
+
+        assert metadata.migrate(3) == 3
+        assert not {"role", "environment_id", "quarantined"} & _columns(metadata, "loafer_runs")
+        assert "ix_loafer_runs_tenant_active" not in _indexes(metadata, "loafer_runs")
+
+        assert metadata.migrate() == schema.LATEST_SCHEMA_VERSION
+        assert {"role", "environment_id", "quarantined"} <= _columns(metadata, "loafer_runs")
+    finally:
+        metadata.close()
+
+
+def _columns(metadata: SqlMetadataStore, table_name: str) -> set[str]:
+    return {column["name"] for column in inspect(metadata.engine).get_columns(table_name)}
+
+
+def _indexes(metadata: SqlMetadataStore, table_name: str) -> set[str]:
+    return {index["name"] for index in inspect(metadata.engine).get_indexes(table_name)}
 
 
 def test_schema_verification_rejects_older_and_newer_versions_without_migrating(
@@ -187,20 +217,26 @@ def test_schema_verification_rejects_older_and_newer_versions_without_migrating(
 ) -> None:
     metadata = SqlMetadataStore(f"sqlite:///{tmp_path / 'version-check.db'}")
     try:
+        latest = schema.LATEST_SCHEMA_VERSION
+        unsupported = latest + 1
+
         metadata.migrate(1)
-        with pytest.raises(MetadataError, match=r"version 1.*expected 3"):
+        with pytest.raises(MetadataError, match=rf"version 1.*expected {latest}"):
             metadata.verify_schema()
         assert metadata.current_schema_version() == 1
 
         metadata.migrate()
         with metadata.engine.begin() as connection:
-            connection.execute(schema.schema_migrations.insert().values(version=4))
-        with pytest.raises(MetadataError, match=r"version 4.*expected 3"):
+            connection.execute(schema.schema_migrations.insert().values(version=unsupported))
+        with pytest.raises(MetadataError, match=rf"version {unsupported}.*expected {latest}"):
             metadata.verify_schema()
-        assert metadata.current_schema_version() == 4
-        with pytest.raises(MetadataError, match=r"version 4 is newer.*supports \(3\)"):
+        assert metadata.current_schema_version() == unsupported
+        with pytest.raises(
+            MetadataError,
+            match=rf"version {unsupported} is newer.*supports \({latest}\)",
+        ):
             metadata.migrate()
-        assert metadata.current_schema_version() == 4
+        assert metadata.current_schema_version() == unsupported
     finally:
         metadata.close()
 

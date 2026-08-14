@@ -8,12 +8,13 @@ from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, event, insert, or_, select, text, update
+from sqlalchemy import and_, event, func, insert, or_, select, text, update
 from sqlalchemy.engine import Connection, Engine, RowMapping, create_engine
 from sqlalchemy.exc import IntegrityError
 
 from loafer.adapters import metadata_schema as schema
-from loafer.contracts import BatchEnvelope, Checkpoint
+from loafer.contracts import BatchEnvelope, Checkpoint, JobEnvelope
+from loafer.core.roles import WorkerRole
 from loafer.core.run_state import (
     BatchState,
     RetryCategory,
@@ -156,6 +157,8 @@ class SqlMetadataStore:
         run_id: str | None = None,
         parent_run_id: str | None = None,
         retry_category: RetryCategory | None = None,
+        role: WorkerRole = WorkerRole.ETL,
+        environment_id: str | None = None,
         connection: Connection | None = None,
     ) -> RunRecord:
         now = self._clock()
@@ -170,18 +173,108 @@ class SqlMetadataStore:
                 parent_run_id=parent_run_id,
                 retry_category=retry_category,
                 now=now,
+                role=role,
+                environment_id=environment_id,
             )
 
     def get_run(self, run_id: str) -> RunRecord:
         with self._engine.connect() as connection:
             return _run_record(self._run_row(connection, run_id))
 
-    def claim_run(self, worker_id: str, lease_for: timedelta) -> RunLease | None:
+    def claim_run(
+        self,
+        worker_id: str,
+        lease_for: timedelta,
+        *,
+        role: WorkerRole | None = None,
+    ) -> RunLease | None:
+        """Claim the oldest runnable run, optionally restricted to one role."""
         if lease_for <= timedelta(0):
             raise ValueError("lease_for must be positive")
         now = self._clock()
-        expires_at = now + lease_for
-        runnable = or_(
+        predicate = self._runnable_predicate(now)
+        if role is not None:
+            predicate = and_(predicate, schema.runs.c.role == role.value)
+        with self._engine.begin() as connection:
+            query = (
+                select(schema.runs)
+                .where(predicate)
+                .order_by(schema.runs.c.created_at, schema.runs.c.id)
+                .limit(1)
+            )
+            if self.profile == "postgresql":
+                query = query.with_for_update(skip_locked=True)
+            row = connection.execute(query).mappings().one_or_none()
+            if row is None:
+                return None
+            return self._claim_row(connection, row, worker_id, now, now + lease_for)
+
+    def claim_run_by_id(
+        self,
+        run_id: str,
+        worker_id: str,
+        lease_for: timedelta,
+    ) -> RunLease | None:
+        """Claim one dispatched run, or return None when it is not claimable.
+
+        A redelivered transport message resolves here. Returning ``None``
+        rather than raising is what makes duplicate delivery cheap: the run is
+        already terminal or already held under a live lease, so the caller
+        acknowledges the message without executing anything.
+        """
+        if lease_for <= timedelta(0):
+            raise ValueError("lease_for must be positive")
+        now = self._clock()
+        with self._engine.begin() as connection:
+            query = select(schema.runs).where(
+                schema.runs.c.id == run_id,
+                self._runnable_predicate(now),
+            )
+            if self.profile == "postgresql":
+                query = query.with_for_update(skip_locked=True)
+            row = connection.execute(query).mappings().one_or_none()
+            if row is None:
+                return None
+            return self._claim_row(connection, row, worker_id, now, now + lease_for)
+
+    def list_runnable(
+        self,
+        *,
+        role: WorkerRole | None = None,
+        limit: int = 10,
+    ) -> list[JobEnvelope]:
+        """Return dispatchable job identities without claiming them.
+
+        The no-broker profile uses this as its queue: peeking rather than
+        claiming keeps a single claim path shared with transport delivery, so
+        a lost race resolves as a no-op acknowledgement instead of a second
+        execution.
+        """
+        if limit <= 0:
+            raise ValueError("limit must be positive")
+        predicate = self._runnable_predicate(self._clock())
+        if role is not None:
+            predicate = and_(predicate, schema.runs.c.role == role.value)
+        with self._engine.connect() as connection:
+            rows = connection.execute(
+                select(schema.runs)
+                .where(predicate)
+                .order_by(schema.runs.c.created_at, schema.runs.c.id)
+                .limit(limit)
+            ).mappings()
+            return [
+                JobEnvelope(
+                    run_id=row["id"],
+                    workspace_id=row["workspace_id"],
+                    role=WorkerRole(row["role"]),
+                    attempt=int(row["attempt"]),
+                )
+                for row in rows
+            ]
+
+    @staticmethod
+    def _runnable_predicate(now: datetime) -> Any:
+        return or_(
             schema.runs.c.state == RunState.QUEUED.value,
             and_(
                 schema.runs.c.state == RunState.RETRY_WAIT.value,
@@ -192,74 +285,70 @@ class SqlMetadataStore:
                 schema.runs.c.lease_expires_at <= now,
             ),
         )
-        with self._engine.begin() as connection:
-            query = (
-                select(schema.runs)
-                .where(runnable)
-                .order_by(schema.runs.c.created_at, schema.runs.c.id)
-                .limit(1)
+
+    def _claim_row(
+        self,
+        connection: Connection,
+        row: RowMapping,
+        worker_id: str,
+        now: datetime,
+        expires_at: datetime,
+    ) -> RunLease | None:
+        current_state = RunState(row["state"])
+        if current_state == RunState.RETRY_WAIT:
+            require_run_transition(current_state, RunState.QUEUED)
+            current_state = RunState.QUEUED
+        elif current_state in {
+            RunState.CLAIMED,
+            RunState.RUNNING,
+            RunState.CANCELLING,
+        }:
+            require_run_transition(current_state, RunState.RETRY_WAIT)
+            require_run_transition(RunState.RETRY_WAIT, RunState.QUEUED)
+            current_state = RunState.QUEUED
+        require_run_transition(current_state, RunState.CLAIMED)
+        token = int(row["fencing_token"]) + 1
+        attempt = int(row["attempt"])
+        if row["state"] in _ACTIVE_STATES:
+            attempt += 1
+        result = connection.execute(
+            update(schema.runs)
+            .where(
+                schema.runs.c.id == row["id"],
+                schema.runs.c.fencing_token == row["fencing_token"],
             )
-            if self.profile == "postgresql":
-                query = query.with_for_update(skip_locked=True)
-            row = connection.execute(query).mappings().one_or_none()
-            if row is None:
-                return None
-            current_state = RunState(row["state"])
-            if current_state == RunState.RETRY_WAIT:
-                require_run_transition(current_state, RunState.QUEUED)
-                current_state = RunState.QUEUED
-            elif current_state in {
-                RunState.CLAIMED,
-                RunState.RUNNING,
-                RunState.CANCELLING,
-            }:
-                require_run_transition(current_state, RunState.RETRY_WAIT)
-                require_run_transition(RunState.RETRY_WAIT, RunState.QUEUED)
-                current_state = RunState.QUEUED
-            require_run_transition(current_state, RunState.CLAIMED)
-            token = int(row["fencing_token"]) + 1
-            attempt = int(row["attempt"])
-            if row["state"] in _ACTIVE_STATES:
-                attempt += 1
-            result = connection.execute(
-                update(schema.runs)
-                .where(
-                    schema.runs.c.id == row["id"],
-                    schema.runs.c.fencing_token == row["fencing_token"],
-                )
-                .values(
-                    state=RunState.CLAIMED.value,
-                    attempt=attempt,
-                    retry_category=(
-                        RetryCategory.INFRASTRUCTURE.value
-                        if row["state"] in _ACTIVE_STATES
-                        else row["retry_category"]
-                    ),
-                    retry_at=None,
-                    lease_owner=worker_id,
-                    fencing_token=token,
-                    lease_expires_at=expires_at,
-                    heartbeat_at=now,
-                    finished_at=None,
-                )
-            )
-            if result.rowcount != 1:
-                return None
-            claimed = self._run_row(connection, row["id"])
-            self._append_event(
-                connection,
-                claimed,
-                "run.claimed",
-                {"worker_id": worker_id, "fencing_token": token, "attempt": attempt},
-                now,
-            )
-            run = _run_record(claimed)
-            return RunLease(
-                run=run,
-                worker_id=worker_id,
+            .values(
+                state=RunState.CLAIMED.value,
+                attempt=attempt,
+                retry_category=(
+                    RetryCategory.INFRASTRUCTURE.value
+                    if row["state"] in _ACTIVE_STATES
+                    else row["retry_category"]
+                ),
+                retry_at=None,
+                lease_owner=worker_id,
                 fencing_token=token,
-                expires_at=expires_at,
+                lease_expires_at=expires_at,
+                heartbeat_at=now,
+                finished_at=None,
             )
+        )
+        if result.rowcount != 1:
+            return None
+        claimed = self._run_row(connection, row["id"])
+        self._append_event(
+            connection,
+            claimed,
+            "run.claimed",
+            {"worker_id": worker_id, "fencing_token": token, "attempt": attempt},
+            now,
+        )
+        return RunLease(
+            run=_run_record(claimed),
+            worker_id=worker_id,
+            fencing_token=token,
+            expires_at=expires_at,
+        )
 
     def heartbeat(self, lease: RunLease, lease_for: timedelta) -> RunLease:
         if lease_for <= timedelta(0):
@@ -714,6 +803,87 @@ class SqlMetadataStore:
             ).mappings()
             return [_outbox(row) for row in rows]
 
+    def claim_outbox(
+        self,
+        *,
+        limit: int = 100,
+        role: WorkerRole | None = None,
+        lease_for: timedelta = timedelta(seconds=30),
+        event_types: tuple[str, ...] = (),
+    ) -> list[OutboxRecord]:
+        """Lease unpublished transport records so concurrent relays cannot overlap.
+
+        ``pending_outbox`` remains a lock-free read for inspection. Publication
+        must go through this method: without a lease, two relays read the same
+        rows and publish every job twice.
+        """
+        if limit <= 0:
+            raise ValueError("limit must be positive")
+        if lease_for <= timedelta(0):
+            raise ValueError("lease_for must be positive")
+        now = self._clock()
+        claimed_until = now + lease_for
+        with self._engine.begin() as connection:
+            query = (
+                select(schema.outbox)
+                .where(
+                    schema.outbox.c.published_at.is_(None),
+                    schema.outbox.c.available_at <= now,
+                    or_(
+                        schema.outbox.c.claimed_until.is_(None),
+                        schema.outbox.c.claimed_until <= now,
+                    ),
+                )
+                .order_by(schema.outbox.c.available_at, schema.outbox.c.id)
+                .limit(limit)
+            )
+            if role is not None:
+                query = query.where(schema.outbox.c.role == role.value)
+            if event_types:
+                query = query.where(schema.outbox.c.event_type.in_(event_types))
+            if self.profile == "postgresql":
+                query = query.with_for_update(skip_locked=True)
+            rows = list(connection.execute(query).mappings())
+            if not rows:
+                return []
+            identifiers = [row["id"] for row in rows]
+            connection.execute(
+                update(schema.outbox)
+                .where(schema.outbox.c.id.in_(identifiers))
+                .values(
+                    claimed_until=claimed_until,
+                    attempts=schema.outbox.c.attempts + 1,
+                )
+            )
+            claimed = connection.execute(
+                select(schema.outbox)
+                .where(schema.outbox.c.id.in_(identifiers))
+                .order_by(schema.outbox.c.available_at, schema.outbox.c.id)
+            ).mappings()
+            return [_outbox(row) for row in claimed]
+
+    def release_outbox(
+        self,
+        outbox_id: str,
+        *,
+        error: str,
+        retry_after: timedelta = timedelta(seconds=5),
+    ) -> None:
+        """Return an unpublished record for retry and record why it failed."""
+        with self._engine.begin() as connection:
+            connection.execute(
+                update(schema.outbox)
+                .where(
+                    schema.outbox.c.id == outbox_id,
+                    schema.outbox.c.published_at.is_(None),
+                )
+                .values(
+                    claimed_until=None,
+                    available_at=self._clock() + retry_after,
+                    last_error=error[:1000],
+                )
+            )
+
     def mark_outbox_published(self, outbox_id: str, published_at: datetime) -> None:
         with self._engine.begin() as connection:
             connection.execute(
@@ -722,8 +892,88 @@ class SqlMetadataStore:
                     schema.outbox.c.id == outbox_id,
                     schema.outbox.c.published_at.is_(None),
                 )
-                .values(published_at=published_at)
+                .values(published_at=published_at, claimed_until=None)
             )
+
+    def running_count(
+        self,
+        workspace_id: str,
+        *,
+        environment_id: str | None = None,
+    ) -> int:
+        """Count runs currently holding or awaiting a lease for one tenant."""
+        query = (
+            select(func.count())
+            .select_from(schema.runs)
+            .where(
+                schema.runs.c.workspace_id == workspace_id,
+                schema.runs.c.state.in_(_ACTIVE_STATES),
+            )
+        )
+        if environment_id is not None:
+            query = query.where(schema.runs.c.environment_id == environment_id)
+        with self._engine.connect() as connection:
+            return int(connection.execute(query).scalar_one())
+
+    def concurrency_limit(
+        self,
+        workspace_id: str,
+        *,
+        environment_id: str | None = None,
+    ) -> int | None:
+        """Return the tightest configured concurrency limit, or None when unset."""
+        limits: list[int] = []
+        with self._engine.connect() as connection:
+            workspace_limit = connection.execute(
+                select(schema.workspaces.c.max_concurrent_runs).where(
+                    schema.workspaces.c.id == workspace_id
+                )
+            ).scalar_one_or_none()
+            if workspace_limit is not None:
+                limits.append(int(workspace_limit))
+            if environment_id is not None:
+                environment_limit = connection.execute(
+                    select(schema.environments.c.max_concurrent_runs).where(
+                        schema.environments.c.id == environment_id,
+                        schema.environments.c.workspace_id == workspace_id,
+                    )
+                ).scalar_one_or_none()
+                if environment_limit is not None:
+                    limits.append(int(environment_limit))
+        return min(limits) if limits else None
+
+    def quarantine_run(self, lease: RunLease, reason: str) -> RunRecord:
+        """Fail a run permanently and stop the transport redelivering it.
+
+        Quarantine is distinct from exhausting ``max_attempts``: the run itself
+        may never have executed. It is recorded as a failure that must not be
+        retried, so an operator can find it without scanning ordinary failures.
+        """
+        now = self._clock()
+        with self._engine.begin() as connection:
+            row = self._require_fence(connection, lease, now)
+            require_run_transition(RunState(row["state"]), RunState.FAILED)
+            result = connection.execute(
+                update(schema.runs)
+                .where(
+                    schema.runs.c.id == lease.run.id,
+                    schema.runs.c.fencing_token == lease.fencing_token,
+                )
+                .values(
+                    state=RunState.FAILED.value,
+                    quarantined=True,
+                    finished_at=now,
+                    lease_owner=None,
+                    lease_expires_at=None,
+                    heartbeat_at=None,
+                    error_json={"type": "PoisonJob", "message": reason},
+                )
+            )
+            if result.rowcount != 1:
+                raise StaleFenceError(f"stale fencing token for run {lease.run.id}")
+            quarantined = self._run_row(connection, lease.run.id)
+            self._append_event(connection, quarantined, "run.quarantined", {"reason": reason}, now)
+            return _run_record(quarantined)
 
     def _create_run(
         self,
@@ -736,6 +986,8 @@ class SqlMetadataStore:
         parent_run_id: str | None,
         retry_category: RetryCategory | None,
         now: datetime,
+        role: WorkerRole = WorkerRole.ETL,
+        environment_id: str | None = None,
     ) -> RunRecord:
         existing = (
             connection.execute(
@@ -768,6 +1020,9 @@ class SqlMetadataStore:
                     fencing_token=0,
                     created_at=now,
                     parent_run_id=parent_run_id,
+                    role=role.value,
+                    environment_id=environment_id,
+                    quarantined=False,
                 )
             )
         except IntegrityError as exc:
@@ -786,9 +1041,18 @@ class SqlMetadataStore:
                 aggregate_type="run",
                 aggregate_id=run_id,
                 event_type="run.created",
-                payload_json={"run_id": run_id, "sequence": event.sequence},
+                # Identifiers only: the relay builds a JobEnvelope straight from
+                # this payload, and nothing that reaches the transport may carry
+                # configuration, credentials, or rows.
+                payload_json={
+                    "run_id": run_id,
+                    "sequence": event.sequence,
+                    "workspace_id": workspace_id,
+                    "role": role.value,
+                },
                 available_at=now,
                 attempts=0,
+                role=role.value,
             )
         )
         return _run_record(self._run_row(connection, run_id))
@@ -1079,6 +1343,9 @@ def _outbox(row: RowMapping) -> OutboxRecord:
         available_at=_as_utc(row["available_at"]),
         published_at=_optional_utc(row["published_at"]),
         attempts=int(row["attempts"]),
+        role=row["role"],
+        claimed_until=_optional_utc(row["claimed_until"]),
+        last_error=row["last_error"],
     )
 
 

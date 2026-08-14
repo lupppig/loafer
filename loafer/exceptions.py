@@ -60,6 +60,10 @@ class PipelineError(LoaferError):
     """Pipeline orchestration failure."""
 
 
+class QueueError(LoaferError):
+    """Job transport publication or consumption failed."""
+
+
 class MetadataError(LoaferError):
     """Durable metadata operation failed."""
 

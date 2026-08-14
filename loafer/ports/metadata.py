@@ -6,7 +6,8 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any, Protocol
 
-from loafer.contracts import BatchEnvelope, Checkpoint
+from loafer.contracts import BatchEnvelope, Checkpoint, JobEnvelope
+from loafer.core.roles import WorkerRole
 from loafer.core.run_state import RetryCategory, RunState, StageState
 from loafer.metadata import (
     BatchCommit,
@@ -60,8 +61,44 @@ class MetadataStore(Protocol):
     def get_run(self, run_id: str) -> RunRecord:
         """Return one durable run."""
 
-    def claim_run(self, worker_id: str, lease_for: timedelta) -> RunLease | None:
+    def claim_run(
+        self,
+        worker_id: str,
+        lease_for: timedelta,
+        *,
+        role: WorkerRole | None = None,
+    ) -> RunLease | None:
         """Claim the next runnable run and issue a new fencing token."""
+
+    def claim_run_by_id(
+        self,
+        run_id: str,
+        worker_id: str,
+        lease_for: timedelta,
+    ) -> RunLease | None:
+        """Claim one dispatched run, or return None when it is not claimable."""
+
+    def list_runnable(
+        self,
+        *,
+        role: WorkerRole | None = None,
+        limit: int = 10,
+    ) -> list[JobEnvelope]:
+        """Return dispatchable job identities without claiming them."""
+
+    def running_count(self, workspace_id: str, *, environment_id: str | None = None) -> int:
+        """Count runs currently holding or awaiting a lease for one tenant."""
+
+    def concurrency_limit(
+        self,
+        workspace_id: str,
+        *,
+        environment_id: str | None = None,
+    ) -> int | None:
+        """Return the tightest configured concurrency limit, or None when unset."""
+
+    def quarantine_run(self, lease: RunLease, reason: str) -> RunRecord:
+        """Fail a run permanently so the transport stops redelivering it."""
 
     def heartbeat(self, lease: RunLease, lease_for: timedelta) -> RunLease:
         """Renew a current lease or reject its stale fencing token."""
@@ -128,6 +165,25 @@ class MetadataStore(Protocol):
 
     def pending_outbox(self, limit: int = 100) -> Sequence[OutboxRecord]:
         """Return unpublished transport records without exposing job contents."""
+
+    def claim_outbox(
+        self,
+        *,
+        limit: int = 100,
+        role: WorkerRole | None = None,
+        lease_for: timedelta = timedelta(seconds=30),
+        event_types: tuple[str, ...] = (),
+    ) -> Sequence[OutboxRecord]:
+        """Lease unpublished transport records so concurrent relays cannot overlap."""
+
+    def release_outbox(
+        self,
+        outbox_id: str,
+        *,
+        error: str,
+        retry_after: timedelta = timedelta(seconds=5),
+    ) -> None:
+        """Return an unpublished record for retry and record why it failed."""
 
     def mark_outbox_published(self, outbox_id: str, published_at: datetime) -> None:
         """Idempotently mark a transport record as published."""

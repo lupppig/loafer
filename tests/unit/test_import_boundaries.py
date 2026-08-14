@@ -17,7 +17,7 @@ _ENGINE_PATHS = (
     _LOAFER / "transform",
     _LOAFER / "ports",
 )
-_BANNED_EXTERNAL = {"typer", "rich", "fastapi", "starlette", "flask", "django"}
+_BANNED_EXTERNAL = {"typer", "rich", "fastapi", "starlette", "flask", "django", "nats"}
 _BANNED_INTERNAL = {
     "loafer.cli",
     "loafer.scheduler",

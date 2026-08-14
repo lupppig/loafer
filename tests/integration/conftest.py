@@ -212,3 +212,29 @@ def mongo_client(mongo_url: str) -> Generator[Any, None, None]:
     finally:
         client.drop_database(_MONGO_DB)
         client.close()
+
+
+# ---------------------------------------------------------------------------
+# NATS JetStream
+# ---------------------------------------------------------------------------
+
+_NATS_URL = os.environ.get("TEST_NATS_URL", "nats://localhost:4222")
+
+
+def _nats_available() -> bool:
+    try:
+        from loafer.adapters.queue.jetstream import JetStreamTransport
+
+        transport = JetStreamTransport(_NATS_URL, connect_timeout=5)
+        transport.close()
+        return True
+    except Exception:
+        return False
+
+
+@pytest.fixture(scope="session")
+def nats_url() -> str:
+    """NATS JetStream connection URL."""
+    if not _nats_available():
+        pytest.skip(f"NATS JetStream not available at {_NATS_URL}")
+    return _NATS_URL
