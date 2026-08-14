@@ -38,6 +38,7 @@ dependencies = [
     "fastapi>=0.116,<1",
     "pyjwt[crypto]>=2.10,<3",
     "uvicorn[standard]>=0.35,<1",
+    "nats-py>=2.9,<3",
 ]
 
 [project.scripts]

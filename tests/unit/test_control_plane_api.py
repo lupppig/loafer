@@ -87,7 +87,10 @@ def test_create_app_rejects_unmigrated_schema_without_modifying_it(tmp_path: Pat
     try:
         with pytest.raises(
             MetadataError,
-            match=r"metadata schema version 0.*expected 3.*loafer metadata migrate",
+            match=(
+                r"metadata schema version 0.*expected "
+                rf"{schema.LATEST_SCHEMA_VERSION}.*loafer metadata migrate"
+            ),
         ):
             create_app(
                 settings=ControlPlaneSettings(

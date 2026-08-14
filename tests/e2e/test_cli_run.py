@@ -341,9 +341,10 @@ class TestCliMetadata:
         repeated = runner.invoke(app, ["metadata", "migrate", "--metadata-url", database_url])
 
         assert first.exit_code == 0, first.output
-        assert "Migrated metadata schema from version 0 to 3" in first.output
+        latest = schema.LATEST_SCHEMA_VERSION
+        assert f"Migrated metadata schema from version 0 to {latest}" in first.output
         assert repeated.exit_code == 0, repeated.output
-        assert "already at version 3" in repeated.output
+        assert f"already at version {latest}" in repeated.output
 
         store = SqlMetadataStore(database_url)
         try:

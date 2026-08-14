@@ -9,6 +9,7 @@ from threading import Barrier
 import pytest
 from sqlalchemy import inspect, text
 
+from loafer.adapters import metadata_schema as schema
 from loafer.adapters.metadata import SqlMetadataStore
 from loafer.core.run_state import RunState
 from loafer.exceptions import StaleFenceError
@@ -42,7 +43,7 @@ def test_postgres_empty_schema_and_previous_schema_upgrade(
             config={"document": {"name": "customers"}},
         )
 
-        assert store.migrate() == 3
+        assert store.migrate() == schema.LATEST_SCHEMA_VERSION
         assert store.get_pipeline_version(version.id).config_digest == "a" * 64
         assert "loafer_outbox" in inspect(store.engine).get_table_names()
         assert "loafer_workspaces" in inspect(store.engine).get_table_names()
@@ -57,7 +58,16 @@ def test_postgres_empty_schema_and_previous_schema_upgrade(
 
         assert store.migrate(1) == 1
         assert "loafer_outbox" not in inspect(store.engine).get_table_names()
-        assert store.migrate() == 3
+        assert store.migrate() == schema.LATEST_SCHEMA_VERSION
+        with store.engine.connect() as connection:
+            constraints = set(
+                connection.execute(
+                    text(
+                        "SELECT conname FROM pg_constraint WHERE conrelid = 'loafer_runs'::regclass"
+                    )
+                ).scalars()
+            )
+            assert "ck_loafer_run_role" in constraints
     finally:
         store.migrate(0)
         store.close()
@@ -80,7 +90,7 @@ def test_postgres_concurrent_migration_jobs_are_serialized(postgres_url: str) ->
     try:
         with ThreadPoolExecutor(max_workers=2) as executor:
             versions = list(executor.map(lambda _index: migrate_once(), range(2)))
-        assert versions == [3, 3]
+        assert versions == [schema.LATEST_SCHEMA_VERSION, schema.LATEST_SCHEMA_VERSION]
     finally:
         cleanup = SqlMetadataStore(postgres_url)
         cleanup.migrate(0)
