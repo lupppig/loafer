@@ -30,6 +30,17 @@ for (const [name, value] of [
 
 const databaseUrl = process.env.BETTER_AUTH_DATABASE_URL
 const authEmailEndpoint = process.env.LOAFER_AUTH_EMAIL_ENDPOINT
+// The SQLite fallback is a local-development convenience. In a container it
+// silently tries to create a file on a read-only root and surfaces as
+// "unable to open database file" on the first request, so refuse it early with
+// a message that names the variable to set.
+if (!databaseUrl && process.env.NODE_ENV === 'production') {
+  throw new Error(
+    'BETTER_AUTH_DATABASE_URL is required in production. The embedded SQLite ' +
+      'fallback is for local development only.',
+  )
+}
+
 const database = databaseUrl
   ? new Pool({ connectionString: databaseUrl })
   : new DatabaseSync(process.env.BETTER_AUTH_SQLITE_PATH ?? '.loafer-auth.db')

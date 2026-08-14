@@ -8,8 +8,22 @@ const trustedOrigins = new Set(
     .filter(Boolean),
 )
 
+// A self-hosted deployment reaches loaferd over a private container network
+// rather than the public edge, so this hop is plaintext between two processes
+// the operator controls. It mirrors loaferd's own `--behind-tls-proxy` flag:
+// off by default, opt-in only, and never inferred from a failed TLS attempt.
+const trustInternalNetwork = process.env.LOAFERD_TRUST_INTERNAL_NETWORK === '1'
+
 if (!loaferdUrl.startsWith('https://')) {
-  throw new Error('LOAFERD_URL must use HTTPS')
+  if (!trustInternalNetwork) {
+    throw new Error(
+      'LOAFERD_URL must use HTTPS. Set LOAFERD_TRUST_INTERNAL_NETWORK=1 only when the ' +
+        'browser-facing edge terminates TLS and this hop stays on a private network.',
+    )
+  }
+  if (!loaferdUrl.startsWith('http://')) {
+    throw new Error('LOAFERD_URL must be an absolute http:// or https:// URL')
+  }
 }
 
 async function proxy(request: Request, context: { params: Promise<{ path: string[] }> }) {
@@ -56,6 +70,15 @@ async function proxy(request: Request, context: { params: Promise<{ path: string
   headers.set('Authorization', `Bearer ${token}`)
   headers.set('Accept', request.headers.get('accept') ?? 'application/json')
   headers.set('X-Request-ID', request.headers.get('x-request-id') ?? crypto.randomUUID())
+  if (trustInternalNetwork) {
+    // loaferd still enforces HTTPS; on a private hop it reads the scheme from
+    // the forwarded header, exactly as its own healthcheck does. The client
+    // address is forwarded so per-caller rate limiting sees the real origin
+    // rather than the proxy.
+    headers.set('X-Forwarded-Proto', 'https')
+    const forwardedFor = request.headers.get('x-forwarded-for')
+    if (forwardedFor) headers.set('X-Forwarded-For', forwardedFor)
+  }
   for (const name of ['content-type', 'idempotency-key', 'last-event-id']) {
     const value = request.headers.get(name)
     if (value) headers.set(name, value)

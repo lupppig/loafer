@@ -59,7 +59,9 @@ services:
 
   loaferd:
     <<: *loafer-service
-    profiles: ["platform", "daemon"]
+    # Also in the web profile: the browser boundary cannot serve without the
+    # API it fronts, so selecting web brings loaferd with it.
+    profiles: ["platform", "daemon", "web"]
     entrypoint: ["loaferd"]
     command: ["--behind-tls-proxy", "--host", "0.0.0.0", "--port", "9443"]
     environment:
@@ -88,6 +90,60 @@ services:
       timeout: 3s
       retries: 6
       start_period: 10s
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  # The browser-facing boundary: Next.js, Better Auth, and the BFF that forwards
+  # a short-lived signed token to loaferd. It runs here rather than on a managed
+  # edge because loaferd is reachable only on this private network, and because
+  # session secrets belong on the operator's own infrastructure.
+  web:
+    image: ${LOAFER_WEB_IMAGE:?set LOAFER_WEB_IMAGE to an immutable Loafer web version or digest}
+    profiles: ["platform", "web"]
+    env_file:
+      - ../.env
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:?set BETTER_AUTH_URL to the public HTTPS origin}
+      BETTER_AUTH_TRUSTED_ORIGINS: ${BETTER_AUTH_TRUSTED_ORIGINS:-${BETTER_AUTH_URL}}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET}
+      BETTER_AUTH_DATABASE_URL: ${BETTER_AUTH_DATABASE_URL:?set BETTER_AUTH_DATABASE_URL}
+      LOAFERD_URL: ${LOAFERD_INTERNAL_URL:-http://loaferd:9443}
+      LOAFERD_AUDIENCE: ${LOAFER_AUTH_AUDIENCE:?set LOAFER_AUTH_AUDIENCE}
+      # This hop stays inside the compose network; TLS is terminated by the
+      # operator's reverse proxy in front of the published port below.
+      LOAFERD_TRUST_INTERNAL_NETWORK: "1"
+      LOAFER_AUTH_EMAIL_ENDPOINT: ${LOAFER_AUTH_EMAIL_ENDPOINT:?set LOAFER_AUTH_EMAIL_ENDPOINT}
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    init: true
+    ports:
+      - "127.0.0.1:${LOAFER_WEB_PORT:-3000}:3000"
+    depends_on:
+      metadata-migrate:
+        condition: service_completed_successfully
+      loaferd:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3000/').then((response) => process.exit(response.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
     restart: unless-stopped
     stop_grace_period: 30s
 
