@@ -499,10 +499,11 @@ HTTPS-only clients. Better Auth integration tests cover disabled public signup, 
 secure cookies, session replacement/revocation, and credential rate limiting. Metadata v3 and its
 RLS policies pass against live PostgreSQL 16.
 
-Distributed consumers for validation, backfill, and connection-test control commands remain Phase
-5 work. Those endpoints durably accept work now but do not execute it inside `loaferd`. Production
-deployments use PostgreSQL and a non-owner application role configured for RLS; the built-in
-SQLite auth/metadata profiles remain development and single-node options.
+Asynchronous handlers for validation, backfill, and connection-test control commands remain client
+workflow work for Phase 6. Those endpoints durably accept work and never execute it inside
+`loaferd`; Phase 5's transport executes immutable pipeline-run jobs. Production deployments use
+PostgreSQL and a non-owner application role configured for RLS; the built-in SQLite auth/metadata
+profiles remain development and single-node options.
 
 ### Phase 5 — Introduce distributed workers and NATS JetStream
 
@@ -525,6 +526,24 @@ Exit gate:
 - browser/document load cannot starve ordinary ETL consumers;
 - stale workers cannot publish checkpoints or terminal states;
 - queue messages contain no configs, credentials, rows, HTML, PDFs, or browser state.
+
+**Current status:** complete for immutable pipeline-run transport. A leased transactional-outbox
+relay publishes identifier-only jobs with stable deduplication keys; role-scoped JetStream pull
+consumers claim runs through authoritative metadata, enforce workspace/environment concurrency in
+the claim transaction, and acknowledge only durable terminal states. A background keeper renews
+the fenced metadata lease and JetStream acknowledgement window together. Retry-wait runs are
+delayed, active leases remain redeliverable, and poison runs are quarantined transactionally.
+
+ETL, document, and browser pools are independently selectable processes over separate durable
+subjects; document/browser-specific ingestion remains Phase 7, but their shared pipeline executor
+and starvation isolation are real. Each run receives a TTL-bound allow-list over only the secret
+references in its immutable config, and transform subprocesses inherit no parent credentials.
+SIGTERM stops new claims and drains active work. The embedded profile remains broker-free.
+
+Deterministic tests cover duplicate delivery, lost acknowledgement, metadata outage, expired-lease
+recovery, worker kill, stale fencing, graceful drain, poison quarantine, transactional concurrency,
+and role starvation. Eleven live JetStream tests pass, and a persistent-volume broker restart on
+2026-08-15 preserved and redelivered an unacknowledged identifier-only job.
 
 ### Phase 6 — Connect Web, CLI, and professional TUI
 
@@ -632,19 +651,12 @@ Exit gate:
 
 ## What to implement next
 
-Finish the bounded data-plane gate before starting durable metadata:
-
-1. Extend the pinned production-image curve to 1M/10M and representative wide-row/custom-transform
-   workloads; the 30M narrow identity gate is complete.
-2. Keep MongoDB blocked until an equivalent tested staging/merge protocol exists, and extend the
-   PostgreSQL live failure matrix to connection loss during final publication.
-3. Add a spill-capable local global-relational plan with explicit disk/memory/temp limits, while
-   continuing to prefer ELT pushdown.
-4. Expand schema evolution compatibility tests across supported targets and representative wide
-   or nested records.
-
-Do not add Better Auth, PostgreSQL run metadata, NATS, or distributed workers until the bounded
-single-node data-plane contract is real.
+1. Connect Studio to the authenticated API and persisted SSE event stream, replacing fixture
+   timers and sample run data.
+2. Execute and expose results for asynchronous validate, backfill, and connection-test commands.
+3. Add the keyboard-first TUI over the same run/event contract.
+4. Continue independent data-plane hardening: MongoDB staged publication, spill-capable global SQL,
+   and broader schema-evolution and PostgreSQL final-publication failure coverage.
 
 ## Definition of the 100M-row claim
 

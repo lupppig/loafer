@@ -55,6 +55,8 @@ class MetadataStore(Protocol):
         run_id: str | None = None,
         parent_run_id: str | None = None,
         retry_category: RetryCategory | None = None,
+        role: WorkerRole = WorkerRole.ETL,
+        environment_id: str | None = None,
     ) -> RunRecord:
         """Create or return the run identified by an idempotent command."""
 

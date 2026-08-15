@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -17,8 +18,10 @@ from loafer.adapters.queue.memory import (
 )
 from loafer.contracts import JobEnvelope
 from loafer.core.roles import WorkerRole, stream_subjects
-from loafer.core.run_state import RunState
-from loafer.exceptions import StaleFenceError
+from loafer.core.run_state import RetryCategory, RunState
+from loafer.dispatch import OutboxRelay, QueuedWorker
+from loafer.exceptions import MetadataError, QueueError, StaleFenceError
+from loafer.worker import _LeaseKeeper
 
 
 class Clock:
@@ -286,6 +289,29 @@ def test_concurrency_limit_ignores_an_environment_from_another_tenant(
     assert metadata.concurrency_limit("workspace-2", environment_id="env-of-workspace-2") == 1
 
 
+def test_claim_transaction_enforces_workspace_concurrency_limit(
+    store: tuple[SqlMetadataStore, Clock],
+) -> None:
+    metadata, clock = store
+    first_run = _run(metadata, "job-1")
+    second_run = _run(metadata, "job-2")
+    with metadata.engine.begin() as connection:
+        connection.execute(
+            schema.workspaces.insert().values(
+                id="workspace-1",
+                organization_id="org-1",
+                slug="workspace-1",
+                name="Workspace 1",
+                created_at=clock(),
+                max_concurrent_runs=1,
+            )
+        )
+
+    assert metadata.claim_run_by_id(first_run, "worker-a", timedelta(seconds=30)) is not None
+    assert metadata.claim_run_by_id(second_run, "worker-b", timedelta(seconds=30)) is None
+    assert metadata.get_run(second_run).state is RunState.QUEUED
+
+
 def test_quarantine_ends_the_run_and_records_why(
     store: tuple[SqlMetadataStore, Clock],
 ) -> None:
@@ -358,6 +384,49 @@ def test_memory_transport_redelivers_an_unacknowledged_job() -> None:
     assert consumer.fetch(10, 0.0) == []
 
 
+def test_memory_transport_in_progress_extends_the_ack_window() -> None:
+    clock = SteppedClock()
+    broker = MemoryQueueBroker(ack_wait_seconds=30.0, clock=clock)
+    MemoryQueuePublisher(broker).publish(
+        JobEnvelope(run_id="run-1", workspace_id="workspace-1"),
+        dedupe_key="outbox-1",
+    )
+    consumer = MemoryQueueConsumer(broker, WorkerRole.ETL)
+    delivery = consumer.fetch(1, 0.0)[0]
+
+    clock.advance(20)
+    delivery.in_progress()
+    clock.advance(20)
+
+    assert consumer.fetch(1, 0.0) == []
+    clock.advance(11)
+    assert consumer.fetch(1, 0.0)[0].delivery_count == 2
+
+
+def test_lease_keeper_renews_metadata_and_transport_ack(tmp_path: Path) -> None:
+    metadata = SqlMetadataStore(f"sqlite:///{tmp_path / 'heartbeat.db'}")
+    metadata.migrate()
+    try:
+        run_id = _run(metadata)
+        lease = metadata.claim_run_by_id(run_id, "worker-1", timedelta(milliseconds=600))
+        assert lease is not None
+        acknowledged = threading.Event()
+
+        with _LeaseKeeper(
+            metadata,
+            lease,
+            timedelta(milliseconds=600),
+            acknowledged.set,
+        ) as keeper:
+            assert acknowledged.wait(2)
+            renewed = keeper.current()
+
+        assert renewed.expires_at > lease.expires_at
+        assert metadata.get_run(run_id).heartbeat_at is not None
+    finally:
+        metadata.close()
+
+
 def test_memory_transport_honours_nak_delay_and_termination() -> None:
     clock = SteppedClock()
     broker = MemoryQueueBroker(ack_wait_seconds=30.0, clock=clock)
@@ -400,3 +469,370 @@ def test_direct_transport_presents_runnable_runs_without_claiming_them(
 
     delivered[0].ack()
     assert metadata.get_run(run_id).state is RunState.QUEUED
+
+
+class StubWorker:
+    def __init__(self, metadata: SqlMetadataStore, outcome: RunState) -> None:
+        self.metadata = metadata
+        self.outcome = outcome
+        self.executed: list[str] = []
+
+    def execute(self, lease: object, *, heartbeat_callback: object = None) -> None:
+        if callable(heartbeat_callback):
+            heartbeat_callback()
+        self.executed.append(lease.run.id)  # type: ignore[attr-defined]
+        self.metadata.transition_run(lease, RunState.RUNNING)  # type: ignore[arg-type]
+        if self.outcome is RunState.RETRY_WAIT:
+            self.metadata.transition_run(
+                lease,  # type: ignore[arg-type]
+                RunState.RETRY_WAIT,
+                retry_category=RetryCategory.INFRASTRUCTURE,
+                retry_at=datetime(2026, 8, 15, tzinfo=UTC),
+            )
+        else:
+            self.metadata.transition_run(lease, self.outcome)  # type: ignore[arg-type]
+
+    def close(self) -> None:
+        return None
+
+
+def test_outbox_relay_publishes_and_settles_a_run_command(
+    store: tuple[SqlMetadataStore, Clock],
+) -> None:
+    metadata, _clock = store
+    run_id = _run(metadata)
+    broker = MemoryQueueBroker()
+
+    assert OutboxRelay(metadata, MemoryQueuePublisher(broker)).run_once() == 1
+
+    assert metadata.pending_outbox() == []
+    delivered = MemoryQueueConsumer(broker, WorkerRole.ETL).fetch(1, 0.0)
+    assert [item.envelope.run_id for item in delivered] == [run_id]
+
+
+def test_outbox_relay_releases_a_failed_publication_for_retry(
+    store: tuple[SqlMetadataStore, Clock],
+) -> None:
+    metadata, _clock = store
+    _run(metadata)
+
+    class BrokenPublisher:
+        def publish(self, envelope: JobEnvelope, *, dedupe_key: str) -> None:
+            del envelope, dedupe_key
+            raise RuntimeError("broker unavailable")
+
+        def close(self) -> None:
+            return None
+
+    relay = OutboxRelay(metadata, BrokenPublisher(), retry_delay=timedelta(0))
+
+    assert relay.run_once() == 0
+    assert "broker unavailable" in (metadata.pending_outbox()[0].last_error or "")
+
+
+@pytest.mark.parametrize("outcome", [RunState.SUCCEEDED, RunState.FAILED, RunState.CANCELLED])
+def test_queue_worker_acknowledges_only_after_a_durable_terminal_state(
+    store: tuple[SqlMetadataStore, Clock], outcome: RunState
+) -> None:
+    metadata, _clock = store
+    run_id = _run(metadata)
+    broker = MemoryQueueBroker()
+    publisher = MemoryQueuePublisher(broker)
+    publisher.publish(JobEnvelope(run_id=run_id, workspace_id="workspace-1"), dedupe_key="job-1")
+    worker = StubWorker(metadata, outcome)
+    queued = QueuedWorker(
+        worker,  # type: ignore[arg-type]
+        metadata,
+        MemoryQueueConsumer(broker, WorkerRole.ETL),
+        worker_id="worker-1",
+    )
+
+    assert queued.run_once(0.0) == run_id
+    assert worker.executed == [run_id]
+    assert metadata.get_run(run_id).state is outcome
+    assert broker.depth(WorkerRole.ETL) == 0
+
+
+def test_queue_worker_naks_a_durable_retry_state(
+    store: tuple[SqlMetadataStore, Clock],
+) -> None:
+    metadata, _clock = store
+    run_id = _run(metadata)
+    transport_clock = SteppedClock()
+    broker = MemoryQueueBroker(clock=transport_clock)
+    MemoryQueuePublisher(broker).publish(
+        JobEnvelope(run_id=run_id, workspace_id="workspace-1"), dedupe_key="job-1"
+    )
+    queued = QueuedWorker(
+        StubWorker(metadata, RunState.RETRY_WAIT),  # type: ignore[arg-type]
+        metadata,
+        MemoryQueueConsumer(broker, WorkerRole.ETL),
+        worker_id="worker-1",
+        retry_delay=timedelta(seconds=5),
+    )
+
+    queued.run_once(0.0)
+    assert broker.depth(WorkerRole.ETL) == 1
+    assert MemoryQueueConsumer(broker, WorkerRole.ETL).fetch(1, 0.0) == []
+    transport_clock.advance(6)
+    assert len(MemoryQueueConsumer(broker, WorkerRole.ETL).fetch(1, 0.0)) == 1
+
+
+def test_redelivery_before_metadata_retry_is_due_is_not_acknowledged(
+    store: tuple[SqlMetadataStore, Clock],
+) -> None:
+    metadata, _clock = store
+    run_id = _run(metadata)
+    transport_clock = SteppedClock()
+    broker = MemoryQueueBroker(clock=transport_clock)
+    MemoryQueuePublisher(broker).publish(
+        JobEnvelope(run_id=run_id, workspace_id="workspace-1"), dedupe_key="job-1"
+    )
+    consumer = MemoryQueueConsumer(broker, WorkerRole.ETL)
+    queued = QueuedWorker(
+        StubWorker(metadata, RunState.RETRY_WAIT),  # type: ignore[arg-type]
+        metadata,
+        consumer,
+        worker_id="worker-1",
+        retry_delay=timedelta(seconds=5),
+    )
+
+    queued.run_once(0.0)
+    transport_clock.advance(6)
+    queued.run_once(0.0)
+
+    assert broker.depth(WorkerRole.ETL) == 1
+    assert metadata.get_run(run_id).state is RunState.RETRY_WAIT
+
+
+def test_queue_worker_quarantines_a_poison_delivery(
+    store: tuple[SqlMetadataStore, Clock],
+) -> None:
+    metadata, _clock = store
+    run_id = _run(metadata)
+    broker = MemoryQueueBroker()
+    envelope = JobEnvelope(run_id=run_id, workspace_id="workspace-1")
+    MemoryQueuePublisher(broker).publish(envelope, dedupe_key="job-1")
+    consumer = MemoryQueueConsumer(broker, WorkerRole.ETL)
+    first = consumer.fetch(1, 0.0)[0]
+    first.nak(0)
+    worker = StubWorker(metadata, RunState.SUCCEEDED)
+    queued = QueuedWorker(
+        worker,  # type: ignore[arg-type]
+        metadata,
+        consumer,
+        worker_id="worker-1",
+        max_deliveries=1,
+    )
+
+    queued.run_once(0.0)
+
+    assert worker.executed == []
+    assert metadata.get_run(run_id).state is RunState.FAILED
+    assert broker.depth(WorkerRole.ETL) == 0
+
+
+def test_metadata_outage_leaves_delivery_recoverable_after_lease_expiry(
+    store: tuple[SqlMetadataStore, Clock],
+) -> None:
+    metadata, metadata_clock = store
+    run_id = _run(metadata)
+    transport_clock = SteppedClock()
+    broker = MemoryQueueBroker(ack_wait_seconds=30, clock=transport_clock)
+    MemoryQueuePublisher(broker).publish(
+        JobEnvelope(run_id=run_id, workspace_id="workspace-1"), dedupe_key="job-1"
+    )
+
+    class OutageWorker(StubWorker):
+        def execute(self, lease: object, *, heartbeat_callback: object = None) -> None:
+            del heartbeat_callback
+            self.metadata.transition_run(lease, RunState.RUNNING)  # type: ignore[arg-type]
+            raise MetadataError("database connection lost")
+
+    failed = QueuedWorker(
+        OutageWorker(metadata, RunState.SUCCEEDED),  # type: ignore[arg-type]
+        metadata,
+        MemoryQueueConsumer(broker, WorkerRole.ETL),
+        worker_id="worker-a",
+        lease_for=timedelta(seconds=30),
+    )
+
+    with pytest.raises(MetadataError, match="connection lost"):
+        failed.run_once(0.0)
+
+    transport_clock.advance(31)
+    metadata_clock.advance(seconds=31)
+    recovered_worker = StubWorker(metadata, RunState.SUCCEEDED)
+    recovered = QueuedWorker(
+        recovered_worker,  # type: ignore[arg-type]
+        metadata,
+        MemoryQueueConsumer(broker, WorkerRole.ETL),
+        worker_id="worker-b",
+    )
+    recovered.run_once(0.0)
+
+    assert recovered_worker.executed == [run_id]
+    assert metadata.get_run(run_id).state is RunState.SUCCEEDED
+    assert broker.depth(WorkerRole.ETL) == 0
+
+
+def test_metadata_lookup_outage_never_terminates_the_delivery() -> None:
+    broker = MemoryQueueBroker()
+    MemoryQueuePublisher(broker).publish(
+        JobEnvelope(run_id="run-1", workspace_id="workspace-1"), dedupe_key="job-1"
+    )
+
+    class UnavailableMetadata:
+        def get_run(self, run_id: str) -> object:
+            del run_id
+            raise MetadataError("database unavailable")
+
+    queued = QueuedWorker(
+        StubWorker(None, RunState.SUCCEEDED),  # type: ignore[arg-type]
+        UnavailableMetadata(),  # type: ignore[arg-type]
+        MemoryQueueConsumer(broker, WorkerRole.ETL),
+        worker_id="worker-1",
+    )
+
+    with pytest.raises(MetadataError, match="database unavailable"):
+        queued.run_once(0.0)
+
+    assert broker.depth(WorkerRole.ETL) == 1
+
+
+def test_lost_ack_redelivery_does_not_reexecute_a_terminal_run(
+    store: tuple[SqlMetadataStore, Clock],
+) -> None:
+    metadata, _clock = store
+    run_id = _run(metadata)
+    transport_clock = SteppedClock()
+    broker = MemoryQueueBroker(ack_wait_seconds=30, clock=transport_clock)
+    MemoryQueuePublisher(broker).publish(
+        JobEnvelope(run_id=run_id, workspace_id="workspace-1"), dedupe_key="job-1"
+    )
+    base_consumer = MemoryQueueConsumer(broker, WorkerRole.ETL)
+    lost = [False]
+
+    class LostAckDelivery:
+        def __init__(self, delivered: object) -> None:
+            self._delivered = delivered
+            self.envelope = delivered.envelope  # type: ignore[attr-defined]
+            self.delivery_count = delivered.delivery_count  # type: ignore[attr-defined]
+
+        def in_progress(self) -> None:
+            self._delivered.in_progress()  # type: ignore[attr-defined]
+
+        def ack(self) -> None:
+            if not lost[0]:
+                lost[0] = True
+                raise QueueError("ack response lost")
+            self._delivered.ack()  # type: ignore[attr-defined]
+
+        def nak(self, delay_seconds: float) -> None:
+            self._delivered.nak(delay_seconds)  # type: ignore[attr-defined]
+
+        def term(self) -> None:
+            self._delivered.term()  # type: ignore[attr-defined]
+
+    class LostAckConsumer:
+        def fetch(self, max_messages: int, timeout_seconds: float) -> list[LostAckDelivery]:
+            return [
+                LostAckDelivery(item) for item in base_consumer.fetch(max_messages, timeout_seconds)
+            ]
+
+        def close(self) -> None:
+            return None
+
+    worker = StubWorker(metadata, RunState.SUCCEEDED)
+    queued = QueuedWorker(
+        worker,  # type: ignore[arg-type]
+        metadata,
+        LostAckConsumer(),
+        worker_id="worker-1",
+    )
+
+    with pytest.raises(QueueError, match="ack response lost"):
+        queued.run_once(0.0)
+    transport_clock.advance(31)
+    queued.run_once(0.0)
+
+    assert worker.executed == [run_id]
+    assert broker.depth(WorkerRole.ETL) == 0
+
+
+def test_graceful_shutdown_drains_active_job_without_claiming_another(
+    store: tuple[SqlMetadataStore, Clock],
+) -> None:
+    metadata, _clock = store
+    first_run = _run(metadata, "job-1")
+    second_run = _run(metadata, "job-2")
+    broker = MemoryQueueBroker()
+    publisher = MemoryQueuePublisher(broker)
+    for index, run_id in enumerate((first_run, second_run), start=1):
+        publisher.publish(
+            JobEnvelope(run_id=run_id, workspace_id="workspace-1"),
+            dedupe_key=f"job-{index}",
+        )
+    started = threading.Event()
+    release = threading.Event()
+
+    class BlockingWorker(StubWorker):
+        def execute(self, lease: object, *, heartbeat_callback: object = None) -> None:
+            del heartbeat_callback
+            self.executed.append(lease.run.id)  # type: ignore[attr-defined]
+            self.metadata.transition_run(lease, RunState.RUNNING)  # type: ignore[arg-type]
+            started.set()
+            assert release.wait(2)
+            self.metadata.transition_run(lease, RunState.SUCCEEDED)  # type: ignore[arg-type]
+
+    worker = BlockingWorker(metadata, RunState.SUCCEEDED)
+    queued = QueuedWorker(
+        worker,  # type: ignore[arg-type]
+        metadata,
+        MemoryQueueConsumer(broker, WorkerRole.ETL),
+        worker_id="worker-1",
+    )
+    thread = threading.Thread(target=queued.run_forever, kwargs={"poll_interval": 0.01})
+    thread.start()
+    assert started.wait(2)
+
+    queued.request_shutdown()
+    release.set()
+    thread.join(timeout=2)
+
+    assert not thread.is_alive()
+    assert worker.executed == [first_run]
+    assert metadata.get_run(first_run).state is RunState.SUCCEEDED
+    assert metadata.get_run(second_run).state is RunState.QUEUED
+
+
+def test_browser_backlog_cannot_starve_etl_worker(
+    store: tuple[SqlMetadataStore, Clock],
+) -> None:
+    metadata, _clock = store
+    broker = MemoryQueueBroker()
+    publisher = MemoryQueuePublisher(broker)
+    for index in range(20):
+        browser_run = _run(metadata, f"browser-{index}", role=WorkerRole.BROWSER)
+        publisher.publish(
+            JobEnvelope(
+                run_id=browser_run,
+                workspace_id="workspace-1",
+                role=WorkerRole.BROWSER,
+            ),
+            dedupe_key=f"browser-{index}",
+        )
+    etl_run = _run(metadata, "etl", role=WorkerRole.ETL)
+    publisher.publish(JobEnvelope(run_id=etl_run, workspace_id="workspace-1"), dedupe_key="etl")
+    worker = StubWorker(metadata, RunState.SUCCEEDED)
+    queued = QueuedWorker(
+        worker,  # type: ignore[arg-type]
+        metadata,
+        MemoryQueueConsumer(broker, WorkerRole.ETL),
+        worker_id="etl-worker",
+    )
+
+    queued.run_once(0.0)
+
+    assert worker.executed == [etl_run]
+    assert broker.depth(WorkerRole.BROWSER) == 20

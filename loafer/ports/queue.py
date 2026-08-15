@@ -22,6 +22,9 @@ class DeliveredJob(Protocol):
     envelope: JobEnvelope
     delivery_count: int
 
+    def in_progress(self) -> None:
+        """Extend the acknowledgement window while the durable lease is renewed."""
+
     def ack(self) -> None:
         """Confirm the run reached a durable terminal or retry-wait state."""
 

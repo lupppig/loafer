@@ -111,6 +111,9 @@ def run_sandboxed(
             # Discard them so hostile code cannot exhaust parent memory by
             # making communicate() buffer an unbounded log stream.
             stderr=subprocess.DEVNULL,
+            # The transform receives data through stdin and needs no worker,
+            # connector, cloud, or control-plane credentials from the parent.
+            env={"PYTHONIOENCODING": "utf-8", "PYTHONHASHSEED": "random"},
         )
     except OSError as exc:
         raise TransformError(f"Could not start transform worker: {exc}") from exc

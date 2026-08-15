@@ -24,7 +24,12 @@ from loafer.core.run_state import (
     require_run_transition,
     require_stage_transition,
 )
-from loafer.exceptions import IdempotencyConflictError, MetadataError, StaleFenceError
+from loafer.exceptions import (
+    IdempotencyConflictError,
+    MetadataError,
+    MetadataNotFoundError,
+    StaleFenceError,
+)
 from loafer.metadata import (
     BatchCommit,
     OutboxRecord,
@@ -207,6 +212,8 @@ class SqlMetadataStore:
             row = connection.execute(query).mappings().one_or_none()
             if row is None:
                 return None
+            if not self._within_concurrency_limit(connection, row):
+                return None
             return self._claim_row(connection, row, worker_id, now, now + lease_for)
 
     def claim_run_by_id(
@@ -235,7 +242,53 @@ class SqlMetadataStore:
             row = connection.execute(query).mappings().one_or_none()
             if row is None:
                 return None
+            if not self._within_concurrency_limit(connection, row):
+                return None
             return self._claim_row(connection, row, worker_id, now, now + lease_for)
+
+    def _within_concurrency_limit(self, connection: Connection, row: RowMapping) -> bool:
+        """Enforce the tenant/environment limit inside the claim transaction."""
+        workspace_id = str(row["workspace_id"])
+        environment_id = row["environment_id"]
+        if self.profile == "postgresql":
+            # Serialize competing claims for one workspace without locking
+            # unrelated tenants or relying on an eventually consistent count.
+            connection.execute(
+                select(func.pg_advisory_xact_lock(func.hashtext(f"loafer:{workspace_id}")))
+            )
+        limits: list[int] = []
+        workspace_limit = connection.execute(
+            select(schema.workspaces.c.max_concurrent_runs).where(
+                schema.workspaces.c.id == workspace_id
+            )
+        ).scalar_one_or_none()
+        if workspace_limit is not None:
+            limits.append(int(workspace_limit))
+        if environment_id is not None:
+            environment_limit = connection.execute(
+                select(schema.environments.c.max_concurrent_runs).where(
+                    schema.environments.c.id == environment_id,
+                    schema.environments.c.workspace_id == workspace_id,
+                )
+            ).scalar_one_or_none()
+            if environment_limit is not None:
+                limits.append(int(environment_limit))
+        if not limits:
+            return True
+        predicate = and_(
+            schema.runs.c.workspace_id == workspace_id,
+            schema.runs.c.state.in_(_ACTIVE_STATES),
+        )
+        if environment_id is not None:
+            predicate = and_(predicate, schema.runs.c.environment_id == environment_id)
+        running = int(
+            connection.execute(
+                select(func.count()).select_from(schema.runs).where(predicate)
+            ).scalar_one()
+        )
+        if row["state"] in _ACTIVE_STATES:
+            running -= 1
+        return running < min(limits)
 
     def list_runnable(
         self,
@@ -1069,7 +1122,7 @@ class SqlMetadataStore:
             query = query.with_for_update()
         row = connection.execute(query).mappings().one_or_none()
         if row is None:
-            raise MetadataError(f"run not found: {run_id}")
+            raise MetadataNotFoundError(f"run not found: {run_id}")
         return row
 
     def _require_fence(
@@ -1266,6 +1319,9 @@ def _run_record(row: RowMapping) -> RunRecord:
         finished_at=_optional_utc(row["finished_at"]),
         parent_run_id=row["parent_run_id"],
         error=dict(row["error_json"]) if row["error_json"] else None,
+        role=WorkerRole(row["role"]),
+        environment_id=row["environment_id"],
+        retry_at=_optional_utc(row["retry_at"]),
     )
 
 

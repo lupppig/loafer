@@ -68,6 +68,10 @@ class MetadataError(LoaferError):
     """Durable metadata operation failed."""
 
 
+class MetadataNotFoundError(MetadataError):
+    """An authoritative metadata identifier does not exist."""
+
+
 class InvalidStateTransitionError(MetadataError):
     """A durable run, stage, or batch transition is impossible."""
 

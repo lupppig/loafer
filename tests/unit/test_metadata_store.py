@@ -258,6 +258,51 @@ def test_durable_worker_composition_rejects_unmigrated_schema(tmp_path: Path) ->
         metadata.close()
 
 
+def test_registered_pipeline_preserves_secret_references_not_values(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from loafer.application.durable import register_pipeline_config
+
+    source = tmp_path / "input.csv"
+    source.write_text("id\n1\n", encoding="utf-8")
+    config = tmp_path / "pipeline.yaml"
+    config.write_text(
+        "\n".join(
+            [
+                "source:",
+                "  type: csv",
+                f"  path: {source}",
+                "target:",
+                "  type: json",
+                f"  path: {tmp_path / 'output.json'}",
+                "transform:",
+                "  type: custom",
+                f"  path: {tmp_path / 'transform.py'}",
+                "llm:",
+                "  provider: openai",
+                "  api_key: ${JOB_OPENAI_KEY}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "transform.py").write_text(
+        "def transform(data):\n    return data\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("JOB_OPENAI_KEY", "do-not-store-this-value")
+    database_url = f"sqlite:///{tmp_path / 'metadata.db'}"
+    metadata = SqlMetadataStore(database_url)
+    metadata.migrate()
+    metadata.close()
+
+    version = register_pipeline_config(config, metadata_url=database_url)
+
+    rendered = str(version.config)
+    assert "do-not-store-this-value" not in rendered
+    assert "${JOB_OPENAI_KEY}" in rendered
+    assert version.config["secret_references"] == ["JOB_OPENAI_KEY"]
+
+
 def test_database_constraints_enforce_null_unique_foreign_key_and_check(
     store: tuple[SqlMetadataStore, Clock],
 ) -> None:

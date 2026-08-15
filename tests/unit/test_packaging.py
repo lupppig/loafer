@@ -78,7 +78,11 @@ def test_compose_starts_services_only_after_explicit_migration() -> None:
     assert 'profiles: ["platform", "scheduler"]' in compose
     assert 'profiles: ["platform", "worker"]' in compose
     assert 'profiles: ["platform", "web"]' in compose
-    assert compose.count("condition: service_completed_successfully") == 6
+    assert compose.count("condition: service_completed_successfully") == 11
+    assert 'command: ["relay"]' in compose
+    assert 'command: ["worker", "--role", "document"]' in compose
+    assert 'command: ["worker", "--role", "browser"]' in compose
+    assert "LOAFER_NATS_URL: nats://nats:4222" in compose
     assert "nocopy: true" in compose
     assert "storage-init:" in compose
     assert "      - CHOWN" in compose

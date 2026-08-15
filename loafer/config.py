@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -20,12 +21,15 @@ from loafer.llm.models import default_model_for
 _ENV_VAR_PATTERN = re.compile(r"\$\{([^}]+)}")
 
 
-def _resolve_env_vars(value: str) -> str:
+def _resolve_env_vars(
+    value: str,
+    resolver: Callable[[str], str | None] | None = None,
+) -> str:
     """Replace ${VAR} placeholders with environment variable values."""
 
     def _replacer(match: re.Match[str]) -> str:
         var_name = match.group(1)
-        env_value = os.environ.get(var_name)
+        env_value = resolver(var_name) if resolver is not None else os.environ.get(var_name)
         if env_value is None:
             raise ConfigError(
                 f"environment variable '{var_name}' is not set "
@@ -36,7 +40,11 @@ def _resolve_env_vars(value: str) -> str:
     return _ENV_VAR_PATTERN.sub(_replacer, value)
 
 
-def _walk_and_resolve(obj: Any, base_dir: Path | None = None) -> Any:
+def _walk_and_resolve(
+    obj: Any,
+    base_dir: Path | None = None,
+    resolver: Callable[[str], str | None] | None = None,
+) -> Any:
     """Recursively resolve env vars in strings within a nested structure.
 
     When *base_dir* is provided, relative file paths (starting with ``.`` or ``..``)
@@ -44,7 +52,7 @@ def _walk_and_resolve(obj: Any, base_dir: Path | None = None) -> Any:
     directory.
     """
     if isinstance(obj, str):
-        value = _resolve_env_vars(obj)
+        value = _resolve_env_vars(obj, resolver)
         if base_dir is not None:
             raw = value.lstrip()
             if raw.startswith("./") or raw.startswith("../") or raw == ".":
@@ -52,9 +60,9 @@ def _walk_and_resolve(obj: Any, base_dir: Path | None = None) -> Any:
                 return str(resolved)
         return value
     if isinstance(obj, dict):
-        return {k: _walk_and_resolve(v, base_dir) for k, v in obj.items()}
+        return {k: _walk_and_resolve(v, base_dir, resolver) for k, v in obj.items()}
     if isinstance(obj, list):
-        return [_walk_and_resolve(item, base_dir) for item in obj]
+        return [_walk_and_resolve(item, base_dir, resolver) for item in obj]
     return obj
 
 
@@ -688,7 +696,11 @@ class PipelineConfig(BaseModel):
         return data
 
 
-def load_config(path: str | Path) -> PipelineConfig:
+def load_config(
+    path: str | Path,
+    *,
+    secret_resolver: Callable[[str], str | None] | None = None,
+) -> PipelineConfig:
     """Load and validate a pipeline config from a YAML file."""
     config_path = Path(path)
     if not config_path.exists():
@@ -703,7 +715,7 @@ def load_config(path: str | Path) -> PipelineConfig:
         raise ConfigError(f"config file must contain a YAML mapping, got {type(raw).__name__}")
 
     config_dir = config_path.resolve().parent
-    resolved = _walk_and_resolve(raw, base_dir=config_dir)
+    resolved = _walk_and_resolve(raw, base_dir=config_dir, resolver=secret_resolver)
 
     try:
         return PipelineConfig(**resolved)

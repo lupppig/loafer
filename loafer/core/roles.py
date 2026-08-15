@@ -12,9 +12,8 @@ class WorkerRole(StrEnum):
     """One isolated execution pool.
 
     Roles exist so an expensive workload cannot consume the capacity of a
-    cheap one. ``DOCUMENT`` and ``BROWSER`` are reserved for the document and
-    crawling workers; they carry no executor yet, but their subjects and
-    consumers are real so pool isolation is testable before those workers land.
+    cheap one. Document and browser pools use the shared pipeline executor;
+    their specialized extraction and crawling capabilities land independently.
     """
 
     SCHEDULER = "scheduler"
@@ -45,7 +44,7 @@ def stream_subjects() -> tuple[str, ...]:
 
 def executable_roles() -> tuple[WorkerRole, ...]:
     """Return the roles that currently have a bound run executor."""
-    return (WorkerRole.ETL,)
+    return (WorkerRole.ETL, WorkerRole.DOCUMENT, WorkerRole.BROWSER)
 
 
 __all__ = [

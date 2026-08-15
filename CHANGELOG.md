@@ -13,7 +13,10 @@ Notable changes to Loafer are documented here. This project follows
   and a release job that smoke-tests and scans the image before publishing it. The browser boundary
   now runs next to `loaferd` on the operator's own infrastructure rather than requiring a managed
   edge that cannot reach a loopback-bound control plane.
-
+- Distributed pipeline-run dispatch through a leased transactional-outbox relay and role-isolated
+  NATS JetStream pull consumers, with coupled metadata/ack heartbeats, graceful drain, durable
+  retries, poison quarantine, and claim-transaction concurrency limits.
+- TTL-bound per-run secret allow-lists and credential-free transform subprocess environments.
 - Release gates now audit the locked Python environment and production web dependencies, scan the
   built container for fixed high/critical vulnerabilities, and smoke-test both the wheel and image
   through the CLI pipeline and `loaferd` health endpoint.

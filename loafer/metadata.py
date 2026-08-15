@@ -44,6 +44,9 @@ class RunRecord:
     finished_at: datetime | None
     parent_run_id: str | None = None
     error: dict[str, Any] | None = None
+    role: WorkerRole = WorkerRole.ETL
+    environment_id: str | None = None
+    retry_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)

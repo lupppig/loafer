@@ -277,16 +277,42 @@ def _require_https_url(value: str, label: str) -> None:
         raise ValueError(f"{label} must be an absolute HTTPS URL")
 
 
+def _run_with_graceful_shutdown(service: Any) -> None:
+    """Translate process termination into stop-claiming-and-drain semantics."""
+    previous = {signum: signal.getsignal(signum) for signum in (signal.SIGINT, signal.SIGTERM)}
+
+    def request_shutdown(_signum: int, _frame: Any) -> None:
+        service.request_shutdown()
+
+    try:
+        for signum in previous:
+            signal.signal(signum, request_shutdown)
+        service.run_forever()
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+
+
 @app.command("worker")
 def worker_command(
     once: bool = typer.Option(False, "--once", help="Process at most one runnable job."),
     worker_id: str | None = typer.Option(None, "--id", help="Stable worker identity."),
+    role: str = typer.Option("etl", "--role", help="Worker pool: etl, document, or browser."),
 ) -> None:
     """Run the durable data-plane worker separately from the scheduler."""
     from loafer.application.durable import get_durable_worker
+    from loafer.core.roles import WorkerRole
 
-    identity = worker_id or f"{socket.gethostname()}-{os.getpid()}"
-    worker = get_durable_worker(worker_id=identity)
+    try:
+        worker_role = WorkerRole(role)
+    except ValueError as exc:
+        raise typer.BadParameter("must be etl, document, or browser", param_hint="--role") from exc
+    if worker_role is WorkerRole.SCHEDULER:
+        raise typer.BadParameter(
+            "scheduler uses `loafer start`, not a worker pool", param_hint="--role"
+        )
+    identity = worker_id or f"{worker_role.value}-{socket.gethostname()}-{os.getpid()}"
+    worker = get_durable_worker(worker_id=identity, role=worker_role)
     try:
         if once:
             run_id = worker.run_once()
@@ -296,9 +322,28 @@ def worker_command(
                 console.print(f"[green]✓ Processed run[/green] {run_id}")
             return
         console.print(f"[green]Worker started[/green] {identity}")
-        worker.run_forever()
+        _run_with_graceful_shutdown(worker)
     finally:
         worker.close()
+
+
+@app.command("relay")
+def relay_command(
+    once: bool = typer.Option(False, "--once", help="Publish at most one outbox page."),
+) -> None:
+    """Relay durable run commands from PostgreSQL to NATS JetStream."""
+    from loafer.application.durable import get_outbox_relay
+
+    relay = get_outbox_relay()
+    try:
+        if once:
+            published = relay.run_once()
+            console.print(f"[green]✓ Published[/green] {published} job(s)")
+            return
+        console.print("[green]Outbox relay started[/green]")
+        _run_with_graceful_shutdown(relay)
+    finally:
+        relay.close()
 
 
 # Animated stage loaders

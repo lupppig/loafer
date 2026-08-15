@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
@@ -40,6 +41,32 @@ class EnvironmentSecretResolver:
 
     def resolve(self, reference: str) -> str | None:
         return os.environ.get(reference)
+
+
+class ScopedSecretResolver:
+    """Bound one resolver to a run's allow-list and a short access window."""
+
+    def __init__(
+        self,
+        resolver: Any,
+        allowed_references: set[str] | frozenset[str],
+        *,
+        ttl_seconds: float = 300.0,
+        clock: Any = time.monotonic,
+    ) -> None:
+        if ttl_seconds <= 0:
+            raise ValueError("secret access TTL must be positive")
+        self._resolver = resolver
+        self._allowed = frozenset(allowed_references)
+        self._expires_at = float(clock()) + ttl_seconds
+        self._clock = clock
+
+    def resolve(self, reference: str) -> str | None:
+        if reference not in self._allowed:
+            return None
+        if float(self._clock()) >= self._expires_at:
+            return None
+        return self._resolver.resolve(reference)
 
 
 class NullEventPublisher:
