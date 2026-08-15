@@ -1,0 +1,25 @@
+{
+  "name": "loafer-video",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Remotion source for the Loafer product demo shown on the home page.",
+  "scripts": {
+    "studio": "remotion studio",
+    "render": "remotion render Demo out/loafer-demo.mp4 --codec=h264 --crf=26",
+    "render:web": "remotion render Demo ../web/public/media/loafer-demo.mp4 --codec=h264 --crf=26",
+    "poster": "remotion still Demo ../web/public/media/loafer-demo-poster.jpg --frame=1150 --image-format=jpeg --jpeg-quality=88",
+    "build": "npm run render:web && npm run poster",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.512",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "remotion": "4.0.512"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "~5.9.3"
+  }
+}

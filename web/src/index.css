@@ -60,6 +60,25 @@
 }
 
 /*
+ * Texture
+ * -------
+ * One directional fill, used where a mark has to be told apart from another
+ * mark without spending a second hue on it. The benchmark chart uses it for
+ * the run that was terminated: the palette check put the obvious red at
+ * DeltaE 3.7 against the signal orange, which no amount of colour vision can
+ * separate, so the distinction is carried by texture and a written label.
+ */
+.hatch {
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(13, 15, 14, 0.55) 0,
+    rgba(13, 15, 14, 0.55) 2px,
+    transparent 2px,
+    transparent 5px
+  );
+}
+
+/*
  * Scroll reveal
  * -------------
  * CSS scroll-driven animation, so the reveal costs no JavaScript and no scroll
