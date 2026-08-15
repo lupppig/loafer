@@ -35,7 +35,7 @@ const LEDGER: { area: string; state: State; detail: string }[] = [
   {
     area: 'Web operations dashboard',
     state: 'building',
-    detail: 'The Studio route is a preview on fixture data and is labelled as one.',
+    detail: 'Not shipped. No operations dashboard is exposed until it reads real run state.',
   },
   {
     area: 'Crawling, OCR, and further connectors',

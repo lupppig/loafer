@@ -8,9 +8,8 @@ or from a scheduler. Transformations can use SQL, custom Python, multi-step pipe
 LLM-generated artifacts.
 
 > **Project status:** Loafer ships a CLI engine, durable single-node scheduling/recovery, and the
-> authenticated multi-tenant `loaferd` HTTPS control plane. Distributed queue/workers, the connected
-> web operations dashboard, and the terminal dashboard remain under active development. The
-> `/studio` route is still a product preview.
+> authenticated multi-tenant `loaferd` HTTPS control plane. Distributed queue/workers, the web
+> operations dashboard, and the terminal dashboard remain under active development.
 
 ## What works today
 
@@ -327,7 +326,7 @@ while larger installations can scale and isolate worker pools.
 
 The control interface, authentication boundary, tenant authorization, and durable single-node
 state are implemented. NATS transport, distributed object storage, isolated worker pools, and the
-connected operator UI are not. Do not expose Studio as a production operations surface yet.
+connected operator UI are not. No operations dashboard is exposed until it reads real run state.
 
 The planned web source uses Crawlee for Python with HTTP/Parsel and Playwright execution profiles.
 It will support bounded crawling, authorized authenticated sessions, JavaScript rendering, and
@@ -376,6 +375,20 @@ npm run typecheck
 npm run build
 npm start
 ```
+
+The home-page demo video is a separate Remotion project in [`video/`](video/README.md). Its
+rendered output is committed to `web/public/media/`, so a normal `web` build needs nothing from it:
+
+```bash
+cd video
+npm install
+npm run studio   # live preview
+npm run build    # re-render the mp4 and poster into web/public/media/
+```
+
+Set `NEXT_PUBLIC_SITE_URL` when self-hosting the site, so canonical tags, Open Graph URLs, the
+sitemap, and `robots.txt` resolve to your origin. On Vercel it is inferred from
+`VERCEL_PROJECT_PRODUCTION_URL` and can be left unset.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Changes to data correctness,
 security boundaries, connectors, or recovery behavior require tests that exercise the relevant

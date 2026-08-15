@@ -1,11 +1,13 @@
 import Link from 'next/link';
+import { LoaferMark } from '../brand/LoaferMark';
 
 export function Footer() {
   return (
     <footer className="bg-bg-surface border-t border-border-subtle py-12">
       <div className="w-full max-w-7xl mx-auto px-6">
         <div className="flex flex-col md:flex-row items-center justify-between mb-8 gap-4">
-          <Link href="/" className="font-sans font-semibold text-base text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-signal rounded-sm transition-opacity hover:opacity-80">
+          <Link href="/" className="font-sans font-semibold text-base text-text-primary flex items-center gap-2 outline-none focus-visible:ring-2 focus-visible:ring-signal rounded-sm transition-opacity hover:opacity-80">
+            <LoaferMark size={19} />
             loafer
           </Link>
           <div className="flex items-center gap-6 text-[13px] text-text-secondary">
