@@ -14,6 +14,8 @@ from loafer.ports.metadata import MetadataStore
 from loafer.ports.queue import QueueConsumer, QueuePublisher
 from loafer.worker import DurableWorker
 
+_REPUBLISH_AFTER = timedelta(days=6)
+
 
 class OutboxRelay:
     """Publish leased run commands and settle them in authoritative metadata."""
@@ -25,15 +27,21 @@ class OutboxRelay:
         *,
         lease_for: timedelta = timedelta(seconds=30),
         retry_delay: timedelta = timedelta(seconds=5),
+        republish_after: timedelta = _REPUBLISH_AFTER,
         batch_size: int = 100,
         owned_resources: tuple[object, ...] = (),
     ) -> None:
         if batch_size < 1:
             raise ValueError("batch_size must be positive")
+        if republish_after <= timedelta(0):
+            raise ValueError("republish_after must be positive")
         self._metadata = metadata
         self._publisher = publisher
         self._lease_for = lease_for
         self._retry_delay = retry_delay
+        # Refresh queued commands before JetStream's seven-day max_age can
+        # remove their last transport message.
+        self._republish_after = republish_after
         self._batch_size = batch_size
         self._owned_resources = owned_resources
         self._shutdown = threading.Event()
@@ -44,6 +52,7 @@ class OutboxRelay:
             limit=self._batch_size,
             lease_for=self._lease_for,
             event_types=("run.created",),
+            republish_after=self._republish_after,
         )
         published = 0
         for record in records:

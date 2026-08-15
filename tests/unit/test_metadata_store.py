@@ -259,6 +259,49 @@ def test_durable_worker_composition_rejects_unmigrated_schema(tmp_path: Path) ->
         metadata.close()
 
 
+def test_durable_worker_closes_resources_when_consumer_creation_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Metadata:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    class Transport:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def consumer(self, role: object, *, max_ack_pending: int) -> object:
+            del role, max_ack_pending
+            raise RuntimeError("consumer setup failed")
+
+        def close(self) -> None:
+            self.closed = True
+
+    metadata = Metadata()
+    transport = Transport()
+    monkeypatch.setenv("LOAFER_NATS_URL", "nats://nats:4222")
+    monkeypatch.setattr(durable_application, "_get_ready_metadata_store", lambda _url: metadata)
+    monkeypatch.setattr(
+        durable_application,
+        "_get_nats_transport",
+        lambda _url, *, manage_stream: transport,
+    )
+
+    with pytest.raises(RuntimeError, match="consumer setup failed"):
+        get_durable_worker(
+            worker_id="worker-1",
+            metadata_url="sqlite:///unused.db",
+            object_root=tmp_path / "objects",
+        )
+
+    assert transport.closed is True
+    assert metadata.closed is True
+
+
 def test_nats_transport_reads_compose_secret_without_putting_it_in_the_url(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -342,6 +385,32 @@ def test_registered_pipeline_preserves_secret_references_not_values(
     assert "do-not-store-this-value" not in rendered
     assert "${JOB_OPENAI_KEY}" in rendered
     assert version.config["secret_references"] == ["JOB_OPENAI_KEY"]
+
+
+def test_secret_restoration_follows_the_matching_raw_structure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JOB_SECRET", "prod")
+    raw = {
+        "credential": "${JOB_SECRET}",
+        "description": "production",
+        "paths": ["./${JOB_SECRET}/input.csv", "production"],
+    }
+    resolved = {
+        "credential": "prod",
+        "description": "production",
+        "paths": ["/srv/pipelines/prod/input.csv", "production"],
+        "defaulted": "prod",
+    }
+
+    restored = durable_application._restore_secret_references(raw, resolved)
+
+    assert restored == {
+        "credential": "${JOB_SECRET}",
+        "description": "production",
+        "paths": ["/srv/pipelines/${JOB_SECRET}/input.csv", "production"],
+        "defaulted": "prod",
+    }
 
 
 def test_database_constraints_enforce_null_unique_foreign_key_and_check(

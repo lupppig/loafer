@@ -94,13 +94,22 @@ class TestSandboxExecution:
         monkeypatch.setenv("LOAFER_NATS_URL", "nats://loafer-etl@nats:4222")
         monkeypatch.setenv("LOAFER_NATS_USER", "loafer-etl")
         monkeypatch.setenv("LOAFER_NATS_PASSWORD_FILE", "/run/secrets/nats_etl_password")
+        monkeypatch.setenv("PYTHONPATH", "/opt/loafer")
+        monkeypatch.setenv("LD_LIBRARY_PATH", "/opt/linux-libraries")
+        monkeypatch.setenv("DYLD_LIBRARY_PATH", "/opt/macos-libraries")
         monkeypatch.setattr("loafer.core.sandbox.subprocess.Popen", _popen)
 
         assert run_sandboxed(_PASSTHROUGH, [{"x": 1}], timeout=10) == [{"x": 1}]
-        assert captured["env"] == {
+        expected_environment = {
             "PYTHONIOENCODING": "utf-8",
             "PYTHONHASHSEED": "random",
+            "PYTHONPATH": "/opt/loafer",
         }
+        if sys.platform == "darwin":
+            expected_environment["DYLD_LIBRARY_PATH"] = "/opt/macos-libraries"
+        else:
+            expected_environment["LD_LIBRARY_PATH"] = "/opt/linux-libraries"
+        assert captured["env"] == expected_environment
 
     @_posix_only
     def test_filesystem_write_is_blocked(self, tmp_path: Path) -> None:

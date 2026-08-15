@@ -150,6 +150,7 @@ class JetStreamTransport:
             max_bytes=_MAX_STREAM_BYTES,
             max_msg_size=_MAX_JOB_BYTES,
             storage=self._api.StorageType.FILE,
+            discard=self._api.DiscardPolicy.NEW,
         )
         try:
             existing = await self._js.stream_info(stream_name())
@@ -162,6 +163,7 @@ class JetStreamTransport:
             or existing.config.max_bytes != config.max_bytes
             or existing.config.max_msg_size != config.max_msg_size
             or existing.config.retention != config.retention
+            or existing.config.discard != config.discard
         ):
             await self._js.update_stream(config)
 

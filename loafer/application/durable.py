@@ -9,6 +9,8 @@ import re
 import uuid
 from pathlib import Path
 
+import yaml
+
 from loafer.adapters.metadata import SqlMetadataStore
 from loafer.adapters.object_storage import FilesystemObjectStorage
 from loafer.adapters.queue.jetstream import JetStreamTransport
@@ -110,9 +112,10 @@ def register_pipeline_config(
     resolved = Path(config_path).resolve()
     config = load_config(resolved)
     document = config.model_dump(mode="json")
-    raw_document = resolved.read_text(encoding="utf-8")
-    secret_references = sorted(set(re.findall(r"\$\{([^}]+)}", raw_document)))
-    document = _restore_secret_references(document, secret_references)
+    raw_text = resolved.read_text(encoding="utf-8")
+    raw_document = yaml.safe_load(raw_text)
+    secret_references = sorted(set(re.findall(r"\$\{([^}]+)}", raw_text)))
+    document = _restore_secret_references(raw_document, document)
     rendered = json.dumps(document, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(rendered.encode()).hexdigest()
     store = _get_ready_metadata_store(metadata_url)
@@ -170,37 +173,47 @@ def get_durable_worker(
     nats_url = os.environ.get("LOAFER_NATS_URL")
     if not nats_url:
         return worker
+    transport: JetStreamTransport | None = None
     try:
         # The relay owns stream creation/reconciliation. Worker credentials
         # can only manage their role-specific durable consumer.
         transport = _get_nats_transport(nats_url, manage_stream=False)
+        consumer = transport.consumer(role, max_ack_pending=1)
+        return QueuedWorker(
+            worker,
+            metadata,
+            consumer,
+            worker_id=worker_id,
+            role=role,
+            owned_resources=(transport,),
+        )
     except Exception:
+        if transport is not None:
+            transport.close()
         metadata.close()
         raise
-    return QueuedWorker(
-        worker,
-        metadata,
-        transport.consumer(role, max_ack_pending=1),
-        worker_id=worker_id,
-        role=role,
-        owned_resources=(transport,),
-    )
 
 
-def _restore_secret_references(value: object, references: list[str]) -> object:
-    """Replace resolved environment values before config enters durable metadata."""
-    if isinstance(value, str):
-        restored = value
-        for reference in references:
+def _restore_secret_references(raw: object, resolved: object) -> object:
+    """Restore placeholders only where the corresponding raw value declared them."""
+    if isinstance(raw, str) and isinstance(resolved, str):
+        restored = resolved
+        for reference in re.findall(r"\$\{([^}]+)}", raw):
             secret = os.environ.get(reference)
             if secret:
                 restored = restored.replace(secret, f"${{{reference}}}")
         return restored
-    if isinstance(value, dict):
-        return {key: _restore_secret_references(item, references) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_restore_secret_references(item, references) for item in value]
-    return value
+    if isinstance(raw, dict) and isinstance(resolved, dict):
+        return {
+            key: _restore_secret_references(raw[key], item) if key in raw else item
+            for key, item in resolved.items()
+        }
+    if isinstance(raw, list) and isinstance(resolved, list):
+        return [
+            _restore_secret_references(raw[index], item) if index < len(raw) else item
+            for index, item in enumerate(resolved)
+        ]
+    return resolved
 
 
 def get_outbox_relay(

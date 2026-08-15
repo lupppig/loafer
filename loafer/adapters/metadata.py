@@ -877,25 +877,50 @@ class SqlMetadataStore:
         role: WorkerRole | None = None,
         lease_for: timedelta = timedelta(seconds=30),
         event_types: tuple[str, ...] = (),
+        republish_after: timedelta | None = None,
     ) -> list[OutboxRecord]:
-        """Lease unpublished transport records so concurrent relays cannot overlap.
+        """Lease publishable transport records so concurrent relays cannot overlap.
 
         ``pending_outbox`` remains a lock-free read for inspection. Publication
         must go through this method: without a lease, two relays read the same
-        rows and publish every job twice.
+        rows and publish every job twice. Stale published run commands are
+        reclaimed only while their authoritative run remains queued.
         """
         if limit <= 0:
             raise ValueError("limit must be positive")
         if lease_for <= timedelta(0):
             raise ValueError("lease_for must be positive")
+        if republish_after is not None and republish_after <= timedelta(0):
+            raise ValueError("republish_after must be positive")
         now = self._clock()
         claimed_until = now + lease_for
+        publishable = and_(
+            schema.outbox.c.published_at.is_(None),
+            schema.outbox.c.available_at <= now,
+        )
+        if republish_after is not None:
+            queued_run = (
+                select(schema.runs.c.id)
+                .where(
+                    schema.runs.c.id == schema.outbox.c.aggregate_id,
+                    schema.runs.c.state == RunState.QUEUED.value,
+                )
+                .exists()
+            )
+            publishable = or_(
+                publishable,
+                and_(
+                    schema.outbox.c.published_at <= now - republish_after,
+                    schema.outbox.c.aggregate_type == "run",
+                    schema.outbox.c.event_type == "run.created",
+                    queued_run,
+                ),
+            )
         with self._engine.begin() as connection:
             query = (
                 select(schema.outbox)
                 .where(
-                    schema.outbox.c.published_at.is_(None),
-                    schema.outbox.c.available_at <= now,
+                    publishable,
                     or_(
                         schema.outbox.c.claimed_until.is_(None),
                         schema.outbox.c.claimed_until <= now,
@@ -918,6 +943,7 @@ class SqlMetadataStore:
                 update(schema.outbox)
                 .where(schema.outbox.c.id.in_(identifiers))
                 .values(
+                    published_at=None,
                     claimed_until=claimed_until,
                     attempts=schema.outbox.c.attempts + 1,
                 )

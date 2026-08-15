@@ -252,7 +252,10 @@ class _LeaseKeeper:
         while not self._stop.wait(self._interval):
             try:
                 with self._lock:
-                    self._lease = self._metadata.heartbeat(self._lease, self._lease_for)
+                    lease = self._lease
+                renewed = self._metadata.heartbeat(lease, self._lease_for)
+                with self._lock:
+                    self._lease = renewed
                 if self._callback is not None:
                     self._callback()
             except BaseException as exc:

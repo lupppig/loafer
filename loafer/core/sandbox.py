@@ -13,6 +13,7 @@ sandbox is the enforcement layer behind it.
 from __future__ import annotations
 
 import contextlib
+import os
 import pickle
 import subprocess
 import sys
@@ -102,6 +103,12 @@ def run_sandboxed(
     except (pickle.PickleError, TypeError, ValueError) as exc:
         raise TransformError(f"Transform input could not be serialized: {exc}") from exc
 
+    environment = {"PYTHONIOENCODING": "utf-8", "PYTHONHASHSEED": "random"}
+    dynamic_library_path = "DYLD_LIBRARY_PATH" if sys.platform == "darwin" else "LD_LIBRARY_PATH"
+    for name in ("PYTHONPATH", dynamic_library_path):
+        if name in os.environ:
+            environment[name] = os.environ[name]
+
     try:
         proc = subprocess.Popen(
             [sys.executable, "-m", "loafer.core.sandbox"],
@@ -113,7 +120,7 @@ def run_sandboxed(
             stderr=subprocess.DEVNULL,
             # The transform receives data through stdin and needs no worker,
             # connector, cloud, or control-plane credentials from the parent.
-            env={"PYTHONIOENCODING": "utf-8", "PYTHONHASHSEED": "random"},
+            env=environment,
         )
     except OSError as exc:
         raise TransformError(f"Could not start transform worker: {exc}") from exc

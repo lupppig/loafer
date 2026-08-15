@@ -217,6 +217,7 @@ def test_stream_subject_drift_is_reconciled_on_connect(nats_url: str) -> None:
     try:
         info = reconnected._run(reconnected._js.stream_info(stream_name()), 10)
         assert set(info.config.subjects) == set(stream_subjects())
+        assert info.config.discard is reconnected._api.DiscardPolicy.NEW
     finally:
         reconnected.close()
 

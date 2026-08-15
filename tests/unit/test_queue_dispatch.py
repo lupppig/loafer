@@ -21,6 +21,7 @@ from loafer.core.roles import WorkerRole, stream_subjects
 from loafer.core.run_state import RetryCategory, RunState
 from loafer.dispatch import OutboxRelay, QueuedWorker
 from loafer.exceptions import MetadataError, QueueError, StaleFenceError
+from loafer.metadata import utc_now
 from loafer.worker import _LeaseKeeper
 
 
@@ -522,6 +523,47 @@ def test_lease_keeper_renews_metadata_and_transport_ack(tmp_path: Path) -> None:
         metadata.close()
 
 
+def test_lease_keeper_does_not_hold_its_lock_during_heartbeat(
+    store: tuple[SqlMetadataStore, Clock],
+) -> None:
+    metadata, _clock = store
+    run_id = _run(metadata)
+    lease = metadata.claim_run_by_id(run_id, "worker-1", timedelta(seconds=30))
+    assert lease is not None
+    heartbeat_started = threading.Event()
+    finish_heartbeat = threading.Event()
+    current_returned = threading.Event()
+    observed: list[object] = []
+
+    class BlockingMetadata:
+        def heartbeat(self, snapshot: object, lease_for: timedelta) -> object:
+            del lease_for
+            heartbeat_started.set()
+            assert finish_heartbeat.wait(2)
+            return snapshot
+
+    def read_current(keeper: _LeaseKeeper) -> None:
+        observed.append(keeper.current())
+        current_returned.set()
+
+    with _LeaseKeeper(
+        BlockingMetadata(),  # type: ignore[arg-type]
+        lease,
+        timedelta(milliseconds=300),
+        None,
+    ) as keeper:
+        assert heartbeat_started.wait(1)
+        reader = threading.Thread(target=read_current, args=(keeper,))
+        reader.start()
+        try:
+            assert current_returned.wait(0.2)
+        finally:
+            finish_heartbeat.set()
+            reader.join(timeout=1)
+
+    assert observed == [lease]
+
+
 def test_memory_transport_honours_nak_delay_and_termination() -> None:
     clock = SteppedClock()
     broker = MemoryQueueBroker(ack_wait_seconds=30.0, clock=clock)
@@ -582,7 +624,7 @@ class StubWorker:
                 lease,  # type: ignore[arg-type]
                 RunState.RETRY_WAIT,
                 retry_category=RetryCategory.INFRASTRUCTURE,
-                retry_at=datetime(2026, 8, 15, tzinfo=UTC),
+                retry_at=utc_now() + timedelta(seconds=5),
             )
         else:
             self.metadata.transition_run(lease, self.outcome)  # type: ignore[arg-type]
@@ -623,6 +665,63 @@ def test_outbox_relay_releases_a_failed_publication_for_retry(
 
     assert relay.run_once() == 0
     assert "broker unavailable" in (metadata.pending_outbox()[0].last_error or "")
+
+
+def test_outbox_relay_republishes_stale_command_for_a_queued_run(
+    store: tuple[SqlMetadataStore, Clock],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    metadata, clock = store
+    run_id = _run(metadata)
+
+    class RecordingPublisher:
+        def __init__(self) -> None:
+            self.published: list[JobEnvelope] = []
+            self.fail_next = False
+
+        def publish(self, envelope: JobEnvelope, *, dedupe_key: str) -> None:
+            del dedupe_key
+            if self.fail_next:
+                self.fail_next = False
+                raise RuntimeError("broker unavailable during recovery")
+            self.published.append(envelope)
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr("loafer.dispatch.utc_now", clock)
+    publisher = RecordingPublisher()
+    relay = OutboxRelay(metadata, publisher, retry_delay=timedelta(0))
+
+    assert relay.run_once() == 1
+    clock.advance(days=6, seconds=1)
+    publisher.fail_next = True
+
+    assert metadata.get_run(run_id).state is RunState.QUEUED
+    assert relay.run_once() == 0
+    assert relay.run_once() == 1
+    assert [item.run_id for item in publisher.published] == [run_id, run_id]
+
+
+def test_outbox_relay_does_not_republish_a_stale_command_for_a_terminal_run(
+    store: tuple[SqlMetadataStore, Clock],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    metadata, clock = store
+    run_id = _run(metadata)
+    broker = MemoryQueueBroker()
+    monkeypatch.setattr("loafer.dispatch.utc_now", clock)
+    relay = OutboxRelay(metadata, MemoryQueuePublisher(broker))
+
+    assert relay.run_once() == 1
+    lease = metadata.claim_run_by_id(run_id, "worker-a", timedelta(seconds=30))
+    assert lease is not None
+    metadata.transition_run(lease, RunState.RUNNING)
+    metadata.transition_run(lease, RunState.SUCCEEDED)
+    clock.advance(days=6, seconds=1)
+
+    assert relay.run_once() == 0
+    assert len(broker.published) == 1
 
 
 @pytest.mark.parametrize("outcome", [RunState.SUCCEEDED, RunState.FAILED, RunState.CANCELLED])
