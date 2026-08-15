@@ -74,10 +74,11 @@ def test_compose_starts_services_only_after_explicit_migration() -> None:
     compose = _COMPOSE.read_text()
 
     assert 'command: ["metadata", "migrate"]' in compose
-    assert 'profiles: ["platform", "daemon"]' in compose
+    assert 'profiles: ["platform", "daemon", "web"]' in compose
     assert 'profiles: ["platform", "scheduler"]' in compose
     assert 'profiles: ["platform", "worker"]' in compose
-    assert compose.count("condition: service_completed_successfully") == 5
+    assert 'profiles: ["platform", "web"]' in compose
+    assert compose.count("condition: service_completed_successfully") == 6
     assert "nocopy: true" in compose
     assert "storage-init:" in compose
     assert "      - CHOWN" in compose
@@ -85,6 +86,37 @@ def test_compose_starts_services_only_after_explicit_migration() -> None:
     assert "read_only: true" in compose
     assert "no-new-privileges:true" in compose
     assert "/root/.loafer" not in compose
+
+
+def test_web_service_is_hardened_and_loopback_bound() -> None:
+    compose = _COMPOSE.read_text()
+    web = compose.split("  web:", maxsplit=1)[1].split("\n  scheduler:", maxsplit=1)[0]
+
+    # The browser boundary holds session secrets, so it inherits the same
+    # runtime restrictions as the Python services despite using its own image.
+    assert 'user: "10001:10001"' in web
+    assert "read_only: true" in web
+    assert "no-new-privileges:true" in web
+    assert "cap_drop:" in web
+    assert "init: true" in web
+
+    # Published to loopback only; an operator-supplied proxy terminates TLS.
+    assert '"127.0.0.1:${LOAFER_WEB_PORT:-3000}:3000"' in web
+
+    # The private hop to loaferd is opt-in and explicit, never inferred.
+    assert 'LOAFERD_TRUST_INTERNAL_NETWORK: "1"' in web
+    assert "LOAFERD_URL: ${LOAFERD_INTERNAL_URL:-http://loaferd:9443}" in web
+
+
+def test_web_image_builds_from_the_lockfile_as_non_root() -> None:
+    dockerfile = (_PROJECT_ROOT / "docker" / "Dockerfile.web").read_text()
+
+    assert "npm ci" in dockerfile
+    assert "npm install" not in dockerfile
+    assert "npm uninstall --global npm" in dockerfile
+    assert "USER 10001:10001" in dockerfile
+    # Both stages pin the same digest, matching the Python image's convention.
+    assert dockerfile.count("node:22.16.0-bookworm-slim@sha256:") == 2
 
 
 def test_cli_module_imports_declared_packages() -> None:

@@ -1,0 +1,48 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Stage 1: Build the Next.js standalone bundle
+# ──────────────────────────────────────────────────────────────────────────────
+FROM node:22.16.0-bookworm-slim@sha256:048ed02c5fd52e86fda6fbd2f6a76cf0d4492fd6c6fee9e2c463ed5108da0e34 AS builder
+
+WORKDIR /build
+
+# Install from the lockfile only, so an image build can never resolve a
+# different dependency tree than CI verified.
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+
+COPY web/ ./
+
+# next.config.mjs sets output: "standalone", and scripts/prepare-standalone.js
+# copies public/ and .next/static into it, so the result runs without this
+# stage's node_modules.
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npm run build
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Stage 2: Runtime — standalone bundle only
+# ──────────────────────────────────────────────────────────────────────────────
+FROM node:22.16.0-bookworm-slim@sha256:048ed02c5fd52e86fda6fbd2f6a76cf0d4492fd6c6fee9e2c463ed5108da0e34 AS runtime
+
+LABEL org.opencontainers.image.source="https://github.com/lupppig/loafer"
+LABEL org.opencontainers.image.description="Loafer web and Better Auth boundary"
+
+# Same fixed non-root identity as the Python image, so both services can share
+# a volume without an ownership negotiation.
+RUN npm uninstall --global npm \
+    && groupadd --gid 10001 loafer \
+    && useradd --uid 10001 --gid loafer --home-dir /home/loafer --create-home \
+       --shell /usr/sbin/nologin loafer
+
+COPY --from=builder --chown=10001:10001 /build/.next/standalone /app
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV HOME=/home/loafer
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+
+WORKDIR /app
+USER 10001:10001
+
+EXPOSE 3000
+CMD ["node", "server.js"]

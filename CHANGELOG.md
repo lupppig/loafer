@@ -8,6 +8,12 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Added
 
+- A self-hostable web and Better Auth boundary: a digest-pinned Node image building the Next.js
+  standalone bundle from the lockfile, a hardened `web` Compose service published to host loopback,
+  and a release job that smoke-tests and scans the image before publishing it. The browser boundary
+  now runs next to `loaferd` on the operator's own infrastructure rather than requiring a managed
+  edge that cannot reach a loopback-bound control plane.
+
 - Release gates now audit the locked Python environment and production web dependencies, scan the
   built container for fixed high/critical vulnerabilities, and smoke-test both the wheel and image
   through the CLI pipeline and `loaferd` health endpoint.

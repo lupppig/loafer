@@ -72,11 +72,20 @@ docker run --rm \
 ```
 
 Mount pipeline files under `/workspace`, not `/app`; `/app` is reserved by the image.
-For services, pin `LOAFER_IMAGE` to a released digest and use the checked-in
+For services, pin `LOAFER_IMAGE` and `LOAFER_WEB_IMAGE` to released digests and use the checked-in
 `docker/docker-compose.yml` platform profile. It runs PostgreSQL, explicit one-shot metadata and
-storage initialization, `loaferd`, one scheduler, and one durable worker with a non-root, read-only
-application runtime. Selective `daemon`, `scheduler`, and `worker` profiles are also available.
-The control-plane port binds to host loopback and must sit behind a trusted TLS reverse proxy.
+storage initialization, `loaferd`, the web and Better Auth boundary, one scheduler, and one durable
+worker, each with a non-root, read-only application runtime. Selective `daemon`, `web`, `scheduler`,
+and `worker` profiles are also available; `web` brings `loaferd` with it, because the browser
+boundary cannot serve without the API it fronts.
+
+Both published ports bind to host loopback and must sit behind a trusted TLS reverse proxy. The
+browser reaches the web service over that proxy; the web service reaches `loaferd` across the
+private compose network, which is why the profile sets `LOAFERD_TRUST_INTERNAL_NETWORK=1`. That flag
+is the browser-side counterpart of `loaferd --behind-tls-proxy`: it permits a plaintext `http://`
+hop between two processes you control and forwards the original scheme, and it is never selected
+automatically. Set `BETTER_AUTH_DATABASE_URL`; the embedded SQLite fallback is for local development
+and a production container refuses to start without it.
 
 ## Metadata schema rollout
 
