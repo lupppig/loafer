@@ -218,6 +218,9 @@ examples/output/
 # Local benchmark working data; committed baseline reports live in results/
 benchmarks/work/
 
+# JavaScript dependencies
+node_modules/
+
 .codex
 .qodo
 .agents

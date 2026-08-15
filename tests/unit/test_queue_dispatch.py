@@ -312,6 +312,101 @@ def test_claim_transaction_enforces_workspace_concurrency_limit(
     assert metadata.get_run(second_run).state is RunState.QUEUED
 
 
+def test_workspace_limit_counts_active_runs_in_other_environments(
+    store: tuple[SqlMetadataStore, Clock],
+) -> None:
+    metadata, clock = store
+    first_run = _run(metadata, "job-1", environment_id="env-1")
+    second_run = _run(metadata, "job-2", environment_id="env-2")
+    with metadata.engine.begin() as connection:
+        connection.execute(
+            schema.workspaces.insert().values(
+                id="workspace-1",
+                organization_id="org-1",
+                slug="workspace-1",
+                name="Workspace 1",
+                created_at=clock(),
+                max_concurrent_runs=1,
+            )
+        )
+
+    assert metadata.claim_run_by_id(first_run, "worker-a", timedelta(seconds=30)) is not None
+    assert metadata.claim_run_by_id(second_run, "worker-b", timedelta(seconds=30)) is None
+    assert metadata.get_run(second_run).state is RunState.QUEUED
+
+
+def test_environment_limit_counts_only_active_runs_in_that_environment(
+    store: tuple[SqlMetadataStore, Clock],
+) -> None:
+    metadata, clock = store
+    first_run = _run(metadata, "job-1", environment_id="env-1")
+    second_run = _run(metadata, "job-2", environment_id="env-1")
+    with metadata.engine.begin() as connection:
+        connection.execute(
+            schema.workspaces.insert().values(
+                id="workspace-1",
+                organization_id="org-1",
+                slug="workspace-1",
+                name="Workspace 1",
+                created_at=clock(),
+                max_concurrent_runs=2,
+            )
+        )
+        connection.execute(
+            schema.environments.insert().values(
+                id="env-1",
+                workspace_id="workspace-1",
+                slug="production",
+                name="Production",
+                is_production=True,
+                created_at=clock(),
+                max_concurrent_runs=1,
+            )
+        )
+
+    assert metadata.claim_run_by_id(first_run, "worker-a", timedelta(seconds=30)) is not None
+    assert metadata.claim_run_by_id(second_run, "worker-b", timedelta(seconds=30)) is None
+    assert metadata.get_run(second_run).state is RunState.QUEUED
+
+
+def test_expired_run_is_excluded_from_each_of_its_concurrency_counts(
+    store: tuple[SqlMetadataStore, Clock],
+) -> None:
+    metadata, clock = store
+    run_id = _run(metadata, environment_id="env-1")
+    with metadata.engine.begin() as connection:
+        connection.execute(
+            schema.workspaces.insert().values(
+                id="workspace-1",
+                organization_id="org-1",
+                slug="workspace-1",
+                name="Workspace 1",
+                created_at=clock(),
+                max_concurrent_runs=1,
+            )
+        )
+        connection.execute(
+            schema.environments.insert().values(
+                id="env-1",
+                workspace_id="workspace-1",
+                slug="production",
+                name="Production",
+                is_production=True,
+                created_at=clock(),
+                max_concurrent_runs=1,
+            )
+        )
+
+    first = metadata.claim_run_by_id(run_id, "worker-a", timedelta(seconds=5))
+    assert first is not None
+    clock.advance(seconds=6)
+
+    reclaimed = metadata.claim_run_by_id(run_id, "worker-b", timedelta(seconds=30))
+
+    assert reclaimed is not None
+    assert reclaimed.fencing_token == first.fencing_token + 1
+
+
 def test_quarantine_ends_the_run_and_records_why(
     store: tuple[SqlMetadataStore, Clock],
 ) -> None:

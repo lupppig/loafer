@@ -249,11 +249,18 @@ MVP. They are not a distributed scheduler or a multi-user control plane.
 Add a server-side API, authenticated workspaces, durable run metadata, workers, secret references,
 audit logs, and a standard telemetry pipeline.
 
-### P1 — Advanced orchestration remains a roadmap
+### P1 — Advanced ETL orchestration and relational recovery remain a roadmap
 
-Whole-database inspection/orchestration, dependency graphs, cross-table joins, parallel table
-execution, and interactive explore mode are product goals but are not present in the current
-codebase. Treat them as roadmap items until implementation and tests exist.
+Whole-database inspection, native pipeline dependency graphs, multi-source joins, parallel
+partition/table execution, and interactive explore mode are not present in the current codebase.
+Change-data capture is limited to cursor-based polling rather than source-native logs, SCD Type 1
+and Type 2 are not first-class merge policies, and late-arriving facts/dimensions require bespoke
+pipeline logic. Materialized/global-relational transforms restart as whole runs rather than
+resuming a durable relational stage or partition.
+
+Phase 6 owns these gaps. Until its exit gate passes, treat source-query pushdown and externally
+sequenced pipelines as explicit workarounds rather than claiming native DAG, CDC, SCD, or
+partitioned global-transform support.
 
 ## Product UI direction
 
@@ -296,6 +303,7 @@ baseline
   → durable metadata and single-node recovery
   → authenticated multi-tenant API
   → distributed workers
+  → advanced ETL orchestration and relational recovery
   → connected Web/CLI/TUI
   → advanced ingestion and connectors
   → scale, operations, and enterprise hardening
@@ -499,11 +507,10 @@ HTTPS-only clients. Better Auth integration tests cover disabled public signup, 
 secure cookies, session replacement/revocation, and credential rate limiting. Metadata v3 and its
 RLS policies pass against live PostgreSQL 16.
 
-Asynchronous handlers for validation, backfill, and connection-test control commands remain client
-workflow work for Phase 6. Those endpoints durably accept work and never execute it inside
-`loaferd`; Phase 5's transport executes immutable pipeline-run jobs. Production deployments use
-PostgreSQL and a non-owner application role configured for RLS; the built-in SQLite auth/metadata
-profiles remain development and single-node options.
+Distributed consumers for validation, backfill, and connection-test control commands remain Phase
+5 work. Those endpoints durably accept work now but do not execute it inside `loaferd`. Production
+deployments use PostgreSQL and a non-owner application role configured for RLS; the built-in
+SQLite auth/metadata profiles remain development and single-node options.
 
 ### Phase 5 — Introduce distributed workers and NATS JetStream
 
@@ -527,25 +534,49 @@ Exit gate:
 - stale workers cannot publish checkpoints or terminal states;
 - queue messages contain no configs, credentials, rows, HTML, PDFs, or browser state.
 
-**Current status:** complete for immutable pipeline-run transport. A leased transactional-outbox
-relay publishes identifier-only jobs with stable deduplication keys; role-scoped JetStream pull
-consumers claim runs through authoritative metadata, enforce workspace/environment concurrency in
-the claim transaction, and acknowledge only durable terminal states. A background keeper renews
-the fenced metadata lease and JetStream acknowledgement window together. Retry-wait runs are
-delayed, active leases remain redeliverable, and poison runs are quarantined transactionally.
+### Phase 6 — Add advanced ETL orchestration and relational recovery
 
-ETL, document, and browser pools are independently selectable processes over separate durable
-subjects; document/browser-specific ingestion remains Phase 7, but their shared pipeline executor
-and starvation isolation are real. Each run receives a TTL-bound allow-list over only the secret
-references in its immutable config, and transform subprocesses inherit no parent credentials.
-SIGTERM stops new claims and drains active work. The embedded profile remains broker-free.
+**Goal:** support production-shaped data-engineering workflows without hiding ordering,
+correctness, or recovery semantics behind connector-specific scripts.
 
-Deterministic tests cover duplicate delivery, lost acknowledgement, metadata outage, expired-lease
-recovery, worker kill, stale fencing, graceful drain, poison quarantine, transactional concurrency,
-and role starvation. Eleven live JetStream tests pass, and a persistent-volume broker restart on
-2026-08-15 preserved and redelivered an unacknowledged identifier-only job.
+Deliver:
 
-### Phase 6 — Connect Web, CLI, and professional TUI
+- add a versioned pipeline DAG with typed inputs/outputs, dependency validation, cycle rejection,
+  dependency-aware scheduling, selective backfill, and deterministic resume;
+- add multi-source and whole-database planning with discovery, include/exclude rules, bounded
+  fan-out, and dependency-aware parallel table execution;
+- add source-native CDC capability contracts for snapshot-to-stream handoff, opaque log offsets,
+  ordering, deduplication, deletes/tombstones, schema changes, and retention-gap recovery;
+- add first-class SCD Type 1 and Type 2 merge policies with effective-time ranges, surrogate-key
+  stability, late-arriving dimensions/facts, corrected history, and idempotent replay;
+- introduce partition planning plus per-partition leases, fencing, heartbeats, checkpoints,
+  backpressure, skew reporting, retry, and cancellation;
+- route joins, aggregates, sorts, windows, and large deduplication to declared pushdown or a
+  spill-capable global-relational runner with explicit memory, disk, and temporary-data limits;
+- checkpoint replayable global-relational stages/partitions so a worker failure does not always
+  restart the whole run;
+- persist dataset/column lineage, source offsets, schema versions, quality outcomes, and
+  reconciliation evidence across dependent pipelines;
+- provide decimal-safe financial calculations, timezone/watermark rules, multi-table quality
+  constraints, and deterministic late-data policies as reusable contracts rather than examples.
+
+Exit gate:
+
+- an orders/customers/products/FX acceptance workflow proves multi-source enrichment,
+  event-version deduplication, late corrections, SCD2 history, staged keyed publication, downstream
+  windows/aggregates, and exact financial reconciliation;
+- CDC snapshot/stream handoff, duplicate and out-of-order events, deletes, schema change, and log
+  retention gaps produce deterministic results or an explicit recoverable failure;
+- killing workers at partition and global-stage commit boundaries resumes from durable state with
+  no missing or duplicate business keys, and stale workers cannot commit;
+- DAG retry, selective backfill, cancellation, and version pinning never consume a partially
+  published dependency or silently mix dataset versions;
+- the correctness/failure suite uses deterministic fixtures capped at 1,000 source rows; large
+  performance matrices remain separately authorized Phase 10 gates rather than default tests;
+- unsupported connector combinations fail during planning with a documented capability reason,
+  never by silently weakening delivery, CDC, or SCD semantics.
+
+### Phase 7 — Connect Web, CLI, and professional TUI
 
 **Goal:** make every client a useful view over the same authenticated API and event model.
 
@@ -570,7 +601,7 @@ Exit gate:
 - SSE reconnect/gap recovery is correct;
 - accessibility, reduced-motion, WebGL-unavailable, empty, disconnected, and failure states pass.
 
-### Phase 7 — Add advanced documents and web crawling
+### Phase 8 — Add advanced documents and web crawling
 
 **Goal:** deliver sophisticated ingestion through isolated, versioned source capabilities.
 
@@ -594,7 +625,7 @@ Exit gate:
   redirects, deduplication, downloaded PDF, resume, and SSRF cases;
 - the UI never parses documents or runs browsers in the Next.js process.
 
-### Phase 8 — Expand database connectors
+### Phase 9 — Expand database connectors
 
 **Goal:** add connectors only through the stable capability and batch contracts.
 
@@ -626,7 +657,7 @@ Exit gate:
 - retry, checkpoint, schema drift, and partial-publication behavior is documented;
 - bulk connectors pass the relevant 10M/30M full-pipeline matrix before scale claims.
 
-### Phase 9 — Self-hosting, scale, and enterprise hardening
+### Phase 10 — Self-hosting, scale, and enterprise hardening
 
 **Goal:** provide one operable architecture from startup Compose to production clusters.
 
@@ -651,12 +682,25 @@ Exit gate:
 
 ## What to implement next
 
-1. Connect Studio to the authenticated API and persisted SSE event stream, replacing fixture
-   timers and sample run data.
-2. Execute and expose results for asynchronous validate, backfill, and connection-test commands.
-3. Add the keyboard-first TUI over the same run/event contract.
-4. Continue independent data-plane hardening: MongoDB staged publication, spill-capable global SQL,
-   and broader schema-evolution and PostgreSQL final-publication failure coverage.
+Land and verify the Phase 5 distributed-worker transport, then start Phase 6 in this order:
+
+1. Define serializable capability contracts and execution-plan nodes for dataset dependencies,
+   partitions, CDC offsets, SCD merge policies, lineage, and global-relational stages.
+2. Implement versioned DAG validation and dependency-aware scheduling before adding parallelism;
+   prove cycle rejection, version pinning, selective backfill, and failed-dependency behavior.
+3. Add partition planning, leasing, fencing, checkpointing, and deterministic replay to the
+   PostgreSQL path, including skew, cancellation, and stale-worker tests.
+4. Add one source-native CDC profile with snapshot/stream handoff and one complete SCD2 target
+   protocol before generalizing either contract to more connectors.
+5. Add a spill-capable global-relational plan with explicit disk/memory/temp limits and replayable
+   stage boundaries, while continuing to prefer declared ELT pushdown.
+6. Build the deterministic orders/customers/products/FX acceptance workflow with at most 1,000
+   source rows and use it as the correctness and failure-recovery gate for every item above.
+7. Keep MongoDB staged publication blocked until an equivalent tested merge protocol exists, and
+   expand schema-evolution compatibility tests across supported targets.
+
+Large performance runs do not replace the bounded correctness suite and must not run by default.
+The 1M/10M/30M/100M matrix belongs to the explicitly authorized Phase 10 release gate.
 
 ## Definition of the 100M-row claim
 

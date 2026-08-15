@@ -256,14 +256,12 @@ class SqlMetadataStore:
             connection.execute(
                 select(func.pg_advisory_xact_lock(func.hashtext(f"loafer:{workspace_id}")))
             )
-        limits: list[int] = []
         workspace_limit = connection.execute(
             select(schema.workspaces.c.max_concurrent_runs).where(
                 schema.workspaces.c.id == workspace_id
             )
         ).scalar_one_or_none()
-        if workspace_limit is not None:
-            limits.append(int(workspace_limit))
+        environment_limit = None
         if environment_id is not None:
             environment_limit = connection.execute(
                 select(schema.environments.c.max_concurrent_runs).where(
@@ -271,24 +269,40 @@ class SqlMetadataStore:
                     schema.environments.c.workspace_id == workspace_id,
                 )
             ).scalar_one_or_none()
-            if environment_limit is not None:
-                limits.append(int(environment_limit))
-        if not limits:
+        if workspace_limit is None and environment_limit is None:
             return True
-        predicate = and_(
-            schema.runs.c.workspace_id == workspace_id,
-            schema.runs.c.state.in_(_ACTIVE_STATES),
-        )
-        if environment_id is not None:
-            predicate = and_(predicate, schema.runs.c.environment_id == environment_id)
-        running = int(
-            connection.execute(
-                select(func.count()).select_from(schema.runs).where(predicate)
-            ).scalar_one()
-        )
-        if row["state"] in _ACTIVE_STATES:
-            running -= 1
-        return running < min(limits)
+        row_adjustment = int(row["state"] in _ACTIVE_STATES)
+        active_runs = schema.runs.c.state.in_(_ACTIVE_STATES)
+        if workspace_limit is not None:
+            workspace_running = int(
+                connection.execute(
+                    select(func.count())
+                    .select_from(schema.runs)
+                    .where(
+                        active_runs,
+                        schema.runs.c.workspace_id == workspace_id,
+                    )
+                ).scalar_one()
+            )
+            workspace_running -= row_adjustment
+            if workspace_running >= int(workspace_limit):
+                return False
+        if environment_limit is not None:
+            environment_running = int(
+                connection.execute(
+                    select(func.count())
+                    .select_from(schema.runs)
+                    .where(
+                        active_runs,
+                        schema.runs.c.workspace_id == workspace_id,
+                        schema.runs.c.environment_id == environment_id,
+                    )
+                ).scalar_one()
+            )
+            environment_running -= row_adjustment
+            if environment_running >= int(environment_limit):
+                return False
+        return True
 
     def list_runnable(
         self,
