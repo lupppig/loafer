@@ -330,10 +330,9 @@ class RunPipeline:
         config = self._load_config(request.config_path)
         return config, _build_plan(config, request)
 
-    @staticmethod
-    def _load_config(config_path: str | Path) -> PipelineConfig:
+    def _load_config(self, config_path: str | Path) -> PipelineConfig:
         try:
-            return load_config(config_path)
+            return load_config(config_path, secret_resolver=self._secrets.resolve)
         except Exception as exc:
             raise PipelineError(f"Config validation failed: {exc}") from exc
 

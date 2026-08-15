@@ -17,6 +17,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _PYPROJECT = _PROJECT_ROOT / "pyproject.toml"
 _DOCKERFILE = _PROJECT_ROOT / "docker" / "Dockerfile"
 _COMPOSE = _PROJECT_ROOT / "docker" / "docker-compose.yml"
+_NATS_CONFIG = _PROJECT_ROOT / "docker" / "nats-server.conf"
 _SMOKE_TEST = _PROJECT_ROOT / "scripts" / "smoke_test.sh"
 
 
@@ -76,9 +77,16 @@ def test_compose_starts_services_only_after_explicit_migration() -> None:
     assert 'command: ["metadata", "migrate"]' in compose
     assert 'profiles: ["platform", "daemon", "web"]' in compose
     assert 'profiles: ["platform", "scheduler"]' in compose
-    assert 'profiles: ["platform", "worker"]' in compose
+    assert 'profiles: ["platform", "worker", "document-worker", "browser-worker"]' in compose
     assert 'profiles: ["platform", "web"]' in compose
-    assert compose.count("condition: service_completed_successfully") == 6
+    assert compose.count("condition: service_completed_successfully") == 11
+    assert 'command: ["relay"]' in compose
+    assert 'command: ["worker", "--role", "document"]' in compose
+    assert 'command: ["worker", "--role", "browser"]' in compose
+    assert "nats://nats:4222" not in compose
+    assert compose.count("LOAFER_NATS_PASSWORD_FILE: /run/secrets/") == 4
+    assert "./nats-server.conf:/etc/nats/nats-server.conf:ro" in compose
+    assert "environment: NATS_RELAY_PASSWORD" in compose
     assert "nocopy: true" in compose
     assert "storage-init:" in compose
     assert "      - CHOWN" in compose
@@ -86,6 +94,38 @@ def test_compose_starts_services_only_after_explicit_migration() -> None:
     assert "read_only: true" in compose
     assert "no-new-privileges:true" in compose
     assert "/root/.loafer" not in compose
+
+
+def test_nats_compose_account_enforces_role_subject_permissions() -> None:
+    config = _NATS_CONFIG.read_text()
+    relay = config.split('user: "loafer-relay"', maxsplit=1)[1].split(
+        'user: "loafer-etl"', maxsplit=1
+    )[0]
+    etl = config.split('user: "loafer-etl"', maxsplit=1)[1].split(
+        'user: "loafer-document"', maxsplit=1
+    )[0]
+    document = config.split('user: "loafer-document"', maxsplit=1)[1].split(
+        'user: "loafer-browser"', maxsplit=1
+    )[0]
+    browser = config.split('user: "loafer-browser"', maxsplit=1)[1]
+
+    assert "accounts" in config and "LOAFER" in config
+    assert config.count("password: $NATS_") == 4
+    assert '"loafer.jobs.*"' in relay
+    assert "$JS.API.CONSUMER" not in relay
+    assert 'subscribe: ["_INBOX.>"]' in relay
+
+    for role, section in {
+        "etl": etl,
+        "document": document,
+        "browser": browser,
+    }.items():
+        assert f'"loafer.jobs.{role}"' in section
+        assert f"loafer-{role}" in section
+        assert "$JS.API.STREAM.CREATE" not in section
+        assert "$JS.API.STREAM.UPDATE" not in section
+        for other_role in {"etl", "document", "browser"} - {role}:
+            assert f'"loafer.jobs.{other_role}"' not in section
 
 
 def test_web_service_is_hardened_and_loopback_bound() -> None:

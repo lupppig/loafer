@@ -5,18 +5,48 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import uuid
 from pathlib import Path
 
+import yaml
+
 from loafer.adapters.metadata import SqlMetadataStore
 from loafer.adapters.object_storage import FilesystemObjectStorage
+from loafer.adapters.queue.jetstream import JetStreamTransport
 from loafer.config import load_config
+from loafer.core.roles import WorkerRole
+from loafer.dispatch import OutboxRelay, QueuedWorker
 from loafer.metadata import PipelineVersion, RunRecord
 from loafer.worker import DurableWorker
 
 _LOAFER_DIR = Path.home() / ".loafer"
 _METADATA_PATH = _LOAFER_DIR / "metadata.db"
 _OBJECTS_PATH = _LOAFER_DIR / "objects"
+
+
+def _get_nats_transport(url: str, *, manage_stream: bool) -> JetStreamTransport:
+    """Build an authenticated transport when a Compose secret is configured."""
+    user = os.environ.get("LOAFER_NATS_USER")
+    password_file = os.environ.get("LOAFER_NATS_PASSWORD_FILE")
+    if not user and not password_file:
+        return JetStreamTransport(url, manage_stream=manage_stream)
+    if not user or not password_file:
+        raise ValueError(
+            "LOAFER_NATS_USER and LOAFER_NATS_PASSWORD_FILE must be configured together"
+        )
+    try:
+        password = Path(password_file).read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise ValueError(f"could not read LOAFER_NATS_PASSWORD_FILE: {exc}") from exc
+    if not password:
+        raise ValueError("LOAFER_NATS_PASSWORD_FILE must not be empty")
+    return JetStreamTransport(
+        url,
+        user=user,
+        password=password,
+        manage_stream=manage_stream,
+    )
 
 
 def default_metadata_url() -> str:
@@ -82,6 +112,10 @@ def register_pipeline_config(
     resolved = Path(config_path).resolve()
     config = load_config(resolved)
     document = config.model_dump(mode="json")
+    raw_text = resolved.read_text(encoding="utf-8")
+    raw_document = yaml.safe_load(raw_text)
+    secret_references = sorted(set(re.findall(r"\$\{([^}]+)}", raw_text)))
+    document = _restore_secret_references(raw_document, document)
     rendered = json.dumps(document, sort_keys=True, separators=(",", ":"))
     digest = hashlib.sha256(rendered.encode()).hexdigest()
     store = _get_ready_metadata_store(metadata_url)
@@ -90,7 +124,11 @@ def register_pipeline_config(
             workspace_id=workspace_id,
             pipeline_key=config.name or resolved.stem,
             config_digest=digest,
-            config={"document": document, "source_path": str(resolved)},
+            config={
+                "document": document,
+                "source_path": str(resolved),
+                "secret_references": secret_references,
+            },
         )
     finally:
         store.close()
@@ -122,10 +160,79 @@ def get_durable_worker(
     worker_id: str,
     metadata_url: str | None = None,
     object_root: str | Path | None = None,
-) -> DurableWorker:
+    role: WorkerRole = WorkerRole.ETL,
+) -> DurableWorker | QueuedWorker:
     """Compose a worker process; callers own its long-running lifecycle."""
-    return DurableWorker(
-        _get_ready_metadata_store(metadata_url),
+    metadata = _get_ready_metadata_store(metadata_url)
+    worker = DurableWorker(
+        metadata,
         get_object_storage(object_root),
         worker_id=worker_id,
+        role=role,
+    )
+    nats_url = os.environ.get("LOAFER_NATS_URL")
+    if not nats_url:
+        return worker
+    transport: JetStreamTransport | None = None
+    try:
+        # The relay owns stream creation/reconciliation. Worker credentials
+        # can only manage their role-specific durable consumer.
+        transport = _get_nats_transport(nats_url, manage_stream=False)
+        consumer = transport.consumer(role, max_ack_pending=1)
+        return QueuedWorker(
+            worker,
+            metadata,
+            consumer,
+            worker_id=worker_id,
+            role=role,
+            owned_resources=(transport,),
+        )
+    except Exception:
+        if transport is not None:
+            transport.close()
+        metadata.close()
+        raise
+
+
+def _restore_secret_references(raw: object, resolved: object) -> object:
+    """Restore placeholders only where the corresponding raw value declared them."""
+    if isinstance(raw, str) and isinstance(resolved, str):
+        restored = resolved
+        for reference in re.findall(r"\$\{([^}]+)}", raw):
+            secret = os.environ.get(reference)
+            if secret:
+                restored = restored.replace(secret, f"${{{reference}}}")
+        return restored
+    if isinstance(raw, dict) and isinstance(resolved, dict):
+        return {
+            key: _restore_secret_references(raw[key], item) if key in raw else item
+            for key, item in resolved.items()
+        }
+    if isinstance(raw, list) and isinstance(resolved, list):
+        return [
+            _restore_secret_references(raw[index], item) if index < len(raw) else item
+            for index, item in enumerate(resolved)
+        ]
+    return resolved
+
+
+def get_outbox_relay(
+    *,
+    metadata_url: str | None = None,
+    nats_url: str | None = None,
+) -> OutboxRelay:
+    """Compose the PostgreSQL-to-JetStream transactional outbox relay."""
+    configured_url = nats_url or os.environ.get("LOAFER_NATS_URL")
+    if not configured_url:
+        raise ValueError("LOAFER_NATS_URL is required to run the outbox relay")
+    metadata = _get_ready_metadata_store(metadata_url)
+    try:
+        transport = _get_nats_transport(configured_url, manage_stream=True)
+    except Exception:
+        metadata.close()
+        raise
+    return OutboxRelay(
+        metadata,
+        transport.publisher(),
+        owned_resources=(transport, metadata),
     )

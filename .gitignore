@@ -206,6 +206,7 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+video/
 
 # Marimo
 marimo/_static/
@@ -217,6 +218,9 @@ examples/output/
 
 # Local benchmark working data; committed baseline reports live in results/
 benchmarks/work/
+
+# JavaScript dependencies
+node_modules/
 
 .codex
 .qodo

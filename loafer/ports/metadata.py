@@ -55,6 +55,8 @@ class MetadataStore(Protocol):
         run_id: str | None = None,
         parent_run_id: str | None = None,
         retry_category: RetryCategory | None = None,
+        role: WorkerRole = WorkerRole.ETL,
+        environment_id: str | None = None,
     ) -> RunRecord:
         """Create or return the run identified by an idempotent command."""
 
@@ -173,8 +175,9 @@ class MetadataStore(Protocol):
         role: WorkerRole | None = None,
         lease_for: timedelta = timedelta(seconds=30),
         event_types: tuple[str, ...] = (),
+        republish_after: timedelta | None = None,
     ) -> Sequence[OutboxRecord]:
-        """Lease unpublished transport records so concurrent relays cannot overlap."""
+        """Lease unpublished or stale queued-run transport records."""
 
     def release_outbox(
         self,

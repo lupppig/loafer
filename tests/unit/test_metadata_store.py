@@ -11,6 +11,7 @@ from loafer.adapters import metadata_schema as schema
 from loafer.adapters.metadata import SqlMetadataStore
 from loafer.adapters.object_storage import MemoryObjectStorage
 from loafer.adapters.runtime import DurableBatchRecovery
+from loafer.application import durable as durable_application
 from loafer.application.durable import get_durable_worker
 from loafer.contracts import BatchEnvelope
 from loafer.core.run_state import RunState
@@ -256,6 +257,160 @@ def test_durable_worker_composition_rejects_unmigrated_schema(tmp_path: Path) ->
         assert metadata.current_schema_version() == 0
     finally:
         metadata.close()
+
+
+def test_durable_worker_closes_resources_when_consumer_creation_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Metadata:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    class Transport:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def consumer(self, role: object, *, max_ack_pending: int) -> object:
+            del role, max_ack_pending
+            raise RuntimeError("consumer setup failed")
+
+        def close(self) -> None:
+            self.closed = True
+
+    metadata = Metadata()
+    transport = Transport()
+    monkeypatch.setenv("LOAFER_NATS_URL", "nats://nats:4222")
+    monkeypatch.setattr(durable_application, "_get_ready_metadata_store", lambda _url: metadata)
+    monkeypatch.setattr(
+        durable_application,
+        "_get_nats_transport",
+        lambda _url, *, manage_stream: transport,
+    )
+
+    with pytest.raises(RuntimeError, match="consumer setup failed"):
+        get_durable_worker(
+            worker_id="worker-1",
+            metadata_url="sqlite:///unused.db",
+            object_root=tmp_path / "objects",
+        )
+
+    assert transport.closed is True
+    assert metadata.closed is True
+
+
+def test_nats_transport_reads_compose_secret_without_putting_it_in_the_url(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    password_file = tmp_path / "nats-password"
+    password_file.write_text("worker-password\n", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    def _transport(url: str, **kwargs: object) -> object:
+        captured["url"] = url
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setenv("LOAFER_NATS_USER", "loafer-etl")
+    monkeypatch.setenv("LOAFER_NATS_PASSWORD_FILE", str(password_file))
+    monkeypatch.setattr(durable_application, "JetStreamTransport", _transport)
+
+    durable_application._get_nats_transport(
+        "nats://loafer-etl@nats:4222",
+        manage_stream=False,
+    )
+
+    assert captured == {
+        "url": "nats://loafer-etl@nats:4222",
+        "user": "loafer-etl",
+        "password": "worker-password",
+        "manage_stream": False,
+    }
+
+
+def test_nats_transport_rejects_incomplete_auth_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOAFER_NATS_USER", "loafer-etl")
+    monkeypatch.delenv("LOAFER_NATS_PASSWORD_FILE", raising=False)
+
+    with pytest.raises(ValueError, match="must be configured together"):
+        durable_application._get_nats_transport("nats://nats:4222", manage_stream=False)
+
+
+def test_registered_pipeline_preserves_secret_references_not_values(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from loafer.application.durable import register_pipeline_config
+
+    source = tmp_path / "input.csv"
+    source.write_text("id\n1\n", encoding="utf-8")
+    config = tmp_path / "pipeline.yaml"
+    config.write_text(
+        "\n".join(
+            [
+                "source:",
+                "  type: csv",
+                f"  path: {source}",
+                "target:",
+                "  type: json",
+                f"  path: {tmp_path / 'output.json'}",
+                "transform:",
+                "  type: custom",
+                f"  path: {tmp_path / 'transform.py'}",
+                "llm:",
+                "  provider: openai",
+                "  api_key: ${JOB_OPENAI_KEY}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "transform.py").write_text(
+        "def transform(data):\n    return data\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("JOB_OPENAI_KEY", "do-not-store-this-value")
+    database_url = f"sqlite:///{tmp_path / 'metadata.db'}"
+    metadata = SqlMetadataStore(database_url)
+    metadata.migrate()
+    metadata.close()
+
+    version = register_pipeline_config(config, metadata_url=database_url)
+
+    rendered = str(version.config)
+    assert "do-not-store-this-value" not in rendered
+    assert "${JOB_OPENAI_KEY}" in rendered
+    assert version.config["secret_references"] == ["JOB_OPENAI_KEY"]
+
+
+def test_secret_restoration_follows_the_matching_raw_structure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JOB_SECRET", "prod")
+    raw = {
+        "credential": "${JOB_SECRET}",
+        "description": "production",
+        "paths": ["./${JOB_SECRET}/input.csv", "production"],
+    }
+    resolved = {
+        "credential": "prod",
+        "description": "production",
+        "paths": ["/srv/pipelines/prod/input.csv", "production"],
+        "defaulted": "prod",
+    }
+
+    restored = durable_application._restore_secret_references(raw, resolved)
+
+    assert restored == {
+        "credential": "${JOB_SECRET}",
+        "description": "production",
+        "paths": ["/srv/pipelines/${JOB_SECRET}/input.csv", "production"],
+        "defaulted": "prod",
+    }
 
 
 def test_database_constraints_enforce_null_unique_foreign_key_and_check(

@@ -80,6 +80,11 @@ class MemoryQueueBroker:
             record.settled = True
             record.inflight_until = None
 
+    def in_progress(self, record: _Record) -> None:
+        with self._lock:
+            if not record.settled:
+                record.inflight_until = self.now() + self._ack_wait
+
     def nak(self, record: _Record, delay_seconds: float) -> None:
         with self._lock:
             record.inflight_until = None
@@ -105,6 +110,9 @@ class MemoryDeliveredJob:
     delivery_count: int
     _broker: MemoryQueueBroker = field(repr=False)
     _record: _Record = field(repr=False)
+
+    def in_progress(self) -> None:
+        self._broker.in_progress(self._record)
 
     def ack(self) -> None:
         self._broker.ack(self._record)

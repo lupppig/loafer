@@ -12,6 +12,7 @@ from loafer.adapters.runtime import (
     InputReviewPort,
     NullCheckpointStore,
     NullEventPublisher,
+    ScopedSecretResolver,
 )
 from loafer.application import RunRequest, get_local_application
 from loafer.application.service import RunPipeline
@@ -153,3 +154,22 @@ def test_validation_and_connector_listing_use_application_service(tmp_path: Path
     assert validation.plan.source_type == "csv"
     assert "csv" in catalog.sources
     assert "json" in catalog.targets
+
+
+def test_scoped_secret_resolver_enforces_allow_list_and_expiry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ALLOWED_KEY", "visible")
+    monkeypatch.setenv("OTHER_KEY", "hidden")
+    now = [10.0]
+    resolver = ScopedSecretResolver(
+        EnvironmentSecretResolver(),
+        {"ALLOWED_KEY"},
+        ttl_seconds=5,
+        clock=lambda: now[0],
+    )
+
+    assert resolver.resolve("ALLOWED_KEY") == "visible"
+    assert resolver.resolve("OTHER_KEY") is None
+    now[0] = 15.0
+    assert resolver.resolve("ALLOWED_KEY") is None

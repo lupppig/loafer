@@ -8,8 +8,9 @@ or from a scheduler. Transformations can use SQL, custom Python, multi-step pipe
 LLM-generated artifacts.
 
 > **Project status:** Loafer ships a CLI engine, durable single-node scheduling/recovery, and the
-> authenticated multi-tenant `loaferd` HTTPS control plane. Distributed queue/workers, the connected
-> web operations dashboard, and the terminal dashboard remain under active development. The
+> authenticated multi-tenant `loaferd` HTTPS control plane. The transactional outbox, JetStream
+> dispatch, and role-isolated ETL/document/browser worker runtime are implemented; the connected
+> web operations dashboard and terminal dashboard remain under active development. The
 > `/studio` route is still a product preview.
 
 ## What works today
@@ -23,6 +24,8 @@ LLM-generated artifacts.
 - Local scheduling, daemon management, run summaries, and logs
 - SQLite/PostgreSQL run metadata, fenced worker leases, durable batch checkpoints, replayable
   temporary output, and monotonic run events
+- Transactional-outbox JetStream dispatch with role-isolated consumers, coupled lease/ack
+  heartbeats, graceful drain, retry, concurrency limits, and poison quarantine
 - Better Auth sessions, organizations, invitations, device login, scoped automation keys, and
   short-lived JWT/JWKS exchange through the Next.js authentication boundary
 - Stateless `loaferd` `/api/v1` resources and commands with workspace roles, audit events,
@@ -285,7 +288,8 @@ loafer login --auth-url https://loafer.example.com
 loafer enqueue <pipeline.yaml> --command-key <idempotency-key>
 loafer run <pipeline.yaml> --local
 loafer enqueue <pipeline.yaml> --local --command-key <idempotency-key>
-loafer worker [--once]
+loafer worker [--once] [--role etl|document|browser]
+loafer relay [--once]
 loafer validate <pipeline.yaml>
 loafer connectors
 loafer schedule <pipeline.yaml>
@@ -325,9 +329,10 @@ The web dashboard and planned terminal dashboard will use the same API, permissi
 metrics, and logs. Workers will run independently so startups can deploy the stack on one host
 while larger installations can scale and isolate worker pools.
 
-The control interface, authentication boundary, tenant authorization, and durable single-node
-state are implemented. NATS transport, distributed object storage, isolated worker pools, and the
-connected operator UI are not. Do not expose Studio as a production operations surface yet.
+The control interface, authentication boundary, tenant authorization, durable state, transactional
+outbox relay, and role-isolated JetStream workers are implemented. Distributed object storage,
+specialized crawl/OCR capabilities, and the connected operator UI are not. Do not expose Studio as
+a production operations surface yet.
 
 The planned web source uses Crawlee for Python with HTTP/Parsel and Playwright execution profiles.
 It will support bounded crawling, authorized authenticated sessions, JavaScript rendering, and

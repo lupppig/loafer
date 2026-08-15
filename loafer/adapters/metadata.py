@@ -24,7 +24,12 @@ from loafer.core.run_state import (
     require_run_transition,
     require_stage_transition,
 )
-from loafer.exceptions import IdempotencyConflictError, MetadataError, StaleFenceError
+from loafer.exceptions import (
+    IdempotencyConflictError,
+    MetadataError,
+    MetadataNotFoundError,
+    StaleFenceError,
+)
 from loafer.metadata import (
     BatchCommit,
     OutboxRecord,
@@ -207,6 +212,8 @@ class SqlMetadataStore:
             row = connection.execute(query).mappings().one_or_none()
             if row is None:
                 return None
+            if not self._within_concurrency_limit(connection, row):
+                return None
             return self._claim_row(connection, row, worker_id, now, now + lease_for)
 
     def claim_run_by_id(
@@ -235,7 +242,67 @@ class SqlMetadataStore:
             row = connection.execute(query).mappings().one_or_none()
             if row is None:
                 return None
+            if not self._within_concurrency_limit(connection, row):
+                return None
             return self._claim_row(connection, row, worker_id, now, now + lease_for)
+
+    def _within_concurrency_limit(self, connection: Connection, row: RowMapping) -> bool:
+        """Enforce the tenant/environment limit inside the claim transaction."""
+        workspace_id = str(row["workspace_id"])
+        environment_id = row["environment_id"]
+        if self.profile == "postgresql":
+            # Serialize competing claims for one workspace without locking
+            # unrelated tenants or relying on an eventually consistent count.
+            connection.execute(
+                select(func.pg_advisory_xact_lock(func.hashtext(f"loafer:{workspace_id}")))
+            )
+        workspace_limit = connection.execute(
+            select(schema.workspaces.c.max_concurrent_runs).where(
+                schema.workspaces.c.id == workspace_id
+            )
+        ).scalar_one_or_none()
+        environment_limit = None
+        if environment_id is not None:
+            environment_limit = connection.execute(
+                select(schema.environments.c.max_concurrent_runs).where(
+                    schema.environments.c.id == environment_id,
+                    schema.environments.c.workspace_id == workspace_id,
+                )
+            ).scalar_one_or_none()
+        if workspace_limit is None and environment_limit is None:
+            return True
+        row_adjustment = int(row["state"] in _ACTIVE_STATES)
+        active_runs = schema.runs.c.state.in_(_ACTIVE_STATES)
+        if workspace_limit is not None:
+            workspace_running = int(
+                connection.execute(
+                    select(func.count())
+                    .select_from(schema.runs)
+                    .where(
+                        active_runs,
+                        schema.runs.c.workspace_id == workspace_id,
+                    )
+                ).scalar_one()
+            )
+            workspace_running -= row_adjustment
+            if workspace_running >= int(workspace_limit):
+                return False
+        if environment_limit is not None:
+            environment_running = int(
+                connection.execute(
+                    select(func.count())
+                    .select_from(schema.runs)
+                    .where(
+                        active_runs,
+                        schema.runs.c.workspace_id == workspace_id,
+                        schema.runs.c.environment_id == environment_id,
+                    )
+                ).scalar_one()
+            )
+            environment_running -= row_adjustment
+            if environment_running >= int(environment_limit):
+                return False
+        return True
 
     def list_runnable(
         self,
@@ -810,25 +877,50 @@ class SqlMetadataStore:
         role: WorkerRole | None = None,
         lease_for: timedelta = timedelta(seconds=30),
         event_types: tuple[str, ...] = (),
+        republish_after: timedelta | None = None,
     ) -> list[OutboxRecord]:
-        """Lease unpublished transport records so concurrent relays cannot overlap.
+        """Lease publishable transport records so concurrent relays cannot overlap.
 
         ``pending_outbox`` remains a lock-free read for inspection. Publication
         must go through this method: without a lease, two relays read the same
-        rows and publish every job twice.
+        rows and publish every job twice. Stale published run commands are
+        reclaimed only while their authoritative run remains queued.
         """
         if limit <= 0:
             raise ValueError("limit must be positive")
         if lease_for <= timedelta(0):
             raise ValueError("lease_for must be positive")
+        if republish_after is not None and republish_after <= timedelta(0):
+            raise ValueError("republish_after must be positive")
         now = self._clock()
         claimed_until = now + lease_for
+        publishable = and_(
+            schema.outbox.c.published_at.is_(None),
+            schema.outbox.c.available_at <= now,
+        )
+        if republish_after is not None:
+            queued_run = (
+                select(schema.runs.c.id)
+                .where(
+                    schema.runs.c.id == schema.outbox.c.aggregate_id,
+                    schema.runs.c.state == RunState.QUEUED.value,
+                )
+                .exists()
+            )
+            publishable = or_(
+                publishable,
+                and_(
+                    schema.outbox.c.published_at <= now - republish_after,
+                    schema.outbox.c.aggregate_type == "run",
+                    schema.outbox.c.event_type == "run.created",
+                    queued_run,
+                ),
+            )
         with self._engine.begin() as connection:
             query = (
                 select(schema.outbox)
                 .where(
-                    schema.outbox.c.published_at.is_(None),
-                    schema.outbox.c.available_at <= now,
+                    publishable,
                     or_(
                         schema.outbox.c.claimed_until.is_(None),
                         schema.outbox.c.claimed_until <= now,
@@ -851,6 +943,7 @@ class SqlMetadataStore:
                 update(schema.outbox)
                 .where(schema.outbox.c.id.in_(identifiers))
                 .values(
+                    published_at=None,
                     claimed_until=claimed_until,
                     attempts=schema.outbox.c.attempts + 1,
                 )
@@ -1069,7 +1162,7 @@ class SqlMetadataStore:
             query = query.with_for_update()
         row = connection.execute(query).mappings().one_or_none()
         if row is None:
-            raise MetadataError(f"run not found: {run_id}")
+            raise MetadataNotFoundError(f"run not found: {run_id}")
         return row
 
     def _require_fence(
@@ -1266,6 +1359,9 @@ def _run_record(row: RowMapping) -> RunRecord:
         finished_at=_optional_utc(row["finished_at"]),
         parent_run_id=row["parent_run_id"],
         error=dict(row["error_json"]) if row["error_json"] else None,
+        role=WorkerRole(row["role"]),
+        environment_id=row["environment_id"],
+        retry_at=_optional_utc(row["retry_at"]),
     )
 
 

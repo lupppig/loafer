@@ -34,6 +34,31 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  nats:
+    image: ${NATS_IMAGE:?set NATS_IMAGE to an immutable NATS version or digest}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        export NATS_RELAY_PASSWORD="$$(cat /run/secrets/nats_relay_password)"
+        export NATS_ETL_PASSWORD="$$(cat /run/secrets/nats_etl_password)"
+        export NATS_DOCUMENT_PASSWORD="$$(cat /run/secrets/nats_document_password)"
+        export NATS_BROWSER_PASSWORD="$$(cat /run/secrets/nats_browser_password)"
+        exec /nats-server --config /etc/nats/nats-server.conf
+    volumes:
+      - nats_data:/data
+      - ./nats-server.conf:/etc/nats/nats-server.conf:ro
+    secrets:
+      - nats_relay_password
+      - nats_etl_password
+      - nats_document_password
+      - nats_browser_password
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
   metadata-migrate:
     <<: *loafer-service
     command: ["metadata", "migrate"]
@@ -165,10 +190,36 @@ services:
     restart: unless-stopped
     stop_grace_period: 30s
 
+  relay:
+    <<: *loafer-service
+    profiles: ["platform", "worker", "document-worker", "browser-worker"]
+    command: ["relay"]
+    environment:
+      <<: *loafer-environment
+      LOAFER_NATS_URL: nats://loafer-relay@nats:4222
+      LOAFER_NATS_USER: loafer-relay
+      LOAFER_NATS_PASSWORD_FILE: /run/secrets/nats_relay_password
+    secrets:
+      - nats_relay_password
+    depends_on:
+      metadata-migrate:
+        condition: service_completed_successfully
+      nats:
+        condition: service_healthy
+    restart: unless-stopped
+    stop_grace_period: 30s
+
   worker:
     <<: *loafer-service
     profiles: ["platform", "worker"]
     command: ["worker"]
+    environment:
+      <<: *loafer-environment
+      LOAFER_NATS_URL: nats://loafer-etl@nats:4222
+      LOAFER_NATS_USER: loafer-etl
+      LOAFER_NATS_PASSWORD_FILE: /run/secrets/nats_etl_password
+    secrets:
+      - nats_etl_password
     volumes:
       - type: volume
         source: loafer_data
@@ -180,9 +231,76 @@ services:
         condition: service_completed_successfully
       storage-init:
         condition: service_completed_successfully
+      nats:
+        condition: service_healthy
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  document-worker:
+    <<: *loafer-service
+    profiles: ["document-worker"]
+    command: ["worker", "--role", "document"]
+    environment:
+      <<: *loafer-environment
+      LOAFER_NATS_URL: nats://loafer-document@nats:4222
+      LOAFER_NATS_USER: loafer-document
+      LOAFER_NATS_PASSWORD_FILE: /run/secrets/nats_document_password
+    secrets:
+      - nats_document_password
+    volumes:
+      - type: volume
+        source: loafer_data
+        target: /home/loafer/.loafer
+        volume:
+          nocopy: true
+    depends_on:
+      metadata-migrate:
+        condition: service_completed_successfully
+      storage-init:
+        condition: service_completed_successfully
+      nats:
+        condition: service_healthy
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  browser-worker:
+    <<: *loafer-service
+    profiles: ["browser-worker"]
+    command: ["worker", "--role", "browser"]
+    environment:
+      <<: *loafer-environment
+      LOAFER_NATS_URL: nats://loafer-browser@nats:4222
+      LOAFER_NATS_USER: loafer-browser
+      LOAFER_NATS_PASSWORD_FILE: /run/secrets/nats_browser_password
+    secrets:
+      - nats_browser_password
+    volumes:
+      - type: volume
+        source: loafer_data
+        target: /home/loafer/.loafer
+        volume:
+          nocopy: true
+    depends_on:
+      metadata-migrate:
+        condition: service_completed_successfully
+      storage-init:
+        condition: service_completed_successfully
+      nats:
+        condition: service_healthy
     restart: unless-stopped
     stop_grace_period: 30s
 
 volumes:
   postgres_data:
+  nats_data:
   loafer_data:
+
+secrets:
+  nats_relay_password:
+    environment: NATS_RELAY_PASSWORD
+  nats_etl_password:
+    environment: NATS_ETL_PASSWORD
+  nats_document_password:
+    environment: NATS_DOCUMENT_PASSWORD
+  nats_browser_password:
+    environment: NATS_BROWSER_PASSWORD

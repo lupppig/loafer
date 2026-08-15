@@ -25,6 +25,9 @@ from loafer.core.roles import WorkerRole, stream_name, stream_subjects
 from loafer.exceptions import QueueError
 
 _DEDUPE_WINDOW_SECONDS = 600
+_MAX_JOB_AGE_SECONDS = 7 * 24 * 60 * 60
+_MAX_STREAM_BYTES = 1024 * 1024 * 1024
+_MAX_JOB_BYTES = 4096
 _CONNECT_TIMEOUT_SECONDS = 10.0
 _LOOP_STOP_TIMEOUT_SECONDS = 5.0
 
@@ -97,16 +100,22 @@ class JetStreamTransport:
         servers: str | list[str],
         *,
         connect_timeout: float = _CONNECT_TIMEOUT_SECONDS,
+        user: str | None = None,
+        password: str | None = None,
+        manage_stream: bool = True,
     ) -> None:
         self._nats, self._api, self._errors = _nats_modules()
         self._servers = [servers] if isinstance(servers, str) else list(servers)
         self._timeout = connect_timeout
+        self._user = user
+        self._password = password
         self._loop = _LoopThread()
         self._connection: Any = None
         try:
             self._connection = self._loop.run(self._connect(), connect_timeout)
             self._js = self._connection.jetstream()
-            self._loop.run(self._ensure_stream(), connect_timeout)
+            if manage_stream:
+                self._loop.run(self._ensure_stream(), connect_timeout)
         except Exception as exc:
             # Stream setup can fail after the socket is already open. Closing
             # the loop alone would strand the connection and the client's
@@ -118,7 +127,11 @@ class JetStreamTransport:
             raise QueueError(f"could not connect to NATS JetStream: {exc}") from exc
 
     async def _connect(self) -> Any:
-        return await self._nats.connect(servers=self._servers)
+        return await self._nats.connect(
+            servers=self._servers,
+            user=self._user,
+            password=self._password,
+        )
 
     async def _ensure_stream(self) -> None:
         """Create the job stream, or reconcile the subjects of an existing one.
@@ -133,13 +146,25 @@ class JetStreamTransport:
             subjects=list(stream_subjects()),
             retention=self._api.RetentionPolicy.WORK_QUEUE,
             duplicate_window=_DEDUPE_WINDOW_SECONDS,
+            max_age=_MAX_JOB_AGE_SECONDS,
+            max_bytes=_MAX_STREAM_BYTES,
+            max_msg_size=_MAX_JOB_BYTES,
+            storage=self._api.StorageType.FILE,
+            discard=self._api.DiscardPolicy.NEW,
         )
         try:
             existing = await self._js.stream_info(stream_name())
         except self._errors.NotFoundError:
             await self._js.add_stream(config)
             return
-        if set(existing.config.subjects or ()) != set(config.subjects or ()):
+        if (
+            set(existing.config.subjects or ()) != set(config.subjects or ())
+            or existing.config.max_age != config.max_age
+            or existing.config.max_bytes != config.max_bytes
+            or existing.config.max_msg_size != config.max_msg_size
+            or existing.config.retention != config.retention
+            or existing.config.discard != config.discard
+        ):
             await self._js.update_stream(config)
 
     def publisher(self) -> JetStreamPublisher:
@@ -230,6 +255,9 @@ class JetStreamDeliveredJob:
     _transport: JetStreamTransport = field(repr=False)
     _message: Any = field(repr=False)
 
+    def in_progress(self) -> None:
+        self._settle(self._message.in_progress(), "extend acknowledgement for")
+
     def ack(self) -> None:
         self._settle(self._message.ack(), "acknowledge")
 
@@ -264,6 +292,10 @@ class JetStreamConsumer:
             durable_name=role.durable_name,
             ack_policy=api.AckPolicy.EXPLICIT,
             ack_wait=ack_wait_seconds,
+            # Application quarantine is transactional with metadata. Unlimited
+            # transport redelivery prevents a prolonged metadata outage from
+            # exhausting a broker counter and silently losing the only job ID.
+            max_deliver=-1,
             max_ack_pending=max_ack_pending,
             filter_subject=role.subject,
         )
@@ -281,6 +313,7 @@ class JetStreamConsumer:
                 transport._js.pull_subscribe(
                     role.subject,
                     durable=role.durable_name,
+                    stream=stream_name(),
                     config=config,
                 ),
                 _CONNECT_TIMEOUT_SECONDS,

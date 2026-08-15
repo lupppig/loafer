@@ -99,6 +99,46 @@ def test_an_unacknowledged_job_is_redelivered_with_a_higher_delivery_count(
     assert etl.fetch(10, 1.0) == []  # type: ignore[attr-defined]
 
 
+def test_in_progress_ack_extends_the_server_ack_window(
+    transport: JetStreamTransport,
+    etl: object,
+) -> None:
+    transport.publisher().publish(_envelope(), dedupe_key=uuid.uuid4().hex)
+    first = etl.fetch(1, 2.0)  # type: ignore[attr-defined]
+
+    time.sleep(1)
+    first[0].in_progress()
+    time.sleep(1.5)
+
+    assert etl.fetch(1, 0.5) == []  # type: ignore[attr-defined]
+    time.sleep(_ACK_WAIT_SECONDS + 0.5)
+    redelivered = etl.fetch(1, 2.0)  # type: ignore[attr-defined]
+    assert redelivered[0].delivery_count == 2
+    redelivered[0].ack()
+
+
+def test_job_survives_transport_process_restart(nats_url: str) -> None:
+    first = JetStreamTransport(nats_url)
+    _drain(first, WorkerRole.ETL)
+    envelope = _envelope()
+    first.publisher().publish(envelope, dedupe_key=uuid.uuid4().hex)
+    first.close()
+
+    restarted = JetStreamTransport(nats_url)
+    try:
+        consumer = restarted.consumer(
+            WorkerRole.ETL,
+            max_ack_pending=1,
+            ack_wait_seconds=_ACK_WAIT_SECONDS,
+        )
+        delivered = consumer.fetch(1, 2.0)
+        assert [item.envelope for item in delivered] == [envelope]
+        delivered[0].ack()
+        consumer.close()
+    finally:
+        restarted.close()
+
+
 def test_terminated_jobs_are_never_redelivered(
     transport: JetStreamTransport,
     etl: object,
@@ -147,6 +187,7 @@ def test_consumer_redeploy_reconciles_an_existing_durable(nats_url: str) -> None
             )
             assert info.config.ack_wait == 9.0
             assert info.config.max_ack_pending == 32
+            assert info.config.max_deliver == -1
         finally:
             second.close()
     finally:
@@ -176,6 +217,7 @@ def test_stream_subject_drift_is_reconciled_on_connect(nats_url: str) -> None:
     try:
         info = reconnected._run(reconnected._js.stream_info(stream_name()), 10)
         assert set(info.config.subjects) == set(stream_subjects())
+        assert info.config.discard is reconnected._api.DiscardPolicy.NEW
     finally:
         reconnected.close()
 

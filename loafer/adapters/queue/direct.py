@@ -28,6 +28,9 @@ class DirectDeliveredJob:
     delivery_count: int = 0
     _naked: list[str] = field(default_factory=list, repr=False)
 
+    def in_progress(self) -> None:
+        return None
+
     def ack(self) -> None:
         return None
 
