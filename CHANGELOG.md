@@ -52,6 +52,8 @@ Notable changes to Loafer are documented here. This project follows
 
 ### Changed
 
+- Reworked the project README into a concise contributor guide covering Loafer's purpose, current
+  boundaries, execution model, architectural decisions, repository layout, and development path.
 - The production image now installs exactly from `uv.lock`, pins its Python and uv inputs by digest,
   removes runtime packaging tools, and runs as a fixed non-root UID. The Compose deployment adds
   read-only filesystems, dropped capabilities, explicit platform/process profiles, serialized
