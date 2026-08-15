@@ -1,12 +1,24 @@
 import { Section, SectionHeading } from './Section'
+import { BenchmarkChart } from './BenchmarkChart'
+import {
+  headlineEnvironment,
+  headlineRun,
+  formatDuration,
+  formatMib,
+  formatRows,
+} from '../../content/benchmarks'
 
 /*
  * Execution proof.
  *
- * Every figure below is read from benchmarks/results/30m-row-local.json, the
- * checked-in run at git revision b2d474b. The visual direction bans fabricated
- * metrics, so this section states the measured case and its limits rather than
- * a rounded marketing number.
+ * Every figure in this section is read from benchmarks/results/*.json rather
+ * than typed in. The visual direction bans fabricated metrics, and a number
+ * transcribed by hand is one benchmark re-run away from being fabricated.
+ *
+ * The section states the measured case, then shows all three published runs
+ * against their caps — including the one that was killed. Publishing the
+ * failure next to the success is the whole point: it is what makes the success
+ * mean anything.
  */
 
 const STAGES = [
@@ -17,10 +29,26 @@ const STAGES = [
 ] as const
 
 const MEASURED = [
-  { label: 'rows', value: '30,000,000', note: 'four-column row-local workload' },
-  { label: 'peak memory', value: '118.23 MiB', note: 'process tree, under a 512 MiB cap' },
-  { label: 'wall clock', value: '33m 48s', note: '4 vCPU, 2 GiB container' },
-  { label: 'reconciliation', value: 'exact', note: 'input and output SHA-256 identical' },
+  {
+    label: 'rows',
+    value: formatRows(headlineRun.rowsOutput ?? headlineRun.rowsRequested),
+    note: 'four-column row-local workload',
+  },
+  {
+    label: 'peak memory',
+    value: formatMib(headlineRun.peakMib),
+    note: `process tree, under a ${headlineRun.capMib} MiB cap`,
+  },
+  {
+    label: 'wall clock',
+    value: formatDuration(headlineRun.wallSeconds),
+    note: `${headlineEnvironment.containerCpus} vCPU, ${headlineEnvironment.containerMemoryMb / 1024} GiB container`,
+  },
+  {
+    label: 'reconciliation',
+    value: headlineRun.reconciled ? 'exact' : 'unverified',
+    note: 'input and output SHA-256 identical',
+  },
 ] as const
 
 export function RunEvidence() {
@@ -50,9 +78,10 @@ export function RunEvidence() {
             One measured run, published in full
           </h3>
           <p className="mt-4 text-[14.5px] leading-[1.7] text-paper-dim">
-            A four-column identity workload completed 30 million rows inside a 512 MiB limit, wrote
-            no temporary output, and produced an output digest identical to its input. The report and
-            its environment provenance live in the repository.
+            A four-column identity workload completed {formatRows(headlineRun.rowsRequested)} rows
+            inside a {headlineRun.capMib} MiB limit, wrote no temporary output, and produced an
+            output digest identical to its input. The report and its environment provenance live in
+            the repository.
           </p>
           <p className="mt-4 text-[14.5px] leading-[1.7] text-paper-dim">
             Wider rows, other transform classes, and concurrent runs each need their own capped
@@ -81,13 +110,20 @@ export function RunEvidence() {
         </dl>
       </div>
 
-      <p className="mt-8 max-w-[70ch] border-l-2 border-state-warn pl-4 text-[13.5px] leading-[1.65] text-paper-dim">
-        <span className="font-semibold text-paper">The honest limit.</span> Bounded execution is
-        opt-in, because applying a global transform to independent chunks changes its meaning.
-        Undeclared transforms still run through the materialized path, where memory grows with the
-        dataset. A 10 million row run on that path crossed a 2 GiB budget and was terminated without
-        publishing.
-      </p>
+      <div className="reveal mt-16">
+        <h3 className="text-[19px] font-semibold tracking-[-0.01em] text-paper">
+          Every published run, including the one that died
+        </h3>
+        <p className="mt-4 max-w-[68ch] text-[14.5px] leading-[1.7] text-paper-dim">
+          Bounded execution is opt-in, because applying a global transform to independent chunks
+          changes its meaning. Undeclared transforms still run through the materialized path, where
+          memory grows with the dataset until something stops it.
+        </p>
+
+        <div className="mt-8">
+          <BenchmarkChart />
+        </div>
+      </div>
     </Section>
   )
 }
