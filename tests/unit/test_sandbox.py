@@ -7,6 +7,7 @@ where the sandbox degrades to a best-effort in-process thread.
 from __future__ import annotations
 
 import os
+import pickle
 import subprocess
 import sys
 import textwrap
@@ -71,6 +72,35 @@ class TestSandboxExecution:
         # so code cannot pull in os/subprocess/socket the normal way.
         with pytest.raises(TransformError, match="execution failed"):
             run_sandboxed("def transform(d):\n    import os\n    return d", [{"x": 1}], timeout=10)
+
+    @_posix_only
+    def test_child_environment_excludes_nats_credentials(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        captured: dict[str, object] = {}
+
+        class _Process:
+            returncode = 0
+
+            def communicate(self, **kwargs: object) -> tuple[bytes, bytes]:
+                assert {"input", "timeout"} <= kwargs.keys()
+                return pickle.dumps(("ok", [{"x": 1}])), b""
+
+        def _popen(*args: object, **kwargs: object) -> _Process:
+            captured.update(kwargs)
+            return _Process()
+
+        monkeypatch.setenv("LOAFER_NATS_URL", "nats://loafer-etl@nats:4222")
+        monkeypatch.setenv("LOAFER_NATS_USER", "loafer-etl")
+        monkeypatch.setenv("LOAFER_NATS_PASSWORD_FILE", "/run/secrets/nats_etl_password")
+        monkeypatch.setattr("loafer.core.sandbox.subprocess.Popen", _popen)
+
+        assert run_sandboxed(_PASSTHROUGH, [{"x": 1}], timeout=10) == [{"x": 1}]
+        assert captured["env"] == {
+            "PYTHONIOENCODING": "utf-8",
+            "PYTHONHASHSEED": "random",
+        }
 
     @_posix_only
     def test_filesystem_write_is_blocked(self, tmp_path: Path) -> None:

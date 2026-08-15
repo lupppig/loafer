@@ -11,6 +11,7 @@ from loafer.adapters import metadata_schema as schema
 from loafer.adapters.metadata import SqlMetadataStore
 from loafer.adapters.object_storage import MemoryObjectStorage
 from loafer.adapters.runtime import DurableBatchRecovery
+from loafer.application import durable as durable_application
 from loafer.application.durable import get_durable_worker
 from loafer.contracts import BatchEnvelope
 from loafer.core.run_state import RunState
@@ -256,6 +257,46 @@ def test_durable_worker_composition_rejects_unmigrated_schema(tmp_path: Path) ->
         assert metadata.current_schema_version() == 0
     finally:
         metadata.close()
+
+
+def test_nats_transport_reads_compose_secret_without_putting_it_in_the_url(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    password_file = tmp_path / "nats-password"
+    password_file.write_text("worker-password\n", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    def _transport(url: str, **kwargs: object) -> object:
+        captured["url"] = url
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setenv("LOAFER_NATS_USER", "loafer-etl")
+    monkeypatch.setenv("LOAFER_NATS_PASSWORD_FILE", str(password_file))
+    monkeypatch.setattr(durable_application, "JetStreamTransport", _transport)
+
+    durable_application._get_nats_transport(
+        "nats://loafer-etl@nats:4222",
+        manage_stream=False,
+    )
+
+    assert captured == {
+        "url": "nats://loafer-etl@nats:4222",
+        "user": "loafer-etl",
+        "password": "worker-password",
+        "manage_stream": False,
+    }
+
+
+def test_nats_transport_rejects_incomplete_auth_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LOAFER_NATS_USER", "loafer-etl")
+    monkeypatch.delenv("LOAFER_NATS_PASSWORD_FILE", raising=False)
+
+    with pytest.raises(ValueError, match="must be configured together"):
+        durable_application._get_nats_transport("nats://nats:4222", manage_stream=False)
 
 
 def test_registered_pipeline_preserves_secret_references_not_values(

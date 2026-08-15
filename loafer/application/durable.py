@@ -23,6 +23,30 @@ _METADATA_PATH = _LOAFER_DIR / "metadata.db"
 _OBJECTS_PATH = _LOAFER_DIR / "objects"
 
 
+def _get_nats_transport(url: str, *, manage_stream: bool) -> JetStreamTransport:
+    """Build an authenticated transport when a Compose secret is configured."""
+    user = os.environ.get("LOAFER_NATS_USER")
+    password_file = os.environ.get("LOAFER_NATS_PASSWORD_FILE")
+    if not user and not password_file:
+        return JetStreamTransport(url, manage_stream=manage_stream)
+    if not user or not password_file:
+        raise ValueError(
+            "LOAFER_NATS_USER and LOAFER_NATS_PASSWORD_FILE must be configured together"
+        )
+    try:
+        password = Path(password_file).read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise ValueError(f"could not read LOAFER_NATS_PASSWORD_FILE: {exc}") from exc
+    if not password:
+        raise ValueError("LOAFER_NATS_PASSWORD_FILE must not be empty")
+    return JetStreamTransport(
+        url,
+        user=user,
+        password=password,
+        manage_stream=manage_stream,
+    )
+
+
 def default_metadata_url() -> str:
     """Return PostgreSQL when configured, otherwise restricted local SQLite."""
     configured = os.environ.get("LOAFER_METADATA_URL")
@@ -147,7 +171,9 @@ def get_durable_worker(
     if not nats_url:
         return worker
     try:
-        transport = JetStreamTransport(nats_url)
+        # The relay owns stream creation/reconciliation. Worker credentials
+        # can only manage their role-specific durable consumer.
+        transport = _get_nats_transport(nats_url, manage_stream=False)
     except Exception:
         metadata.close()
         raise
@@ -188,7 +214,7 @@ def get_outbox_relay(
         raise ValueError("LOAFER_NATS_URL is required to run the outbox relay")
     metadata = _get_ready_metadata_store(metadata_url)
     try:
-        transport = JetStreamTransport(configured_url)
+        transport = _get_nats_transport(configured_url, manage_stream=True)
     except Exception:
         metadata.close()
         raise

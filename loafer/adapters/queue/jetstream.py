@@ -100,16 +100,22 @@ class JetStreamTransport:
         servers: str | list[str],
         *,
         connect_timeout: float = _CONNECT_TIMEOUT_SECONDS,
+        user: str | None = None,
+        password: str | None = None,
+        manage_stream: bool = True,
     ) -> None:
         self._nats, self._api, self._errors = _nats_modules()
         self._servers = [servers] if isinstance(servers, str) else list(servers)
         self._timeout = connect_timeout
+        self._user = user
+        self._password = password
         self._loop = _LoopThread()
         self._connection: Any = None
         try:
             self._connection = self._loop.run(self._connect(), connect_timeout)
             self._js = self._connection.jetstream()
-            self._loop.run(self._ensure_stream(), connect_timeout)
+            if manage_stream:
+                self._loop.run(self._ensure_stream(), connect_timeout)
         except Exception as exc:
             # Stream setup can fail after the socket is already open. Closing
             # the loop alone would strand the connection and the client's
@@ -121,7 +127,11 @@ class JetStreamTransport:
             raise QueueError(f"could not connect to NATS JetStream: {exc}") from exc
 
     async def _connect(self) -> Any:
-        return await self._nats.connect(servers=self._servers)
+        return await self._nats.connect(
+            servers=self._servers,
+            user=self._user,
+            password=self._password,
+        )
 
     async def _ensure_stream(self) -> None:
         """Create the job stream, or reconcile the subjects of an existing one.
@@ -301,6 +311,7 @@ class JetStreamConsumer:
                 transport._js.pull_subscribe(
                     role.subject,
                     durable=role.durable_name,
+                    stream=stream_name(),
                     config=config,
                 ),
                 _CONNECT_TIMEOUT_SECONDS,
